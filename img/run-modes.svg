@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="330" viewBox="0 0 720 330" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="720" height="330" fill="#ffffff"/>
+  <text x="360" y="28" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">同一個模擬核心,三種執行模式</text>
+
+  <!-- shared core -->
+  <rect x="185" y="252" width="350" height="48" rx="10" fill="#fff3e6" stroke="#e8853d" stroke-width="2"/>
+  <text x="360" y="272" text-anchor="middle" font-size="14" font-weight="bold" fill="#b35c1e">模擬核心(Kit + PhysX + RTX)</text>
+  <text x="360" y="291" text-anchor="middle" font-size="11" fill="#b35c1e">場景、物理、Python API 在三種模式下完全相同</text>
+
+  <!-- mode 1: local GUI -->
+  <g>
+    <rect x="30" y="60" width="200" height="150" rx="10" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+    <text x="130" y="85" text-anchor="middle" font-size="14" font-weight="bold" fill="#33506b">本機 GUI</text>
+    <text x="130" y="104" text-anchor="middle" font-size="11" fill="#666">isaac-sim.sh</text>
+    <rect x="60" y="118" width="140" height="52" rx="6" fill="#ffffff" stroke="#5b7fa6"/>
+    <text x="130" y="140" text-anchor="middle" font-size="12" fill="#33506b">本機視窗</text>
+    <text x="130" y="158" text-anchor="middle" font-size="11" fill="#888">滑鼠鍵盤直接操作</text>
+    <text x="130" y="195" text-anchor="middle" font-size="11" fill="#666">建場景、互動除錯</text>
+  </g>
+
+  <!-- mode 2: GUI + streaming -->
+  <g>
+    <rect x="260" y="60" width="200" height="150" rx="10" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+    <text x="360" y="85" text-anchor="middle" font-size="14" font-weight="bold" fill="#33506b">GUI + 串流</text>
+    <text x="360" y="104" text-anchor="middle" font-size="11" fill="#666">isaac-sim.streaming.sh</text>
+    <rect x="278" y="118" width="78" height="52" rx="6" fill="#ffffff" stroke="#5b7fa6"/>
+    <text x="317" y="140" text-anchor="middle" font-size="12" fill="#33506b">本機視窗</text>
+    <rect x="366" y="118" width="78" height="52" rx="6" fill="#ffffff" stroke="#e8853d"/>
+    <text x="405" y="140" text-anchor="middle" font-size="12" fill="#b35c1e">WebRTC</text>
+    <text x="405" y="158" text-anchor="middle" font-size="11" fill="#b35c1e">推流</text>
+    <text x="360" y="195" text-anchor="middle" font-size="11" fill="#666">本機操作、遠端觀看</text>
+  </g>
+
+  <!-- mode 3: headless -->
+  <g>
+    <rect x="490" y="60" width="200" height="150" rx="10" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+    <text x="590" y="85" text-anchor="middle" font-size="14" font-weight="bold" fill="#33506b">Headless</text>
+    <text x="590" y="104" text-anchor="middle" font-size="11" fill="#666">isaac-sim.headless.webrtc.sh</text>
+    <rect x="520" y="118" width="140" height="52" rx="6" fill="#ffffff" stroke="#e8853d"/>
+    <text x="590" y="136" text-anchor="middle" font-size="12" fill="#b35c1e">無視窗</text>
+    <text x="590" y="155" text-anchor="middle" font-size="11" fill="#b35c1e">WebRTC 推流 + 腳本控制</text>
+    <text x="590" y="195" text-anchor="middle" font-size="11" fill="#666">遠端伺服器、自動化</text>
+  </g>
+
+  <!-- arrows to core -->
+  <line x1="130" y1="210" x2="300" y2="252" stroke="#999" stroke-width="1.5"/>
+  <line x1="360" y1="210" x2="360" y2="252" stroke="#999" stroke-width="1.5"/>
+  <line x1="590" y1="210" x2="420" y2="252" stroke="#999" stroke-width="1.5"/>
+</svg>
