@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380" viewBox="0 0 700 380" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="700" height="380" fill="#ffffff"/>
+  <defs>
+    <marker id="arr3" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#e8853d"/>
+    </marker>
+  </defs>
+  <text x="350" y="28" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">7-DOF 虛擬關節建模:底盤用世界關節,機構用真實關節</text>
+
+  <!-- ground -->
+  <line x1="60" y1="300" x2="660" y2="300" stroke="#999" stroke-width="2"/>
+  <text x="640" y="318" text-anchor="end" font-size="11" fill="#888">地面(Z-up 世界座標)</text>
+
+  <!-- forklift body -->
+  <rect x="250" y="230" width="180" height="70" rx="8" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="2"/>
+  <text x="340" y="270" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">底盤</text>
+  <circle cx="285" cy="300" r="14" fill="#ffffff" stroke="#5b7fa6" stroke-width="2"/>
+  <circle cx="395" cy="300" r="14" fill="#ffffff" stroke="#5b7fa6" stroke-width="2"/>
+
+  <!-- mast -->
+  <rect x="430" y="120" width="14" height="180" fill="#d9e2ec" stroke="#5b7fa6" stroke-width="1.5"/>
+  <!-- fork -->
+  <rect x="444" y="200" width="80" height="10" rx="3" fill="#fff3e6" stroke="#e8853d" stroke-width="1.5"/>
+  <rect x="444" y="150" width="8" height="60" fill="#fff3e6" stroke="#e8853d" stroke-width="1.5"/>
+
+  <!-- world joints annotations -->
+  <line x1="340" y1="230" x2="340" y2="120" stroke="#ccc" stroke-width="1" stroke-dasharray="4,3"/>
+  <line x1="120" y1="265" x2="245" y2="265" stroke="#e8853d" stroke-width="2" marker-end="url(#arr3)"/>
+  <text x="118" y="255" text-anchor="start" font-size="12" font-weight="bold" fill="#b35c1e">world_x / world_y</text>
+  <text x="118" y="285" text-anchor="start" font-size="11" fill="#888">平移:prismatic 虛擬關節</text>
+
+  <path d="M 340 205 A 30 30 0 1 1 372 228" fill="none" stroke="#e8853d" stroke-width="2" marker-end="url(#arr3)"/>
+  <text x="335" y="185" text-anchor="middle" font-size="12" font-weight="bold" fill="#b35c1e">world_yaw</text>
+  <text x="335" y="165" text-anchor="middle" font-size="11" fill="#888">旋轉:revolute 虛擬關節</text>
+
+  <!-- fork joints -->
+  <line x1="560" y1="205" x2="528" y2="205" stroke="#e8853d" stroke-width="2" marker-end="url(#arr3)"/>
+  <text x="565" y="192" text-anchor="start" font-size="12" font-weight="bold" fill="#b35c1e">stage(伸縮)</text>
+  <text x="565" y="210" text-anchor="start" font-size="12" font-weight="bold" fill="#b35c1e">tilt(傾角)</text>
+  <line x1="480" y1="130" x2="480" y2="165" stroke="#e8853d" stroke-width="2" marker-end="url(#arr3)"/>
+  <text x="480" y="118" text-anchor="middle" font-size="12" font-weight="bold" fill="#b35c1e">z1 / z2(兩段升降)</text>
+
+  <!-- explanation box -->
+  <rect x="60" y="330" width="580" height="36" rx="8" fill="#fff3e6" stroke="#e8853d" stroke-width="1.5"/>
+  <text x="350" y="353" text-anchor="middle" font-size="12" fill="#b35c1e">上游給的是「到世界座標 (x, y, θ)」的任務 → 底盤位姿直接建成關節,省掉整套輪速運動學</text>
+</svg>

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="340" viewBox="0 0 760 340" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="760" height="340" fill="#ffffff"/>
+  <defs>
+    <marker id="arr2" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#666"/>
+    </marker>
+  </defs>
+  <text x="380" y="28" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">所有格式的匯入路徑都通往 USD</text>
+
+  <!-- sources -->
+  <rect x="30" y="55" width="170" height="62" rx="10" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+  <text x="115" y="80" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">CAD 檔</text>
+  <text x="115" y="100" text-anchor="middle" font-size="11" fill="#666">IGS / STEP / SLDPRT / SLDASM</text>
+
+  <rect x="30" y="135" width="170" height="62" rx="10" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+  <text x="115" y="160" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">URDF</text>
+  <text x="115" y="180" text-anchor="middle" font-size="11" fill="#666">ROS 機器人描述(link / joint)</text>
+
+  <rect x="30" y="215" width="170" height="62" rx="10" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+  <text x="115" y="240" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">官方資產</text>
+  <text x="115" y="260" text-anchor="middle" font-size="11" fill="#666">asset root(雲端下載)</text>
+
+  <!-- converters -->
+  <rect x="265" y="55" width="180" height="62" rx="10" fill="#ffffff" stroke="#999" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="355" y="80" text-anchor="middle" font-size="12" fill="#555">① CAD 清理(去細節)</text>
+  <text x="355" y="100" text-anchor="middle" font-size="12" fill="#555">② Omniverse Converter</text>
+
+  <rect x="265" y="135" width="180" height="62" rx="10" fill="#ffffff" stroke="#999" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="355" y="160" text-anchor="middle" font-size="12" fill="#555">URDF Importer</text>
+  <text x="355" y="180" text-anchor="middle" font-size="11" fill="#888">isaacsim.ros2.urdf → articulation</text>
+
+  <line x1="200" y1="86" x2="262" y2="86" stroke="#666" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="200" y1="166" x2="262" y2="166" stroke="#666" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="445" y1="86" x2="505" y2="120" stroke="#666" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="445" y1="166" x2="505" y2="166" stroke="#666" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <line x1="200" y1="246" x2="505" y2="212" stroke="#666" stroke-width="1.5" marker-end="url(#arr2)"/>
+  <text x="330" y="248" text-anchor="middle" font-size="11" fill="#888">執行期直接引用(需網路)</text>
+
+  <!-- USD stage -->
+  <rect x="510" y="55" width="220" height="222" rx="12" fill="#fff3e6" stroke="#e8853d" stroke-width="2"/>
+  <text x="620" y="83" text-anchor="middle" font-size="15" font-weight="bold" fill="#b35c1e">USD Stage(場景樹)</text>
+  <rect x="530" y="100" width="180" height="44" rx="8" fill="#ffffff" stroke="#e8853d"/>
+  <text x="620" y="119" text-anchor="middle" font-size="12" fill="#b35c1e">幾何 prim(Mesh / Xform)</text>
+  <text x="620" y="136" text-anchor="middle" font-size="11" fill="#b35c1e">轉換直接產出</text>
+  <rect x="530" y="154" width="180" height="44" rx="8" fill="#ffffff" stroke="#e8853d"/>
+  <text x="620" y="173" text-anchor="middle" font-size="12" fill="#b35c1e">collision + 物理屬性</text>
+  <text x="620" y="190" text-anchor="middle" font-size="11" fill="#b35c1e">轉換後要另外補上</text>
+  <rect x="530" y="208" width="180" height="44" rx="8" fill="#ffffff" stroke="#e8853d"/>
+  <text x="620" y="227" text-anchor="middle" font-size="12" fill="#b35c1e">外部引用(reference)</text>
+  <text x="620" y="244" text-anchor="middle" font-size="11" fill="#b35c1e">子 USD、材質 .mdl、雲端資產</text>
+
+  <text x="380" y="315" text-anchor="middle" font-size="12" fill="#b35c1e" font-weight="bold">⚠ USD 檔通常不是自包含的:換機部署前先跑 UsdUtils.ComputeAllDependencies() 查依賴</text>
+</svg>
