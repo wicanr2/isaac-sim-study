@@ -1,0 +1,11 @@
+# 內部工作指示,不入公開教學 repo
+CLAUDE.md
+.claude/
+# 暫存 / 備份
+*.bak
+*.swp
+*.png.tmp
+# 大型素材(USD 模型另行提供下載連結,不入版控)
+assets/*.usd
+assets/*.usdz
+assets/**/*.tar.gz
