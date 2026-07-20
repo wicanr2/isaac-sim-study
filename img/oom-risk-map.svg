@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="400" viewBox="0 0 760 400" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="760" height="400" fill="#ffffff"/>
+  <text x="380" y="28" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">5.1 USD 場景搬進 6.0.1:風險機轉分岔圖</text>
+
+  <!-- source node -->
+  <rect x="300" y="50" width="160" height="46" rx="8" fill="#fff3e6" stroke="#e8853d" stroke-width="2"/>
+  <text x="380" y="78" text-anchor="middle" font-size="13" font-weight="bold" fill="#b35c1e">5.1 存檔的 USD 場景</text>
+
+  <!-- three branch headers -->
+  <line x1="380" y1="96" x2="150" y2="130" stroke="#999" stroke-width="1.5"/>
+  <line x1="380" y1="96" x2="380" y2="130" stroke="#999" stroke-width="1.5"/>
+  <line x1="380" y1="96" x2="610" y2="130" stroke="#999" stroke-width="1.5"/>
+
+  <!-- branch A: schema breaking change -->
+  <g>
+    <rect x="30" y="130" width="240" height="72" rx="8" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+    <text x="150" y="152" text-anchor="middle" font-size="12" font-weight="bold" fill="#33506b">物理/擴充 schema 破壞性變更</text>
+    <text x="150" y="170" text-anchor="middle" font-size="10.5" fill="#666">Physx*API → Newton*API</text>
+    <text x="150" y="186" text-anchor="middle" font-size="10.5" fill="#666">omni.isaac.* 相容殼移除</text>
+    <rect x="60" y="192" width="180" height="0" fill="none"/>
+  </g>
+  <rect x="30" y="210" width="240" height="24" rx="4" fill="#e6f4ea" stroke="#3f9142"/>
+  <text x="150" y="226" text-anchor="middle" font-size="10.5" fill="#256029">官方 release notes 確認</text>
+  <text x="150" y="256" text-anchor="middle" font-size="11" fill="#666">→ 結果:功能異常</text>
+  <text x="150" y="272" text-anchor="middle" font-size="10" fill="#888">(schema 讀不到、節點失效)</text>
+
+  <!-- branch B: asset path resolution -->
+  <g>
+    <rect x="290" y="130" width="180" height="72" rx="8" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+    <text x="380" y="152" text-anchor="middle" font-size="12" font-weight="bold" fill="#33506b">資產路徑解析失敗</text>
+    <text x="380" y="170" text-anchor="middle" font-size="10.5" fill="#666">Nucleus 路徑版本命名空間化</text>
+    <text x="380" y="186" text-anchor="middle" font-size="10.5" fill="#666">(.../Isaac/5.1 → .../Isaac/6.0)</text>
+  </g>
+  <rect x="290" y="210" width="180" height="24" rx="4" fill="#fff7e0" stroke="#c9971f"/>
+  <text x="380" y="226" text-anchor="middle" font-size="10.5" fill="#8a6d1a">官方文件片段推論</text>
+  <text x="380" y="256" text-anchor="middle" font-size="11" fill="#666">→ 結果:材質/幾何缺失</text>
+  <text x="380" y="272" text-anchor="middle" font-size="10" fill="#888">(非 OOM,回退預設外觀)</text>
+
+  <!-- branch C: memory mechanisms -->
+  <g>
+    <rect x="500" y="130" width="240" height="72" rx="8" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+    <text x="620" y="152" text-anchor="middle" font-size="12" font-weight="bold" fill="#33506b">記憶體機轉(通用,非版本專屬)</text>
+    <text x="620" y="170" text-anchor="middle" font-size="10.5" fill="#666">texture streaming 預算 = 60% VRAM</text>
+    <text x="620" y="186" text-anchor="middle" font-size="10.5" fill="#666">重複開關 stage → host RAM 累積</text>
+  </g>
+  <rect x="500" y="210" width="240" height="24" rx="4" fill="#e6f4ea" stroke="#3f9142"/>
+  <text x="620" y="226" text-anchor="middle" font-size="10.5" fill="#256029">官方效能手冊確認</text>
+  <text x="620" y="256" text-anchor="middle" font-size="11" fill="#666">→ 結果:VRAM/RAM 觸頂</text>
+  <text x="620" y="272" text-anchor="middle" font-size="10" fill="#888">(小 VRAM 卡風險最高)</text>
+
+  <!-- bottom note -->
+  <rect x="30" y="300" width="710" height="80" rx="10" fill="#fdeeee" stroke="#c65b5b" stroke-width="1.5"/>
+  <text x="385" y="322" text-anchor="middle" font-size="12" font-weight="bold" fill="#8a2c2c">體感混淆點</text>
+  <text x="385" y="342" text-anchor="middle" font-size="11" fill="#663" >三條路徑的症狀(功能異常 / 缺貼圖 / 記憶體觸頂)在使用者體感上,常被籠統描述成</text>
+  <text x="385" y="359" text-anchor="middle" font-size="11" fill="#663">「out-of-memory 或異常」——本篇分開列出以利對照,實際歸因需回頭確認觀察者當下看到的具體症狀。</text>
+</svg>
