@@ -8,12 +8,18 @@
 
 | # | 主題 | 目錄 | 狀態 |
 |---|---|---|---|
-| 1 | 安裝與執行模式(GUI / headless / streaming) | `docs/01-install-and-run-modes/` | 未開始 |
-| 2 | 不碰 UI:用 Python 操作 Isaac Sim(standalone script、遠端) | `docs/02-python-no-ui/` | 未開始 |
-| 3 | 模型檔案格式與匯入(USD 為核心;URDF / OBJ / FBX 轉換) | `docs/03-model-import/` | 未開始 |
-| 4 | 建立物理世界(Stage、物理場景、剛體、碰撞、地面、重力) | `docs/04-physics-world/` | 未開始 |
-| 5 | ROS2 橋接(topic、TF、模擬狀態控制) | `docs/05-ros2-bridge/` | 未開始 |
-| 6 | WebRTC 串流與多 client 觀看 | `docs/06-webrtc-streaming/` | 未開始 |
+| 1 | 安裝與執行模式(GUI / headless / streaming) | `docs/01-install-and-run-modes/` | 第一版完成(2026-07-20) |
+| 2 | 不碰 UI:用 Python 操作 Isaac Sim(standalone script、遠端) | `docs/02-python-no-ui/` | 第一版完成(2026-07-20) |
+| 3 | 模型檔案格式與匯入(USD 為核心;URDF / OBJ / FBX 轉換) | `docs/03-model-import/` | 第一版完成(2026-07-20) |
+| 4 | 建立物理世界(Stage、物理場景、剛體、碰撞、地面、重力) | `docs/04-physics-world/` | 第一版完成(2026-07-20) |
+| 5 | ROS2 橋接(topic、TF、模擬狀態控制) | `docs/05-ros2-bridge/` | 第一版完成(2026-07-20) |
+| 6 | WebRTC 串流與多 client 觀看 | `docs/06-webrtc-streaming/` | 第一版完成(2026-07-20) |
+
+## 下一輪候選
+
+- [ ] 專家/學生雙視角審查(依 first-principles-tech-notes 工作法第 6 步),整理修訂清單後出 R1.5。
+- [ ] 補「從零最小可跑範例」:官方 Simple Warehouse + Nova Carter 的 headless 完整腳本(可實機驗證後收錄)。
+- [ ] 04 篇的軌跡規劃/殘差補償細節(soft-pass、overdrive)可展開成獨立進階篇。
 
 ## 每輪收尾
 
