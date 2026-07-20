@@ -13,7 +13,7 @@ Isaac Sim 不「支援很多格式」,它只真正認得一種:**USD**(Universal
 | Layer / SubLayer | USD 檔可以引用(reference / sublayer)其他 USD 檔組合成場景——場景不是單一大檔,是一棵引用樹 |
 | Xform op | prim 的位姿由 translate / orient / scale 等 op 組成,可用 API 讀寫 |
 
-「引用樹」這個性質是實務上最容易吃虧的地方:**一個 `.usd` 檔往往不是自包含的**。它可能引用同目錄的子模型、別的目錄的材質庫(`.mdl`)、甚至 NVIDIA 雲端資產(S3 URL)。只搬主檔換一台機器,場景會缺件。
+「引用樹」這個性質是實務上最容易吃虧的地方:**一個 `.usd` 檔往往不是自包含的**。它可能引用同目錄的子模型、別的目錄的材質庫(`.mdl`,NVIDIA Material Definition Language 材質格式)、甚至 NVIDIA 雲端資產(S3 URL)。只搬主檔換一台機器,場景會缺件。
 
 ## 2. 各格式的匯入路徑
 
@@ -24,11 +24,13 @@ Isaac Sim 不「支援很多格式」,它只真正認得一種:**USD**(Universal
 1. **CAD 清理**:先在 CAD 軟體移除細小特徵(螺絲牙、倒角細節)。CAD 的精度對模擬是負擔——面數影響渲染與碰撞計算,而模擬不需要製造級細節。
 2. **轉 USD**:用 Omniverse Converter 轉出幾何。
 3. **加 collision / physics**:轉出來的只有視覺幾何,碰撞體與物理屬性(質量、關節)要在 Isaac Sim 內另外加上(見 [04-physics-world](../04-physics-world/README.md))。
-4. **分層(SubUSD)**:把一台車、一個貨架拆成多個子 USD 再組合,方便替換與重用。
+4. **分層**:拆成多個 sublayer/reference 子檔組合(即 §1 表中的 Layer/SubLayer 機制),把一台車、一個貨架拆成多個子 USD 再組合,方便替換與重用。
 
 ### URDF → USD
 
-ROS 生態的機器人描述檔(URDF)有官方 importer:extension `isaacsim.ros2.urdf`,會把 link/joint 結構轉成 USD 的 articulation(關節樹)。適合已有 ROS 機器人描述、想直接搬進 Isaac Sim 的情況。
+ROS 生態的機器人描述檔(URDF)有官方 importer:extension **`isaacsim.asset.importer.urdf`**,會把 link/joint 結構轉成 USD 的 articulation(關節樹)——GUI 的 File > Import 走的就是這條路,與 MJCF importer 同屬 asset importer 家族。
+
+另有 `isaacsim.ros2.urdf` 是它的 ROS2 擴充:讓 importer 直接訂閱 ROS2 的 `robot_description` topic 匯入,而不是只吃本機檔案。兩者並存、用途不同——前者是「匯入本機 URDF 檔」的一般做法,後者是「從跑起來的 ROS2 系統即時抓 URDF」的特化做法,別混為一談。
 
 ### 官方資產:用下載的,不要自己搬運
 

@@ -15,11 +15,20 @@
 | 5 | ROS2 橋接(topic、TF、模擬狀態控制) | `docs/05-ros2-bridge/` | 第一版完成(2026-07-20) |
 | 6 | WebRTC 串流與多 client 觀看 | `docs/06-webrtc-streaming/` | 第一版完成(2026-07-20) |
 
+## R1.5(2026-07-20 完成)
+
+- [x] 專家/學生雙視角審查 + 官方文件查證(WebSearch 對 GitHub tag 原始碼),套用 24 項修訂:
+  - 更正:URDF importer 為 `isaacsim.asset.importer.urdf`(`isaacsim.ros2.urdf` 是其 ROS2 擴充);`SingleArticulation` 無 `set_joint_position_targets`,PD 目標改教 `apply_action(ArticulationAction)`。
+  - 版本邊界:全系列標明 API 以 4.5–5.1.x 為準;6.0 起 `isaacsim.core.*` 移至 `experimental.*`、`open_stage` 回傳 tuple。
+  - 術語補翻譯(Kit/OptiX/ECC/DDS/MDL/DOF/PD/ICE)+ 05 篇加 ROS2 最小背景;個案觀察改經驗歸納語氣。
+  - `virtual-joints.svg` 改雙色 + 圖例(虛擬 vs 機構關節)。
+- [x] 新增 07 最小可跑範例(方塊落地 / 開官方倉庫 / Nova Carter 讀位姿)——依官方文件與 standalone_examples 組合,**尚未實機驗證**,文內已標註。
+
 ## 下一輪候選
 
-- [ ] 專家/學生雙視角審查(依 first-principles-tech-notes 工作法第 6 步),整理修訂清單後出 R1.5。
-- [ ] 補「從零最小可跑範例」:官方 Simple Warehouse + Nova Carter 的 headless 完整腳本(可實機驗證後收錄)。
+- [ ] 07 篇三個範例實機驗證(需 GPU 機),回填實測輸出並移除「未驗證」標註。
 - [ ] 04 篇的軌跡規劃/殘差補償細節(soft-pass、overdrive)可展開成獨立進階篇。
+- [ ] 6.x `isaacsim.core.experimental.*` 等價 API 對照表(研究時標記為待查證)。
 
 ## 每輪收尾
 

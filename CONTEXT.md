@@ -5,6 +5,14 @@
 | 術語 | 定義 |
 |---|---|
 | Isaac Sim | NVIDIA 的機器人模擬平台,建立在 Omniverse / USD 之上。 |
+| Omniverse Kit | NVIDIA 的應用框架(引擎 + extension 系統);Isaac Sim 是搭在 Kit 上的一個應用。 |
+| SimulationApp | standalone Python 工作流的入口類別;實例化它之後才能 import 其他 `omni.*`/`isaacsim.*` 模組。 |
+| OptiX | NVIDIA 的 RTX 光線追蹤引擎,Isaac Sim 渲染層的底層;對 GPU 驅動 ABI 敏感。 |
+| ECC | Error-Correcting Code,記憶體糾錯;資料中心 GPU 預設開啟,實戰上與 RTX 渲染間歇 crash 相關。 |
+| DDS | Data Distribution Service,ROS2 底層的訊息中介層,負責節點彼此發現與資料傳輸。 |
+| MDL(.mdl) | NVIDIA Material Definition Language,Omniverse 的材質格式;USD 場景常外部引用材質庫。 |
+| DOF | degree of freedom,自由度;一個關節提供一個(或多個)自由度。 |
+| PD 控制 | 比例-微分控制;joint drive 以剛度(P)/阻尼(D)把關節拉向目標值。 |
 | USD | Universal Scene Description,Pixar 開源的 3D 場景描述格式;Isaac Sim 的原生場景格式。 |
 | Stage | USD 的場景樹(一份開啟中的場景),所有 Prim 都掛在 Stage 上。 |
 | Prim | USD 場景樹的節點(primitive),可以是 Mesh、Xform、Light、Physics Scene 等。 |

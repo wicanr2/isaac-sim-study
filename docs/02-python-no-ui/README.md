@@ -21,6 +21,8 @@ print(f"[LAUNCH-OPEN] open_stage -> {ok}")
 omni.timeline.get_timeline_interface().play()   # 等同 GUI 按下 Play
 ```
 
+版本注意:上面是 4.5–5.1.x 的介面。6.0 起 `open_stage` 移至 `isaacsim.core.experimental.utils.stage`,且回傳值從單一 `bool` 改為 `(bool, Usd.Stage | None)` tuple——`ok = open_stage(...)` 這種判斷式在 6.x 要跟著改成解包後再判斷。
+
 兩個關鍵事實:
 
 - **開場景是動作,不是啟動的副作用**。Isaac Sim 啟動後是空 stage,不會自動載入任何場景;GUI 流程裡「開啟最近的檔案」這一步,headless 下就是 `open_stage()`。
@@ -54,7 +56,7 @@ carb.settings.get_settings().set("/app/window/hideUi", True)   # 串流畫面只
 
 ## 2. ScriptNode:掛在場景內的腳本
 
-`--exec` 腳本屬於「這次啟動」;ScriptNode(OmniGraph 的 Script Node)則是**存在場景 USD 裡**的腳本,場景在哪台機器開啟都會跟著執行。它有三個生命週期回呼:`setup()`(初始化)、`compute()`(每個 graph tick)、`cleanup()`(關閉)。
+`--exec` 腳本屬於「這次啟動」;ScriptNode(OmniGraph 的 Script Node)則是**存在場景 USD 裡**的腳本,場景在哪台機器開啟都會跟著執行。OmniGraph 是 Kit 內建的節點式執行引擎——場景裡的一張視覺化流程圖,節點隨模擬 tick 被逐一評估;ScriptNode 就是這些節點裡可以塞 Python 的一種。它有三個生命週期回呼:`setup()`(初始化)、`compute()`(每個 graph tick)、`cleanup()`(關閉)。
 
 典型應用:讓外部程式直接控制場景內物件的位姿。以下節錄自實際使用過的範例(完整檔:[`examples/scriptnode_udp_pose.py`](../../examples/scriptnode_udp_pose.py)):
 
@@ -87,7 +89,7 @@ orient_op.Set(quat_from_rpy(roll, pitch, yaw))
 
 ## 3. 執行期遠端命令通道:UDP + JSON
 
-`--exec` 腳本只在啟動時跑一次,但把它寫成「初始化後進入事件迴圈」就成了常駐控制端。實戰驗證過的簡單模式:**在 physics step callback 裡非阻塞收 UDP,封包用 JSON 帶 `cmd` 欄位分派**:
+`--exec` 腳本只在啟動時跑一次,但把它寫成「初始化後進入事件迴圈」就成了常駐控制端。實戰驗證過的簡單模式:**在 physics step callback(物理引擎每前進一步就呼叫一次的回呼;官方標準掛法是 `SimulationContext.add_physics_callback()`,其底層即 omni.physx 的 `subscribe_physics_step_events`,細節見 [05 篇](../05-ros2-bridge/README.md))裡非阻塞收 UDP,封包用 JSON 帶 `cmd` 欄位分派**:
 
 ```python
 # --exec 腳本內,每個 physics step 呼叫
@@ -134,3 +136,4 @@ EOF
 
 - 官方文件:Isaac Sim Python Environment、OmniGraph Script Node
 - 下一篇:[03 模型檔案格式與匯入](../03-model-import/README.md)
+- 想直接動手:[07 最小可跑範例](../07-minimal-example/README.md)
