@@ -2,6 +2,8 @@
 
 Isaac Sim 與 ROS2 的整合有官方路徑(bridge extension + OmniGraph 節點),也有官方路徑走不通時的務實繞法。本篇先講官方機制,再完整記錄一次「官方路徑在 headless 下失效 → 改用 UDP 解耦」的實戰案例——後者的架構思路比個案本身更有教學價值。
 
+沒碰過 ROS2 的讀者,先建立四個最小概念:node 是一個獨立執行的程序;topic 是節點之間的具名資料流,採發布/訂閱模式;service 是一問一答式的呼叫;DDS(Data Distribution Service)是 ROS2 底層的訊息中介層,負責節點彼此發現與資料傳輸——本篇後面遇到的多個坑,根源都在這一層。
+
 ## 1. 官方機制:bridge extension
 
 啟動時載入兩個 extension:
@@ -22,7 +24,7 @@ ros2 service call /get_simulation_state simulation_interfaces/srv/GetSimulationS
 ros2 service call /set_simulation_state simulation_interfaces/srv/SetSimulationState '{state: {state: 1}}'  # 1 = PLAYING
 ```
 
-`simulation_interfaces` 是標準 ROS 套件(`apt install ros-humble-simulation-interfaces`),不用自己 build。
+`simulation_interfaces` 是標準 ROS 套件(`apt install ros-humble-simulation-interfaces`),不用自己 build。同一個 extension 還提供 `StepSimulation`、`ResetSimulation` 等服務;官方文件與實作偶有落差,實際能呼叫的服務與參數以實測為準,別照文件字面直接當保證。
 
 **再強調一次 [04 篇](../04-physics-world/README.md)的鐵則**:模擬不在 PLAYING,TF 與 `/joint_states` 都不發布。外部系統看到的症狀是「pose 無效、topic 空的、機器人離線」,第一步永遠先查模擬狀態。
 
@@ -48,7 +50,7 @@ Isaac Sim:articulation 執行、TF 回報
 
 ### 問題
 
-場景內建的 ROS2 OmniGraph(5.x 時代建的)搬到新版 Isaac Sim + headless `--exec` 環境後全滅:
+場景內建的 ROS2 OmniGraph(5.x 時代建的)搬到新版 Isaac Sim + headless `--exec` 環境後全滅(以下實測於 Isaac Sim 6.0.1 headless `--exec` 環境):
 
 1. **格式過期**:`ROS2PublishTransformTree` 用了 deprecated 的 `targetPrims` 屬性,新版要求改走 `IsaacComputeTransformTree` 的 parentFrames/childFrames——舊圖每秒刷數百條 `getObjectType eInvalid` 錯誤,TF 完全不發布。
 2. **更根本:headless streaming/`--exec` 配置下,OmniGraph action graph 不被主迴圈 pump**。physics 與 render 各自在跑,但 `OnPlaybackTick` 不觸發、subscriber 節點註冊了 DDS 訂閱卻永遠不 compute。手動 `evaluate_sync()` 也救不回來。
@@ -62,7 +64,7 @@ Isaac Sim:articulation 執行、TF 回報
 | 動態改圖(建新版 TF 節點 + 接線 + `evaluate_sync` pump) | 節點建立成功、錯誤洪水消失,但 TF 仍不發布 |
 | 靠 `get_update_event_stream` 回呼 | 初始化後不再觸發 |
 
-注意第一條的教訓與 [01 篇](../01-install-and-run-modes/README.md)的 Python 隔離原則同源:**Isaac Sim 進程內的 ROS2 世界與系統的 ROS2 世界,中介軟體層(DDS)不保證互通**。「在 Isaac 裡面跑一個 ROS 節點」聽起來最直接,實際上是最脆的一條路。
+注意第一條的教訓與 [01 篇](../01-install-and-run-modes/README.md)的 Python 隔離原則同源:Isaac 內建 DDS 與系統 ROS2 的 discovery 實測未能互通,根因指向兩邊 DDS 實作版本與 discovery 設定的差異——理論上可以對齊,但實戰成本高且脆。「在 Isaac 裡面跑一個 ROS 節點」聽起來最直接,實際上是最不穩的一條路。
 
 ### 解法:Isaac Sim 只做物理,ROS I/O 全部外移
 

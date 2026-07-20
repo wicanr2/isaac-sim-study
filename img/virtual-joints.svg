@@ -1,11 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="700" height="380" viewBox="0 0 700 380" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
-  <rect width="700" height="380" fill="#ffffff"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="400" viewBox="0 0 700 400" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="700" height="400" fill="#ffffff"/>
   <defs>
-    <marker id="arr3" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+    <marker id="arrV" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
       <path d="M0,0 L10,4 L0,8 z" fill="#e8853d"/>
+    </marker>
+    <marker id="arrM" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <path d="M0,0 L10,4 L0,8 z" fill="#5a9367"/>
     </marker>
   </defs>
   <text x="350" y="28" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">7-DOF 虛擬關節建模:底盤用世界關節,機構用真實關節</text>
+
+  <!-- legend -->
+  <rect x="490" y="48" width="185" height="58" rx="8" fill="#ffffff" stroke="#ccc"/>
+  <line x1="505" y1="68" x2="535" y2="68" stroke="#e8853d" stroke-width="3"/>
+  <text x="542" y="72" font-size="12" fill="#555">虛擬世界關節(3)</text>
+  <line x1="505" y1="92" x2="535" y2="92" stroke="#5a9367" stroke-width="3"/>
+  <text x="542" y="96" font-size="12" fill="#555">真實機構關節(4)</text>
 
   <!-- ground -->
   <line x1="60" y1="300" x2="660" y2="300" stroke="#999" stroke-width="2"/>
@@ -20,27 +30,28 @@
   <!-- mast -->
   <rect x="430" y="120" width="14" height="180" fill="#d9e2ec" stroke="#5b7fa6" stroke-width="1.5"/>
   <!-- fork -->
-  <rect x="444" y="200" width="80" height="10" rx="3" fill="#fff3e6" stroke="#e8853d" stroke-width="1.5"/>
-  <rect x="444" y="150" width="8" height="60" fill="#fff3e6" stroke="#e8853d" stroke-width="1.5"/>
+  <rect x="444" y="200" width="80" height="10" rx="3" fill="#eef6ee" stroke="#5a9367" stroke-width="1.5"/>
+  <rect x="444" y="150" width="8" height="60" fill="#eef6ee" stroke="#5a9367" stroke-width="1.5"/>
 
-  <!-- world joints annotations -->
+  <!-- world joints annotations (orange) -->
   <line x1="340" y1="230" x2="340" y2="120" stroke="#ccc" stroke-width="1" stroke-dasharray="4,3"/>
-  <line x1="120" y1="265" x2="245" y2="265" stroke="#e8853d" stroke-width="2" marker-end="url(#arr3)"/>
+  <line x1="120" y1="265" x2="245" y2="265" stroke="#e8853d" stroke-width="2" marker-end="url(#arrV)"/>
   <text x="118" y="255" text-anchor="start" font-size="12" font-weight="bold" fill="#b35c1e">world_x / world_y</text>
   <text x="118" y="285" text-anchor="start" font-size="11" fill="#888">平移:prismatic 虛擬關節</text>
 
-  <path d="M 340 205 A 30 30 0 1 1 372 228" fill="none" stroke="#e8853d" stroke-width="2" marker-end="url(#arr3)"/>
+  <path d="M 340 205 A 30 30 0 1 1 372 228" fill="none" stroke="#e8853d" stroke-width="2" marker-end="url(#arrV)"/>
   <text x="335" y="185" text-anchor="middle" font-size="12" font-weight="bold" fill="#b35c1e">world_yaw</text>
   <text x="335" y="165" text-anchor="middle" font-size="11" fill="#888">旋轉:revolute 虛擬關節</text>
 
-  <!-- fork joints -->
-  <line x1="560" y1="205" x2="528" y2="205" stroke="#e8853d" stroke-width="2" marker-end="url(#arr3)"/>
-  <text x="565" y="192" text-anchor="start" font-size="12" font-weight="bold" fill="#b35c1e">stage(伸縮)</text>
-  <text x="565" y="210" text-anchor="start" font-size="12" font-weight="bold" fill="#b35c1e">tilt(傾角)</text>
-  <line x1="480" y1="130" x2="480" y2="165" stroke="#e8853d" stroke-width="2" marker-end="url(#arr3)"/>
-  <text x="480" y="118" text-anchor="middle" font-size="12" font-weight="bold" fill="#b35c1e">z1 / z2(兩段升降)</text>
+  <!-- fork joints (green) -->
+  <line x1="580" y1="205" x2="528" y2="205" stroke="#5a9367" stroke-width="2" marker-end="url(#arrM)"/>
+  <text x="585" y="192" text-anchor="start" font-size="12" font-weight="bold" fill="#3c6b47">stage(伸縮)</text>
+  <text x="585" y="210" text-anchor="start" font-size="12" font-weight="bold" fill="#3c6b47">tilt(傾角)</text>
+  <line x1="480" y1="130" x2="480" y2="165" stroke="#5a9367" stroke-width="2" marker-end="url(#arrM)"/>
+  <text x="480" y="118" text-anchor="middle" font-size="12" font-weight="bold" fill="#3c6b47">z1 / z2(兩段升降)</text>
 
   <!-- explanation box -->
-  <rect x="60" y="330" width="580" height="36" rx="8" fill="#fff3e6" stroke="#e8853d" stroke-width="1.5"/>
-  <text x="350" y="353" text-anchor="middle" font-size="12" fill="#b35c1e">上游給的是「到世界座標 (x, y, θ)」的任務 → 底盤位姿直接建成關節,省掉整套輪速運動學</text>
+  <rect x="60" y="335" width="580" height="50" rx="8" fill="#fff3e6" stroke="#e8853d" stroke-width="1.5"/>
+  <text x="350" y="356" text-anchor="middle" font-size="12" fill="#b35c1e">橘色三軸不是真實機構——底盤相對世界的位姿本身建成關節,任務層「到 (x, y, θ)」直接對應;</text>
+  <text x="350" y="375" text-anchor="middle" font-size="12" fill="#b35c1e">綠色四軸是叉車真實機構,保留升降速度上限與傾角等物理行為</text>
 </svg>

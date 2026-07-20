@@ -27,7 +27,7 @@ GUI 裡這些都是右鍵選單的 Add → Physics;程式做法用 `pxr.UsdPhysi
 
 ## 3. 用虛擬關節驅動移動機器人:一種務實的建模法
 
-直覺上,模擬堆高機應該模擬四個輪子的轉速與轉向。實戰採用的是另一種建模:**給底盤三個「虛擬世界關節」`world_x`、`world_y`、`world_yaw`**——底盤相對世界的平移與旋轉本身作為 prismatic / revolute joint,再加上叉車機構的真實關節(`stage` 伸縮、`z1`/`z2` 兩段升降、`tilt` 傾角),整台車就是一棵 7-DOF 的 articulation。
+直覺上,模擬堆高機應該模擬四個輪子的轉速與轉向。實戰採用的是另一種建模:**給底盤三個「虛擬世界關節」`world_x`、`world_y`、`world_yaw`**——底盤相對世界的平移與旋轉本身作為 prismatic / revolute joint,再加上叉車機構的真實關節(`stage` 伸縮、`z1`/`z2` 兩段升降、`tilt` 傾角),整台車就是一棵 7-DOF(DOF,degree of freedom,自由度)的 articulation。
 
 <p align="center"><img src="../../img/virtual-joints.svg" width="700" alt="虛擬世界關節 + 叉車機構關節"></p>
 
@@ -35,20 +35,22 @@ GUI 裡這些都是右鍵選單的 Add → Physics;程式做法用 `pxr.UsdPhysi
 
 ## 4. 關節控制 API:兩種語意,別混用
 
-對 articulation 下命令有兩條路,語意完全不同:
+對 articulation 下命令有兩條路,語意完全不同。**注意:`SingleArticulation` 上沒有 `set_joint_position_targets` 這個方法**(v5.1.0 原始碼證實)——該方法屬於批次操作的 `Articulation` view 類別。單一機器人的 PD(PD,比例-微分控制,靠剛度/阻尼把關節拉向目標)目標控制,要用 `apply_action(ArticulationAction(...))`:
 
 ```python
 from isaacsim.core.prims import SingleArticulation
+from isaacsim.core.utils.types import ArticulationAction
+
 robot = SingleArticulation("/World/MyRobot")
 robot.initialize()
 
-robot.set_joint_positions(...)         # 瞬移(teleport):直接改狀態,不經 drive
-robot.set_joint_position_targets(...)  # PD 目標:交給 joint drive 用剛度/阻尼追
+robot.set_joint_positions(...)                                   # 瞬移(teleport):直接改狀態,不經 drive
+robot.apply_action(ArticulationAction(joint_positions=...))      # PD 目標:交給 joint drive 用剛度/阻尼追
 ```
 
-- **`set_joint_position_targets` 需要 joint 有 drive 增益**(stiffness / damping)。對沒有 drive 的 joint 設目標,什麼都不會發生——不報錯,就是不動。這是「命令發了車不動」的常見暗坑。
+- **PD 目標控制需要 joint 有 drive 增益**(stiffness / damping)。對沒有 drive 的 joint 下 `apply_action` 目標,什麼都不會發生——不報錯,就是不動。這是「命令發了車不動」的常見暗坑。
 - **`set_joint_positions` 是瞬移**,但上游若以高頻率(如每個物理步)送密集軌跡點,逐點瞬移在視覺上是平滑的——流程級模擬完全夠用。
-- API 會隨版本變動(某版本後 `set_joint_position_targets` 介面有調整),升版時關節控制路徑要重新驗證,不能假設不動。
+- 官方已預告 `Single*` 系列類別未來將移除、建議改用 `Articulation` view 類別(單台機器人也傳長度 1 的路徑清單即可);且 6.0 起 `isaacsim.core.prims` 整組移至 experimental namespace——升版時關節控制路徑要重新驗證,不能假設不動。
 
 透過 ROS2 bridge 發 `JointState` 命令時,實測出兩條重要規則:
 

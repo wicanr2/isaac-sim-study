@@ -28,11 +28,11 @@ relay 取得 video track ──WHIP 推流──▶ mediamtx(媒體伺服器)
 
 代價與限制要誠實列出:relay 是單點(掛了全體斷線);觀看是單向的,**控制權仍只有一份**——要做「多人看、一人控」,得在 relay 旁再加一層 WebSocket 仲裁(request/grant/release token),把控制事件轉譯後由 relay 代打給 Isaac Sim。
 
-雲端部署還有一個網路細節:雲主機多半是 1:1 NAT(instance 看不到自己的公網 IP),mediamtx 要設定 `webrtcAdditionalHosts` 廣告公網 IP 當 ICE candidate,否則外部瀏覽器建不起連線;防火牆要放行 WHEP 的 TCP port 與 media 的 UDP port。
+雲端部署還有一個網路細節:雲主機多半是 1:1 NAT(instance 看不到自己的公網 IP),mediamtx 要設定 `webrtcAdditionalHosts` 把公網 IP 廣告成 ICE candidate(ICE 是 WebRTC 挑選可用網路路徑的機制,candidate 即候選位址),否則外部瀏覽器建不起連線;防火牆要放行 WHEP 的 TCP port 與 media 的 UDP port。
 
 ## 3. 解析度協商:server 遷就 client
 
-實測踩過的坑:Isaac Sim 預設渲染 1440×900,而 client library 協商的上限固定 1280×720。Isaac Sim **拒絕送出超過 client max 的影格**——結果是只送出第一張 keyframe 就停,媒體伺服器等不到連續 track 而斷線重連,看起來像玄學故障。
+實測踩過的坑:Isaac Sim 預設渲染 1440×900,而當時 relay 所用、自 Isaac 5.1(Kit 106)抽出的 streaming library 協商上限固定 1280×720——不同 client 或版本的上限可能不同,以實際協商結果為準。Isaac Sim **拒絕送出超過 client max 的影格**——結果是只送出第一張 keyframe 就停,媒體伺服器等不到連續 track 而斷線重連,看起來像玄學故障。
 
 改 client 設定無效(library 忽略),正解是啟動參數把渲染解析度對齊 client:
 

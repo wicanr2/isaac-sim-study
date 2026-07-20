@@ -12,8 +12,9 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 | [04](docs/04-physics-world/README.md) | 建立物理世界 | PLAYING 才有物理;虛擬世界關節建模法;teleport vs drive;互斥的控制路徑 |
 | [05](docs/05-ros2-bridge/README.md) | ROS2 橋接 | 官方 bridge 機制;headless 下 OmniGraph 不 tick 的實案與 UDP 解耦架構 |
 | [06](docs/06-webrtc-streaming/README.md) | WebRTC 串流 | 單 client 限制與 relay 分流架構;兩個「症狀騙人」的排錯實例 |
+| [07](docs/07-minimal-example/README.md) | 最小可跑範例 | 三個由小到大的 standalone 範例:方塊落地、開官方倉庫、機器人讀位姿 |
 
-從零開始建議按順序讀 01 → 04;已有 Isaac Sim 經驗、只想解特定問題,直接跳對應篇,每篇可獨立閱讀。
+從零開始建議按順序讀 01 → 04,然後跳 07 動手;已有 Isaac Sim 經驗、只想解特定問題,直接跳對應篇,每篇可獨立閱讀。API 版本以 Isaac Sim 4.5–5.1.x 為準(6.0 的 breaking change 見 01 篇 §3)。
 
 ## 範例程式
 
