@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="470" viewBox="0 0 840 470" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="840" height="470" fill="#ffffff"/>
+  <text x="420" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">teleport 只改一層狀態;真正的重置要連求解器內部狀態一起換掉</text>
+
+  <defs>
+    <marker id="arrT" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#e8853d"/></marker>
+    <marker id="arrN" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#2e7d4f"/></marker>
+  </defs>
+
+  <!-- Left: two-layer state diagram -->
+  <g>
+    <text x="205" y="56" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">兩層狀態</text>
+    <rect x="60" y="70" width="290" height="205" rx="12" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="2"/>
+    <text x="205" y="94" text-anchor="middle" font-size="12" font-weight="bold" fill="#33506b">Layer 1:USD authored state</text>
+    <text x="205" y="110" text-anchor="middle" font-size="10.5" fill="#5b7fa6">場景樹上的位姿 / 關節值</text>
+    <text x="205" y="124" text-anchor="middle" font-size="10.5" fill="#5b7fa6">(存檔會存下的東西)</text>
+
+    <rect x="90" y="140" width="230" height="115" rx="10" fill="#fff3e6" stroke="#e8853d" stroke-width="2"/>
+    <text x="205" y="162" text-anchor="middle" font-size="12" font-weight="bold" fill="#b35c1e">Layer 2:PhysX 內部狀態</text>
+    <text x="205" y="180" text-anchor="middle" font-size="10.5" fill="#b35c1e">積分速度、接觸快取、</text>
+    <text x="205" y="195" text-anchor="middle" font-size="10.5" fill="#b35c1e">articulation 矩陣</text>
+    <text x="205" y="210" text-anchor="middle" font-size="10" fill="#b35c1e">(不在 USD 裡,存檔存不下)</text>
+    <circle cx="205" cy="235" r="15" fill="#ffe3d1" stroke="#b35c1e" stroke-width="2"/>
+    <text x="205" y="239" text-anchor="middle" font-size="9.5" fill="#b35c1e">狀態</text>
+
+    <!-- teleport arrow: touches only layer 1 (outer), from left -->
+    <line x1="18" y1="120" x2="55" y2="120" stroke="#e8853d" stroke-width="2.5" marker-end="url(#arrT)"/>
+    <text x="18" y="66" font-size="10.5" fill="#b35c1e" font-weight="bold">① teleport /</text>
+    <text x="18" y="80" font-size="10.5" fill="#b35c1e" font-weight="bold">set_joint_positions</text>
+
+    <!-- native reset arrow: loops from layer1 down through layer2 and back, both touched -->
+    <path d="M355,230 C400,230 400,120 355,100" fill="none" stroke="#2e7d4f" stroke-width="2.5" marker-end="url(#arrN)"/>
+    <text x="365" y="150" font-size="10.5" fill="#2e7d4f" font-weight="bold">② native</text>
+    <text x="365" y="164" font-size="10.5" fill="#2e7d4f" font-weight="bold">reset</text>
+
+    <!-- legend / caption below -->
+    <rect x="20" y="290" width="380" height="120" rx="8" fill="#fdfdfd" stroke="#ddd"/>
+    <text x="32" y="310" font-size="11" fill="#b35c1e">① 只碰得到 Layer 1——Layer 2 壞了照樣壞著,</text>
+    <text x="32" y="326" font-size="11" fill="#b35c1e">寫進去的乾淨值下一步又被壞掉的內部狀態拉走</text>
+    <text x="32" y="350" font-size="11" fill="#2e7d4f">② timeline.stop()(銷毀 Layer 2)</text>
+    <text x="32" y="366" font-size="11" fill="#2e7d4f">→ play()(從當下 Layer 1 重新建置一份乾淨的 Layer 2)</text>
+    <text x="32" y="390" font-size="10.5" fill="#888">兩者都會動 Layer 1;差別在 Layer 2 有沒有被真的換新</text>
+  </g>
+
+  <!-- Right: real incident log-scale bars -->
+  <g>
+    <text x="635" y="56" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">實測存證:teleport-only reset 救不回發散(對數刻度)</text>
+    <rect x="440" y="70" width="360" height="230" rx="12" fill="#f9fbfd" stroke="#ddd"/>
+    <line x1="480" y1="270" x2="780" y2="270" stroke="#999" stroke-width="1.2"/>
+    <text x="470" y="90" text-anchor="end" font-size="9.5" fill="#999">|world_x| (log₁₀)</text>
+
+    <!-- bar1 -->
+    <rect x="490" y="167" width="46" height="103" fill="#fbe3e0" stroke="#b03a2e" stroke-width="1.5"/>
+    <text x="513" y="285" text-anchor="middle" font-size="9.5" fill="#888">07:38</text>
+    <text x="513" y="160" text-anchor="middle" font-size="9.5" fill="#b03a2e">−7.5×10⁶</text>
+
+    <!-- bar2 -->
+    <rect x="570" y="128" width="46" height="142" fill="#f6c9c3" stroke="#b03a2e" stroke-width="1.5"/>
+    <text x="593" y="285" text-anchor="middle" font-size="9.5" fill="#888">07:40</text>
+    <text x="593" y="121" text-anchor="middle" font-size="9.5" fill="#b03a2e">−3.0×10⁹</text>
+
+    <!-- bar3 stuck after old reset -->
+    <rect x="650" y="128" width="46" height="142" fill="#f6c9c3" stroke="#b03a2e" stroke-width="1.5" stroke-dasharray="4,3"/>
+    <text x="673" y="285" text-anchor="middle" font-size="9.5" fill="#888">連按舊版</text>
+    <text x="673" y="298" text-anchor="middle" font-size="9.5" fill="#888">RESET</text>
+    <text x="673" y="121" text-anchor="middle" font-size="9.5" fill="#b03a2e">仍 ≈ 10⁹ 量級</text>
+
+    <!-- bar4 native reset -->
+    <rect x="730" y="264" width="46" height="6" fill="#e7f5ec" stroke="#2e7d4f" stroke-width="1.5"/>
+    <text x="753" y="285" text-anchor="middle" font-size="9.5" fill="#888">native reset</text>
+    <text x="753" y="257" text-anchor="middle" font-size="9.5" fill="#2e7d4f">回 home ≈ 0</text>
+
+    <text x="620" y="330" text-anchor="middle" font-size="10.5" fill="#555">單位以 log 刻度示意數量級差距,非等比例真實座標</text>
+  </g>
+
+  <rect x="30" y="375" width="770" height="85" rx="8" fill="#fff3e6" stroke="#e8853d" stroke-width="1.5"/>
+  <text x="415" y="396" text-anchor="middle" font-size="11.5" fill="#b35c1e" font-weight="bold">連鎖:目的地無效 → 控制迴路算出異常大位移 → 每個 physics step 照樣把這個異常值 teleport 寫進關節</text>
+  <text x="415" y="415" text-anchor="middle" font-size="11" fill="#b35c1e">→ 求解器內部狀態被錯誤速度污染 → 「重置」若只是把 Layer 1 寫回 0,Layer 2 下一步又把 0 拉向壞掉的內部殘留</text>
+  <text x="415" y="433" text-anchor="middle" font-size="11" fill="#b35c1e">→ 唯一解法是連 Layer 2 一起換新:stop() 銷毀物理場景、play() 從當下 Layer 1 重新建置一份乾淨的 Layer 2</text>
+  <text x="415" y="451" text-anchor="middle" font-size="10" fill="#999">數值為存證實測(見內文);「連按舊版 RESET」代表當時舊版純 teleport reset 無法收斂</text>
+</svg>
