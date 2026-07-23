@@ -15,6 +15,14 @@
 | 5 | ROS2 橋接(topic、TF、模擬狀態控制) | `docs/05-ros2-bridge/` | 第一版完成(2026-07-20) |
 | 6 | WebRTC 串流與多 client 觀看 | `docs/06-webrtc-streaming/` | 第一版完成(2026-07-20) |
 | 8 | 5.1 → 6.0.1 遷移 OOM/異常風險調查 | `docs/08-migration-5.1-to-6.0-oom-risk/` | 第一版完成(2026-07-20,調查報告性質,原始觀察未直接重現) |
+| 9 | 物理模擬基礎(timestep/solver/joint drive/reset 語意) | `docs/09-physics-simulation-fundamentals/` | 第一版完成(2026-07-23,含 3 個實戰案例接引) |
+
+## R2(2026-07-23 完成)
+
+- [x] 新增 09 篇「物理模擬基礎」:官方 Physics Simulation Fundamentals + Articulation Stability Guide + PhysX Joints/Rigid Body Dynamics 文件查證(WebFetch/WebSearch),涵蓋 timestep/substep、rigid body/collision(contact/rest offset)、CCD、articulation joint drive PD 公式(逐字核對 PhysX 官方 `force = stiffness*(targetPosition-position)+damping*(targetVelocity-velocity)`)、PGS/TGS solver 與 iteration count、kinematic target vs teleport 的官方語意差異(`setKinematicTarget` vs `setGlobalPose`)、timeline stop/play 原生重置。
+- [x] 沿用前一輪(未提交)畫好的 5 張 SVG,原樣接進對應章節,chrome-headless 渲染驗證(900×600 @2x)無破圖:`physics-timestep-substep.svg`、`solver-pgs-tgs-iterations.svg`、`contact-offset-ccd.svg`、`joint-drive-pd-control.svg`、`teleport-vs-native-reset.svg`。
+- [x] 接入三個內部實戰案例(引用本機 `2026-logistical-expo` repo 對應文件,不複製其內容):95 篇(穿模根因:teleport 掛載 vs PD 物理叉取)、88 篇(目的地無效→NaN→AMR 暴走)、91 篇(teleport-only reset 救不回發散、timeline 原生重置)。
+- [x] `2026-logistical-expo/docs/circ-ai-isaac-ros/` 同步新增 96 篇精簡版(連回本篇詳版與 88/91/95),INDEX.md 補列。
 
 ## R1.5(2026-07-20 完成)
 

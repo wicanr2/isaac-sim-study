@@ -29,3 +29,10 @@
 | texture streaming budget | Isaac Sim 控制貼圖串流佔用 GPU 記憶體上限的設定(`/rtx-transient/resourcemanager/texturestreaming/memoryBudget`),預設吃 60% GPU 記憶體容量。 |
 | Nucleus | Omniverse 的資產伺服器/版本控管系統;Isaac Sim 官方資產包掛在其下,路徑依版本命名空間化(如 `.../Isaac/6.0`)。 |
 | crate 格式(USD) | USD 的二進位序列化格式(`.usd` 副檔名但內容是 crate binary),以 `PXR-USDC` 開頭,欄位/schema 名稱存在字串 token 表,可用 `strings` 粗略比對版本差異。 |
+| contact offset | 碰撞偵測開始產生接觸約束的距離門檻,不管 rest offset 設多少都適用;太小則偵測太晚(抖動/穿透),太大則約束變多變貴。 |
+| rest offset | 拿來膨脹或縮小碰撞幾何體的緩衝值,補視覺網格與碰撞近似體積之間的落差。 |
+| CCD(Continuous Collision Detection) | 連續碰撞偵測,對物體移動路徑做掃掠測試(sweep test),補「一步移動太快、離散取樣點漏抓」造成的穿透;只對有速度的連續運動有效,對每步直接覆寫位姿(teleport)無效。 |
+| PGS(Projected Gauss-Seidel) | PhysX 的一種疊代求解器:每次疊代對整個 timestep 只修一次位置,長鏈末端收斂較慢。 |
+| TGS(Temporal Gauss-Seidel) | PhysX 5.1 起建議且預設的疊代求解器:把 timestep 內部切小段疊代並逐段推進位置,長鏈更穩;solver iteration count(position/velocity)決定疊代精細度。 |
+| kinematic actor | PhysX 裡以官方 `setKinematicTarget()` 逐步設定目標姿態的剛體:對外表現為無限質量,會正常推開 dynamic 物體(有物理互動);與 teleport(`setGlobalPose`/直接改 world pose)不同——teleport 不觸發碰撞響應,會直接穿過其他物體。 |
+| solver 內部狀態 | PhysX 求解器自己維護的殘留量(積分速度、接觸快取、articulation 矩陣),不存在 USD 裡,teleport 類操作碰不到;要清除必須靠 `timeline.stop()`→`play()` 銷毀重建整個物理場景。 |

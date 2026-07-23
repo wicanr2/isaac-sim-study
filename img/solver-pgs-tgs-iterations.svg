@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="545" viewBox="0 0 820 545" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="820" height="545" fill="#ffffff"/>
+  <text x="410" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">求解器怎麼在一個 timestep 內收斂:PGS 與 TGS(示意,非精確數值)</text>
+  <text x="410" y="46" text-anchor="middle" font-size="11.5" fill="#777">根本問題:關節鏈上每一節的約束互相耦合,沒有解析解——只能疊代逼近,疊代方式決定長鏈(多 DOF articulation)穩不穩</text>
+
+  <defs>
+    <marker id="arrChain" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#888"/></marker>
+  </defs>
+
+  <!-- PGS panel -->
+  <g>
+    <text x="205" y="76" text-anchor="middle" font-size="13" font-weight="bold" fill="#b03a2e">PGS(Projected Gauss-Seidel)</text>
+    <rect x="30" y="86" width="350" height="230" rx="10" fill="#fdf5f4" stroke="#e0a099"/>
+    <circle cx="65"  cy="150" r="16" fill="#fbe3e0" stroke="#b03a2e" stroke-width="2"/>
+    <circle cx="155" cy="150" r="16" fill="#fbe3e0" stroke="#b03a2e" stroke-width="2"/>
+    <circle cx="245" cy="150" r="16" fill="#fbe3e0" stroke="#b03a2e" stroke-width="2"/>
+    <circle cx="335" cy="150" r="16" fill="#fbe3e0" stroke="#b03a2e" stroke-width="2"/>
+    <line x1="81" y1="150" x2="139" y2="150" stroke="#b03a2e" stroke-width="1.5" marker-end="url(#arrChain)"/>
+    <line x1="171" y1="150" x2="229" y2="150" stroke="#b03a2e" stroke-width="1.5" marker-end="url(#arrChain)"/>
+    <line x1="261" y1="150" x2="319" y2="150" stroke="#b03a2e" stroke-width="1.5" marker-end="url(#arrChain)"/>
+    <text x="65" y="186" text-anchor="middle" font-size="10" fill="#888">joint1</text>
+    <text x="155" y="186" text-anchor="middle" font-size="10" fill="#888">joint2</text>
+    <text x="245" y="186" text-anchor="middle" font-size="10" fill="#888">joint3</text>
+    <text x="335" y="186" text-anchor="middle" font-size="10" fill="#888">joint4</text>
+
+    <text x="45" y="212" font-size="11" fill="#b03a2e">
+      <tspan x="45" dy="0">每次 iteration 整個 timestep</tspan>
+      <tspan x="45" dy="16">只修一次位置;joint4 用的是</tspan>
+      <tspan x="45" dy="16">joint3「上一輪」的舊值 → 誤差</tspan>
+      <tspan x="45" dy="16">沿鏈傳遞,疊代次數不夠時</tspan>
+      <tspan x="45" dy="16">長鏈末端收斂慢</tspan>
+    </text>
+
+    <text x="45" y="300" font-size="10.5" fill="#555">
+      <tspan x="45" dy="0">單次 iteration 較便宜,但 D6 drive</tspan>
+      <tspan x="45" dy="15">在 TGS 下有已知失真——官方建議</tspan>
+      <tspan x="45" dy="15">這種情況改回 PGS</tspan>
+    </text>
+  </g>
+
+  <!-- TGS panel -->
+  <g>
+    <text x="615" y="76" text-anchor="middle" font-size="13" font-weight="bold" fill="#2e7d4f">TGS(Temporal Gauss-Seidel)</text>
+    <rect x="440" y="86" width="350" height="230" rx="10" fill="#f4faf6" stroke="#a8d0b6"/>
+    <circle cx="475" cy="150" r="16" fill="#e7f5ec" stroke="#2e7d4f" stroke-width="2"/>
+    <circle cx="565" cy="150" r="16" fill="#e7f5ec" stroke="#2e7d4f" stroke-width="2"/>
+    <circle cx="655" cy="150" r="16" fill="#e7f5ec" stroke="#2e7d4f" stroke-width="2"/>
+    <circle cx="745" cy="150" r="16" fill="#e7f5ec" stroke="#2e7d4f" stroke-width="2"/>
+    <line x1="491" y1="150" x2="549" y2="150" stroke="#2e7d4f" stroke-width="1.5" marker-end="url(#arrChain)"/>
+    <line x1="581" y1="150" x2="639" y2="150" stroke="#2e7d4f" stroke-width="1.5" marker-end="url(#arrChain)"/>
+    <line x1="671" y1="150" x2="729" y2="150" stroke="#2e7d4f" stroke-width="1.5" marker-end="url(#arrChain)"/>
+    <text x="475" y="186" text-anchor="middle" font-size="10" fill="#888">joint1</text>
+    <text x="565" y="186" text-anchor="middle" font-size="10" fill="#888">joint2</text>
+    <text x="655" y="186" text-anchor="middle" font-size="10" fill="#888">joint3</text>
+    <text x="745" y="186" text-anchor="middle" font-size="10" fill="#888">joint4</text>
+
+    <text x="455" y="212" font-size="11" fill="#2e7d4f">
+      <tspan x="455" dy="0">把 timestep 內部再切小段,</tspan>
+      <tspan x="455" dy="16">每段疊代完就把位置往前推進</tspan>
+      <tspan x="455" dy="16">一點再算下一段 → joint4 看到</tspan>
+      <tspan x="455" dy="16">的是 joint3 較接近當下真值的</tspan>
+      <tspan x="455" dy="16">狀態,長鏈更穩</tspan>
+    </text>
+
+    <text x="455" y="300" font-size="10.5" fill="#555">
+      <tspan x="455" dy="0">Isaac Sim 對 articulation 的預設</tspan>
+      <tspan x="455" dy="15">求解器;官方建議搭配 0 個 velocity</tspan>
+      <tspan x="455" dy="15">iteration、把預算都給 position</tspan>
+    </text>
+  </g>
+
+  <rect x="30" y="335" width="760" height="70" rx="8" fill="#fff3e6" stroke="#e8853d" stroke-width="1.5"/>
+  <text x="410" y="357" text-anchor="middle" font-size="12" fill="#b35c1e" font-weight="bold">Solver Position/Velocity Iteration Count(Physics Scene / Articulation 上可調)</text>
+  <text x="410" y="376" text-anchor="middle" font-size="11" fill="#b35c1e">疊代數愈高愈準但愈貴;複雜多 DOF 機器人先加 position iteration,</text>
+  <text x="410" y="393" text-anchor="middle" font-size="11" fill="#b35c1e">精度夠用就往下調換效能——precision/perf 是持續要抓的取捨</text>
+
+  <rect x="30" y="418" width="760" height="112" rx="8" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+  <text x="410" y="440" text-anchor="middle" font-size="12" fill="#33506b" font-weight="bold">為什麼這跟「teleport 蓋不掉發散」有關(下節詳談)</text>
+  <text x="410" y="460" text-anchor="middle" font-size="11" fill="#33506b">求解器內部疊代用的是自己上一步殘留的速度/接觸快取狀態;外部每步硬寫一個新位置,並不會重置這份內部狀態——</text>
+  <text x="410" y="480" text-anchor="middle" font-size="11" fill="#33506b">狀態一旦壞掉(如關節值飆到天文數字),疊代下一步</text>
+  <text x="410" y="498" text-anchor="middle" font-size="11" fill="#33506b">還是從壞掉的內部狀態算起,寫入乾淨值也救不回。</text>
+</svg>
