@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="470" viewBox="0 0 860 470" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="860" height="470" fill="#ffffff"/>
+  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">同一個物件的位姿存在於三份狀態裡——讀錯一份,不會報錯,只會回一個合理的數字</text>
+
+  <defs>
+    <marker id="pOK" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#2e7d4f"/></marker>
+    <marker id="pBad" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#b03a2e"/></marker>
+    <marker id="pGry" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#888"/></marker>
+    <marker id="pOrg" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#e8853d"/></marker>
+  </defs>
+
+  <!-- ===== three state stores (right side) ===== -->
+  <text x="690" y="60" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">場景狀態的三個所在地</text>
+
+  <rect x="570" y="72" width="240" height="72" rx="10" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="2"/>
+  <text x="690" y="94" text-anchor="middle" font-size="12" font-weight="bold" fill="#33506b">USD Stage(authored)</text>
+  <text x="690" y="113" text-anchor="middle" font-size="10.5" fill="#5b7fa6">模型檔裡寫的初始值</text>
+  <text x="690" y="131" text-anchor="middle" font-size="10.5" fill="#b03a2e">模擬跑再久都不變</text>
+
+  <rect x="570" y="164" width="240" height="72" rx="10" fill="#fff3e6" stroke="#e8853d" stroke-width="2.5"/>
+  <text x="690" y="186" text-anchor="middle" font-size="12" font-weight="bold" fill="#b35c1e">PhysX 內部狀態</text>
+  <text x="690" y="205" text-anchor="middle" font-size="10.5" fill="#b35c1e">solver 每步積分出的真實位姿</text>
+  <text x="690" y="223" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#b35c1e">= 「模擬當下」的定義</text>
+
+  <rect x="570" y="256" width="240" height="72" rx="10" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="2"/>
+  <text x="690" y="278" text-anchor="middle" font-size="12" font-weight="bold" fill="#33506b">Fabric / USDRT 快取</text>
+  <text x="690" y="297" text-anchor="middle" font-size="10.5" fill="#5b7fa6">扁平化,由物理層同步過去</text>
+  <text x="690" y="315" text-anchor="middle" font-size="10.5" fill="#b03a2e">只有被同步過的 prim 才有</text>
+
+  <!-- ===== four read paths (left side) ===== -->
+  <text x="215" y="60" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">四種讀法</text>
+
+  <!-- 1 get_world_pose -->
+  <rect x="30" y="72" width="370" height="46" rx="9" fill="#ffffff" stroke="#888" stroke-width="1.8"/>
+  <text x="44" y="92" font-size="11" fill="#666">❌ <tspan font-family="monospace">xforms.get_world_pose</tspan></text>
+  <text x="44" y="110" font-size="10.5" fill="#888">讀到 authored 靜態值 —— 只能當對照組</text>
+  <line x1="404" y1="95" x2="565" y2="100" stroke="#888" stroke-width="2" marker-end="url(#pGry)"/>
+
+  <!-- 2 usdrt -->
+  <rect x="30" y="130" width="370" height="46" rx="9" fill="#ffffff" stroke="#888" stroke-width="1.8"/>
+  <text x="44" y="150" font-size="11" fill="#666">❌ <tspan font-family="monospace">usdrt.Rt.Xformable</tspan></text>
+  <text x="44" y="168" font-size="10.5" fill="#888">本組態 HasWorldXform()=False,拿不到資料</text>
+  <line x1="404" y1="153" x2="565" y2="280" stroke="#888" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#pGry)"/>
+
+  <!-- 3 XFormPrim -->
+  <rect x="30" y="188" width="370" height="58" rx="9" fill="#fbe3e0" stroke="#b03a2e" stroke-width="2.5"/>
+  <text x="44" y="208" font-size="11" font-weight="bold" fill="#b03a2e">🔴 <tspan font-family="monospace">XFormPrim.get_world_poses()</tspan></text>
+  <text x="44" y="225" font-size="10.5" fill="#b03a2e">讀得到即時值,但建立 PhysX tensor view</text>
+  <text x="44" y="240" font-size="10.5" font-weight="bold" fill="#b03a2e">→ 使 ActionGraph 既有的 view 永久失效</text>
+  <line x1="404" y1="212" x2="565" y2="178" stroke="#b03a2e" stroke-width="2.5" marker-end="url(#pBad)"/>
+
+  <!-- 4 physx -->
+  <rect x="30" y="258" width="370" height="58" rx="9" fill="#e7f5ec" stroke="#2e7d4f" stroke-width="2.5"/>
+  <text x="44" y="278" font-size="11" font-weight="bold" fill="#2e7d4f">✅ <tspan font-family="monospace">get_rigidbody_transformation()</tspan></text>
+  <text x="44" y="295" font-size="10.5" fill="#2e7d4f">即時、唯讀、不建立 view</text>
+  <text x="44" y="310" font-size="10.5" fill="#2e7d4f">限制:只對剛體有效;rotation 是 (x,y,z,w)</text>
+  <line x1="404" y1="285" x2="565" y2="222" stroke="#2e7d4f" stroke-width="3" marker-end="url(#pOK)"/>
+
+  <!-- ===== consequence band ===== -->
+  <rect x="30" y="344" width="780" height="52" rx="10" fill="#fbe3e0" stroke="#b03a2e" stroke-width="2"/>
+  <text x="48" y="366" font-size="12" font-weight="bold" fill="#b03a2e">tensor view 失效之後(靜默且永久):</text>
+  <text x="48" y="386" font-size="11" fill="#b03a2e">關節指令收得到卻不生效　·　模擬時鐘照常前進　·　/joint_states 照常發布　·　但機具完全不動,任務一路逾時</text>
+
+  <!-- ===== bottom rule ===== -->
+  <rect x="30" y="408" width="780" height="46" rx="10" fill="#fff3e6" stroke="#e8853d" stroke-width="2"/>
+  <text x="430" y="429" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#b35c1e">在這類框架裡,觀測不是免費的</text>
+  <text x="430" y="447" text-anchor="middle" font-size="11" fill="#b35c1e">凡是回傳批次張量的 API,背後幾乎都要先建立一個有狀態的 view —— 「唯讀無副作用」的直覺在此不成立</text>
+</svg>

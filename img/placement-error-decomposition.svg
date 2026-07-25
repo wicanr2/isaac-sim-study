@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="430" viewBox="0 0 860 430" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="860" height="430" fill="#ffffff"/>
+  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">停靠很準、放置不準 —— 誤差不在導航,在末端動作,而且逐輪累積</text>
+
+  <defs>
+    <marker id="eR" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#b03a2e"/></marker>
+    <marker id="eO" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#e8853d"/></marker>
+  </defs>
+
+  <!-- =============== LEFT: top-down decomposition =============== -->
+  <text x="225" y="56" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">俯視:誤差的三個來源</text>
+  <rect x="20" y="68" width="410" height="250" rx="12" fill="#fafafa" stroke="#ccc" stroke-width="1.5"/>
+
+  <text x="38" y="90" font-size="10.5" fill="#888">插取方向 →</text>
+
+  <!-- target slot (dashed green) -->
+  <rect x="170" y="112" width="88" height="68" rx="4" fill="#e7f5ec" stroke="#2e7d4f" stroke-width="2.5" stroke-dasharray="6 4"/>
+  <text x="214" y="106" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#2e7d4f">目標位置(真值)</text>
+
+  <!-- actual pallet (solid red, offset) -->
+  <rect x="190" y="124" width="88" height="68" rx="4" fill="#fbe3e0" fill-opacity="0.92" stroke="#b03a2e" stroke-width="2.5"/>
+  <text x="234" y="163" text-anchor="middle" font-size="10.5" font-weight="bold" fill="#b03a2e">實際落點</text>
+
+  <!-- AMR + forks -->
+  <rect x="45" y="118" width="58" height="56" rx="6" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="2"/>
+  <text x="74" y="151" text-anchor="middle" font-size="10.5" fill="#33506b">AMR</text>
+  <rect x="103" y="126" width="58" height="8" rx="2" fill="#5b7fa6"/>
+  <rect x="103" y="158" width="58" height="8" rx="2" fill="#5b7fa6"/>
+
+  <!-- (1) docking measure -->
+  <line x1="45" y1="192" x2="103" y2="192" stroke="#2e7d4f" stroke-width="2"/>
+  <line x1="45" y1="187" x2="45" y2="197" stroke="#2e7d4f" stroke-width="2"/>
+  <line x1="103" y1="187" x2="103" y2="197" stroke="#2e7d4f" stroke-width="2"/>
+  <text x="74" y="210" text-anchor="middle" font-size="11" font-weight="bold" fill="#2e7d4f">①</text>
+
+  <!-- (2) depth offset -->
+  <line x1="170" y1="180" x2="170" y2="206" stroke="#2e7d4f" stroke-width="1" stroke-dasharray="3 3"/>
+  <line x1="190" y1="192" x2="190" y2="206" stroke="#b03a2e" stroke-width="1" stroke-dasharray="3 3"/>
+  <line x1="170" y1="202" x2="190" y2="202" stroke="#b03a2e" stroke-width="2"/>
+  <line x1="170" y1="197" x2="170" y2="207" stroke="#b03a2e" stroke-width="2"/>
+  <line x1="190" y1="197" x2="190" y2="207" stroke="#b03a2e" stroke-width="2"/>
+  <text x="180" y="216" text-anchor="middle" font-size="11" font-weight="bold" fill="#b03a2e">②</text>
+
+  <!-- (3) lateral offset -->
+  <line x1="258" y1="112" x2="306" y2="112" stroke="#2e7d4f" stroke-width="1" stroke-dasharray="3 3"/>
+  <line x1="278" y1="124" x2="306" y2="124" stroke="#b03a2e" stroke-width="1" stroke-dasharray="3 3"/>
+  <line x1="300" y1="112" x2="300" y2="124" stroke="#e8853d" stroke-width="2"/>
+  <line x1="295" y1="112" x2="305" y2="112" stroke="#e8853d" stroke-width="2"/>
+  <line x1="295" y1="124" x2="305" y2="124" stroke="#e8853d" stroke-width="2"/>
+  <text x="318" y="124" font-size="11" font-weight="bold" fill="#b35c1e">③</text>
+
+  <!-- legend -->
+  <line x1="38" y1="228" x2="412" y2="228" stroke="#e0e0e0" stroke-width="1.5"/>
+  <text x="38" y="250" font-size="11.5" font-weight="bold" fill="#2e7d4f">① 停靠誤差 1.5 cm —— 導航其實很準</text>
+  <text x="38" y="274" font-size="11.5" font-weight="bold" fill="#b03a2e">② 叉入行程 → 深度偏差</text>
+  <text x="56" y="290" font-size="10.5" fill="#b03a2e">行程固定,不看物件實際在哪</text>
+  <text x="38" y="310" font-size="11.5" font-weight="bold" fill="#b35c1e">③ 側滑 → 橫向偏移;補高摩擦材質後 9.3 → 0.9 cm</text>
+
+  <!-- summary strip -->
+  <rect x="20" y="330" width="410" height="80" rx="10" fill="#fff3e6" stroke="#e8853d" stroke-width="2"/>
+  <text x="36" y="352" font-size="11.5" font-weight="bold" fill="#b35c1e">實測分佈(平面誤差 4 ~ 13 cm,門檻 ≤ 1 cm)</text>
+  <text x="36" y="372" font-size="11" fill="#b35c1e">偏航角:放進料架 0.3 ~ 1.1°(遠優於 3° 門檻)</text>
+  <text x="36" y="390" font-size="11" fill="#b35c1e">偏航角:放在地面曾量到 6.9° —— 有無側向約束要分開統計</text>
+  <text x="36" y="406" font-size="10.5" fill="#888">混在一起算平均,兩邊的問題都會被稀釋掉</text>
+
+  <!-- =============== RIGHT: accumulation chart =============== -->
+  <text x="655" y="56" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">同一位置連續四輪:誤差是正回饋,不是雜訊</text>
+  <rect x="460" y="68" width="380" height="250" rx="12" fill="#fafafa" stroke="#ccc" stroke-width="1.5"/>
+
+  <line x1="510" y1="285" x2="815" y2="285" stroke="#666" stroke-width="1.8"/>
+  <line x1="510" y1="285" x2="510" y2="110" stroke="#666" stroke-width="1.8"/>
+  <text x="500" y="289" text-anchor="end" font-size="10" fill="#888">0</text>
+  <text x="500" y="216" text-anchor="end" font-size="10" fill="#888">10</text>
+  <text x="500" y="134" text-anchor="end" font-size="10" fill="#888">20</text>
+  <text x="474" y="100" font-size="10.5" fill="#666">累積偏移 (cm)</text>
+
+  <line x1="510" y1="212" x2="815" y2="212" stroke="#e6e6e6" stroke-width="1"/>
+  <line x1="510" y1="130" x2="815" y2="130" stroke="#e6e6e6" stroke-width="1"/>
+
+  <polyline points="540,285 615,271 690,213 765,132" fill="none" stroke="#b03a2e" stroke-width="3"/>
+  <circle cx="540" cy="285" r="5" fill="#b03a2e"/>
+  <circle cx="615" cy="271" r="5" fill="#b03a2e"/>
+  <circle cx="690" cy="213" r="5" fill="#b03a2e"/>
+  <circle cx="765" cy="132" r="5" fill="#b03a2e"/>
+
+  <text x="540" y="304" text-anchor="middle" font-size="10.5" fill="#666">第 1 輪</text>
+  <text x="615" y="304" text-anchor="middle" font-size="10.5" fill="#666">第 2 輪</text>
+  <text x="690" y="304" text-anchor="middle" font-size="10.5" fill="#666">第 3 輪</text>
+  <text x="765" y="304" text-anchor="middle" font-size="10.5" fill="#666">第 4 輪</text>
+
+  <text x="540" y="270" text-anchor="middle" font-size="10" fill="#b03a2e">5.100</text>
+  <text x="608" y="254" text-anchor="end" font-size="10" fill="#b03a2e">5.132</text>
+  <text x="683" y="198" text-anchor="end" font-size="10" fill="#b03a2e">5.203</text>
+  <text x="765" y="118" text-anchor="middle" font-size="10" fill="#b03a2e">5.302</text>
+
+  <rect x="460" y="330" width="380" height="80" rx="10" fill="#fbe3e0" stroke="#b03a2e" stroke-width="2"/>
+  <text x="476" y="352" font-size="11.5" font-weight="bold" fill="#b03a2e">正回饋機制</text>
+  <text x="476" y="372" font-size="11" fill="#b03a2e">插取行程固定 → 物件已偏深就被頂得更深</text>
+  <text x="476" y="390" font-size="11" fill="#b03a2e">→ 下一輪起點又更深(無感知回授修正)</text>
+  <text x="476" y="406" font-size="10.5" fill="#888">只跑一輪的驗收會漏掉系統最重要的性質</text>
+</svg>
