@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="420" viewBox="0 0 800 420" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="800" height="420" fill="#ffffff"/>
+  <text x="400" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">看門狗分層:各層的「執行器」必須互不重疊</text>
+
+  <defs>
+    <marker id="wA" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#e8853d"/></marker>
+    <marker id="wB" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#5b7fa6"/></marker>
+    <marker id="wG" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#2e7d4f"/></marker>
+  </defs>
+
+  <!-- column headers -->
+  <text x="150" y="60" text-anchor="middle" font-size="12" font-weight="bold" fill="#666">監看對象</text>
+  <text x="400" y="60" text-anchor="middle" font-size="12" font-weight="bold" fill="#666">判死條件</text>
+  <text x="645" y="60" text-anchor="middle" font-size="12" font-weight="bold" fill="#666">執行動作(唯一負責)</text>
+
+  <!-- Layer 1 -->
+  <rect x="20" y="72" width="760" height="76" rx="10" fill="#fff3e6" stroke="#e8853d" stroke-width="2"/>
+  <text x="36" y="94" font-size="11.5" font-weight="bold" fill="#b35c1e">層 1</text>
+  <rect x="72" y="82" width="156" height="56" rx="8" fill="#ffffff" stroke="#e8853d" stroke-width="1.8"/>
+  <text x="150" y="106" text-anchor="middle" font-size="11" fill="#b35c1e">模擬器程序存活</text>
+  <text x="150" y="126" text-anchor="middle" font-size="10.5" fill="#888">每 20 秒輪詢</text>
+
+  <text x="400" y="106" text-anchor="middle" font-size="11" fill="#b35c1e">連續 2 次抓不到</text>
+  <text x="400" y="126" text-anchor="middle" font-size="10.5" fill="#888">單次抓不到多半是負載尖峰</text>
+
+  <line x1="524" y1="110" x2="556" y2="110" stroke="#e8853d" stroke-width="2.5" marker-end="url(#wA)"/>
+  <rect x="562" y="82" width="210" height="56" rx="8" fill="#ffffff" stroke="#e8853d" stroke-width="1.8"/>
+  <text x="667" y="104" text-anchor="middle" font-size="11" font-weight="bold" fill="#b35c1e">重啟模擬器 + 下游節點鏈</text>
+  <text x="667" y="124" text-anchor="middle" font-size="10.5" fill="#888">不碰串流</text>
+
+  <!-- Layer 2 -->
+  <rect x="20" y="158" width="760" height="76" rx="10" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="2"/>
+  <text x="36" y="180" font-size="11.5" font-weight="bold" fill="#33506b">層 2</text>
+  <rect x="72" y="168" width="156" height="56" rx="8" fill="#ffffff" stroke="#5b7fa6" stroke-width="1.8"/>
+  <text x="150" y="192" text-anchor="middle" font-size="11" fill="#33506b">影像串流中繼</text>
+  <text x="150" y="212" text-anchor="middle" font-size="10.5" fill="#888">framesDecoded 增長</text>
+
+  <text x="400" y="192" text-anchor="middle" font-size="11" fill="#33506b">連續 3 次幀數不增長</text>
+  <text x="400" y="212" text-anchor="middle" font-size="10.5" fill="#888">連線狀態「正常」不能當證據</text>
+
+  <line x1="524" y1="196" x2="556" y2="196" stroke="#5b7fa6" stroke-width="2.5" marker-end="url(#wB)"/>
+  <rect x="562" y="168" width="210" height="56" rx="8" fill="#ffffff" stroke="#5b7fa6" stroke-width="1.8"/>
+  <text x="667" y="190" text-anchor="middle" font-size="11" font-weight="bold" fill="#33506b">只重啟中繼</text>
+  <text x="667" y="210" text-anchor="middle" font-size="10.5" fill="#888">不碰模擬器</text>
+
+  <!-- Layer 3 -->
+  <rect x="20" y="244" width="760" height="76" rx="10" fill="#e7f5ec" stroke="#2e7d4f" stroke-width="2"/>
+  <text x="36" y="266" font-size="11.5" font-weight="bold" fill="#2e7d4f">層 3</text>
+  <rect x="72" y="254" width="156" height="56" rx="8" fill="#ffffff" stroke="#2e7d4f" stroke-width="1.8"/>
+  <text x="150" y="278" text-anchor="middle" font-size="11" fill="#2e7d4f">物件位置漂移</text>
+  <text x="150" y="298" text-anchor="middle" font-size="10.5" fill="#888">每輪量最大偏移</text>
+
+  <text x="400" y="278" text-anchor="middle" font-size="11" fill="#2e7d4f">超過 15 cm</text>
+  <text x="400" y="298" text-anchor="middle" font-size="10.5" fill="#888">訂在「還能運作的上緣」</text>
+
+  <line x1="524" y1="282" x2="556" y2="282" stroke="#2e7d4f" stroke-width="2.5" marker-end="url(#wG)"/>
+  <rect x="562" y="254" width="210" height="56" rx="8" fill="#ffffff" stroke="#2e7d4f" stroke-width="1.8"/>
+  <text x="667" y="276" text-anchor="middle" font-size="11" font-weight="bold" fill="#2e7d4f">只跑狀態重置</text>
+  <text x="667" y="296" text-anchor="middle" font-size="10.5" fill="#888">不碰任何程序</text>
+
+  <!-- failure mode band -->
+  <rect x="20" y="332" width="372" height="72" rx="10" fill="#fbe3e0" stroke="#b03a2e" stroke-width="2"/>
+  <text x="206" y="354" text-anchor="middle" font-size="12" font-weight="bold" fill="#b03a2e">執行器重疊會發生什麼</text>
+  <text x="206" y="374" text-anchor="middle" font-size="10.5" fill="#b03a2e">A 判定「死了要重啟」,B 同一秒判定</text>
+  <text x="206" y="390" text-anchor="middle" font-size="10.5" fill="#b03a2e">「活著、正在啟動中」→ 兩個實例搶 GPU 與 topic</text>
+
+  <rect x="408" y="332" width="372" height="72" rx="10" fill="#fafafa" stroke="#888" stroke-width="1.8"/>
+  <text x="594" y="354" text-anchor="middle" font-size="12" font-weight="bold" fill="#666">另外三個必備設計</text>
+  <text x="594" y="374" text-anchor="middle" font-size="10.5" fill="#666">重啟次數設時間窗上限,達標停手要求人工介入</text>
+  <text x="594" y="390" text-anchor="middle" font-size="10.5" fill="#666">提供暫停開關 · 職責邊界寫在腳本檔頭</text>
+</svg>

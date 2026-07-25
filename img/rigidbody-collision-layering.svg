@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="450" viewBox="0 0 820 450" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="820" height="450" fill="#ffffff"/>
+  <text x="410" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">剛體是「一組碰撞體的剛性集合」——分層切錯,兩種壞法各不相同</text>
+
+  <defs>
+    <marker id="aR" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#b03a2e"/></marker>
+    <marker id="aG" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 z" fill="#2e7d4f"/></marker>
+  </defs>
+
+  <!-- ============ Column 1: RigidBody on leaves ============ -->
+  <g>
+    <rect x="15" y="44" width="250" height="330" rx="12" fill="#fbe3e0" stroke="#b03a2e" stroke-width="2"/>
+    <text x="140" y="68" text-anchor="middle" font-size="13" font-weight="bold" fill="#b03a2e">❌ RigidBodyAPI 掛在葉節點</text>
+
+    <rect x="35" y="84" width="210" height="30" rx="7" fill="#ffffff" stroke="#999" stroke-width="1.5"/>
+    <text x="140" y="103" text-anchor="middle" font-size="11" fill="#666">/pallet_A　　Xform</text>
+
+    <line x1="60" y1="114" x2="60" y2="136" stroke="#999" stroke-width="1.5"/>
+    <rect x="52" y="136" width="193" height="30" rx="7" fill="#ffffff" stroke="#999" stroke-width="1.5"/>
+    <text x="148" y="155" text-anchor="middle" font-size="11" fill="#666">body　　Xform</text>
+
+    <line x1="76" y1="166" x2="76" y2="188" stroke="#999" stroke-width="1.5"/>
+    <rect x="68" y="188" width="177" height="30" rx="7" fill="#ffe3d1" stroke="#b03a2e" stroke-width="2"/>
+    <text x="156" y="207" text-anchor="middle" font-size="10.5" fill="#b03a2e">mesh_a　Rigid + Coll</text>
+
+    <line x1="76" y1="218" x2="76" y2="240" stroke="#999" stroke-width="1.5"/>
+    <rect x="68" y="240" width="177" height="30" rx="7" fill="#ffe3d1" stroke="#b03a2e" stroke-width="2"/>
+    <text x="156" y="259" text-anchor="middle" font-size="10.5" fill="#b03a2e">mesh_b　Rigid + Coll</text>
+
+    <text x="140" y="294" text-anchor="middle" font-size="11" fill="#b03a2e">每個網格各自是獨立剛體,</text>
+    <text x="140" y="310" text-anchor="middle" font-size="11" fill="#b03a2e">彼此沒有剛性約束</text>
+
+    <line x1="105" y1="322" x2="80" y2="352" stroke="#b03a2e" stroke-width="2" marker-end="url(#aR)"/>
+    <line x1="140" y1="322" x2="140" y2="352" stroke="#b03a2e" stroke-width="2" marker-end="url(#aR)"/>
+    <line x1="175" y1="322" x2="200" y2="352" stroke="#b03a2e" stroke-width="2" marker-end="url(#aR)"/>
+    <text x="140" y="398" text-anchor="middle" font-size="12" font-weight="bold" fill="#b03a2e">症狀:一受力就散架</text>
+    <text x="140" y="416" text-anchor="middle" font-size="10.5" fill="#b03a2e">零件各自飛走</text>
+  </g>
+
+  <!-- ============ Column 2: Collision only on rigid layer ============ -->
+  <g>
+    <rect x="285" y="44" width="250" height="330" rx="12" fill="#fbe3e0" stroke="#b03a2e" stroke-width="2"/>
+    <text x="410" y="68" text-anchor="middle" font-size="13" font-weight="bold" fill="#b03a2e">❌ CollisionAPI 只在剛體層</text>
+
+    <rect x="305" y="84" width="210" height="30" rx="7" fill="#ffffff" stroke="#999" stroke-width="1.5"/>
+    <text x="410" y="103" text-anchor="middle" font-size="11" fill="#666">/pallet_A　　Xform</text>
+
+    <line x1="330" y1="114" x2="330" y2="136" stroke="#999" stroke-width="1.5"/>
+    <rect x="322" y="136" width="193" height="30" rx="7" fill="#ffe3d1" stroke="#b03a2e" stroke-width="2"/>
+    <text x="418" y="155" text-anchor="middle" font-size="10.5" fill="#b03a2e">body　Rigid + Coll</text>
+
+    <line x1="346" y1="166" x2="346" y2="188" stroke="#999" stroke-width="1.5"/>
+    <rect x="338" y="188" width="177" height="30" rx="7" fill="#ffffff" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="426" y="207" text-anchor="middle" font-size="10.5" fill="#888">mesh_a　(無物理)</text>
+
+    <line x1="346" y1="218" x2="346" y2="240" stroke="#999" stroke-width="1.5"/>
+    <rect x="338" y="240" width="177" height="30" rx="7" fill="#ffffff" stroke="#999" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="426" y="259" text-anchor="middle" font-size="10.5" fill="#888">mesh_b　(無物理)</text>
+
+    <text x="410" y="294" text-anchor="middle" font-size="11" fill="#b03a2e">PhysX 得自行決定要不要</text>
+    <text x="410" y="310" text-anchor="middle" font-size="11" fill="#b03a2e">合成子樹幾何</text>
+
+    <rect x="330" y="326" width="160" height="30" rx="7" fill="#ffffff" stroke="#b03a2e" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="410" y="345" text-anchor="middle" font-size="10.5" fill="#b03a2e">行為隨版本而異</text>
+
+    <text x="410" y="398" text-anchor="middle" font-size="12" font-weight="bold" fill="#b03a2e">症狀:時而能碰、時而穿透</text>
+    <text x="410" y="416" text-anchor="middle" font-size="10.5" fill="#b03a2e">換版本後行為改變</text>
+  </g>
+
+  <!-- ============ Column 3: correct ============ -->
+  <g>
+    <rect x="555" y="44" width="250" height="330" rx="12" fill="#e7f5ec" stroke="#2e7d4f" stroke-width="2"/>
+    <text x="680" y="68" text-anchor="middle" font-size="13" font-weight="bold" fill="#2e7d4f">✅ 三層結構</text>
+
+    <rect x="575" y="84" width="210" height="30" rx="7" fill="#ffffff" stroke="#5b7fa6" stroke-width="1.8"/>
+    <text x="680" y="103" text-anchor="middle" font-size="11" fill="#33506b">/pallet_A　　Xform 容器</text>
+
+    <line x1="600" y1="114" x2="600" y2="136" stroke="#999" stroke-width="1.5"/>
+    <rect x="592" y="136" width="193" height="30" rx="7" fill="#fff3e6" stroke="#e8853d" stroke-width="2"/>
+    <text x="688" y="155" text-anchor="middle" font-size="10.5" fill="#b35c1e">body　RigidBodyAPI</text>
+
+    <line x1="616" y1="166" x2="616" y2="188" stroke="#999" stroke-width="1.5"/>
+    <rect x="608" y="188" width="177" height="30" rx="7" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.8"/>
+    <text x="696" y="207" text-anchor="middle" font-size="10.5" fill="#33506b">mesh_a　Coll + mass</text>
+
+    <line x1="616" y1="218" x2="616" y2="240" stroke="#999" stroke-width="1.5"/>
+    <rect x="608" y="240" width="177" height="30" rx="7" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.8"/>
+    <text x="696" y="259" text-anchor="middle" font-size="10.5" fill="#33506b">mesh_b　Coll + mass</text>
+
+    <text x="680" y="294" text-anchor="middle" font-size="11" fill="#2e7d4f">一組形狀共用同一份</text>
+    <text x="680" y="310" text-anchor="middle" font-size="11" fill="#2e7d4f">速度 / 質心 / 慣性張量</text>
+
+    <line x1="640" y1="326" x2="720" y2="326" stroke="#2e7d4f" stroke-width="2.5" marker-end="url(#aG)"/>
+    <rect x="612" y="336" width="136" height="22" rx="6" fill="#ffffff" stroke="#2e7d4f" stroke-width="1.5"/>
+    <text x="680" y="352" text-anchor="middle" font-size="10.5" fill="#2e7d4f">整組剛性運動</text>
+
+    <text x="680" y="398" text-anchor="middle" font-size="12" font-weight="bold" fill="#2e7d4f">查證要往下鑽兩層</text>
+    <text x="680" y="416" text-anchor="middle" font-size="10.5" fill="#2e7d4f">最外層看起來「沒有物理」是正常的</text>
+  </g>
+</svg>

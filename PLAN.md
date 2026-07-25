@@ -16,6 +16,18 @@
 | 6 | WebRTC 串流與多 client 觀看 | `docs/06-webrtc-streaming/` | 第一版完成(2026-07-20) |
 | 8 | 5.1 → 6.0.1 遷移 OOM/異常風險調查 | `docs/08-migration-5.1-to-6.0-oom-risk/` | 第一版完成(2026-07-20,調查報告性質,原始觀察未直接重現) |
 | 9 | 物理模擬基礎(timestep/solver/joint drive/reset 語意) | `docs/09-physics-simulation-fundamentals/` | 第一版完成(2026-07-23,含 3 個實戰案例接引) |
+| 10 | 場景資產的物理結構(剛體分層、質量、物理材質綁定) | `docs/10-scene-physics-authoring/` | 第一版完成(2026-07-26) |
+| 11 | 即時位姿與放置精度驗收 | `docs/11-live-pose-and-accuracy/` | 第一版完成(2026-07-26) |
+| 12 | 長跑維運(狀態分歧、看門狗分層、靜默失敗) | `docs/12-long-run-operations/` | 第一版完成(2026-07-26) |
+
+## R3(2026-07-26 完成)
+
+素材來自一段連續調試期的實測:場景物理結構盤點、放置精度量測工具鏈,以及一次「唯讀觀測 API 弄壞控制鏈」的事故。
+
+- [x] 新增 10 篇「場景資產的物理結構」:從「剛體 = 一組碰撞體的剛性集合」推導三層結構的必然性,並說明兩種錯法(RigidBodyAPI 掛葉節點 / CollisionAPI 只在剛體層)各自怎麼壞;質量比與接觸求解收斂的關係;USD material purpose 機制與 `ComputeBoundMaterial("physics")` 的誤判判準(回傳非 None 不代表綁上了);執行期補綁的三個邊界。
+- [x] 新增 11 篇「即時位姿與放置精度」:四種讀位姿方法的實測對照(只有 `omni.physx` 的 `get_rigidbody_transformation` 可用);`XFormPrim.get_world_poses()` 建立 tensor view 使 ActionGraph 既有 simulation view 永久失效的事故;讀錯層的雙胞胎陷阱(含跟隨鏡頭);量測管線的自證步驟(靜置全 0);誤差來源拆解與逐輪正回饋累積;兩個失敗修法(收緊容差反而惡化、高摩擦只治側滑)。
+- [x] 新增 12 篇「長跑維運」:重啟只重置物理狀態造成的帳面分歧(表現形式是「成功」);三層看門狗與執行器不重疊原則;基於 `framesDecoded` 的串流卡死偵測;三個殼層陷阱(`/proc/<pid>/fd/1` 反查 log、`pkill -f` 自匹配、zsh 不斷詞);A/B 測試的單變因紀律。
+- [x] 新增 5 張 SVG,chrome-headless 逐張渲染檢查(過大箭頭、標籤壓線、標記顏色不一致均已修):`rigidbody-collision-layering`、`live-pose-read-paths`、`placement-error-decomposition`、`state-divergence-on-restart`、`watchdog-layers`。
 
 ## R2(2026-07-23 完成)
 
