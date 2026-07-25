@@ -25,7 +25,7 @@
   <rect x="570" y="256" width="240" height="72" rx="10" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="2"/>
   <text x="690" y="278" text-anchor="middle" font-size="12" font-weight="bold" fill="#33506b">Fabric / USDRT 快取</text>
   <text x="690" y="297" text-anchor="middle" font-size="10.5" fill="#5b7fa6">扁平化,由物理層同步過去</text>
-  <text x="690" y="315" text-anchor="middle" font-size="10.5" fill="#b03a2e">只有被同步過的 prim 才有</text>
+  <text x="690" y="315" text-anchor="middle" font-size="10.5" fill="#b03a2e">須該 prim 已被寫入 world xform</text>
 
   <!-- ===== four read paths (left side) ===== -->
   <text x="215" y="60" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">四種讀法</text>

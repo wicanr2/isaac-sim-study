@@ -4,9 +4,11 @@
 
 核心只有一句話:**「讀得到座標」不等於「讀到的是模擬當下的座標」。**
 
-本篇分兩半。前半講怎麼正確讀即時位姿(以及三種讀不到的讀法各自怎麼騙人);後半講有了可靠位姿之後,怎麼把「放得準不準」變成可量測、可驗收的東西。
+本篇分兩半。前半講怎麼正確讀即時位姿(以及三種不該用的讀法各自怎麼騙人);後半講有了可靠位姿之後,怎麼把「放得準不準」變成可量測、可驗收的東西。
 
-延伸閱讀:[04 篇](../04-physics-world/README.md)(teleport vs drive 兩條互斥控制路徑)、[09 篇](../09-physics-simulation-fundamentals/README.md)(reset 語意)、[10 篇](../10-scene-physics-authoring/README.md)(剛體分層——決定你該讀哪一層)。
+官方文件:[omni.physx Python API(107.3)](https://docs.omniverse.nvidia.com/kit/docs/omni_physics/107.3/extensions/runtime/source/omni.physx/docs/api/python.html)、[omni.physics.tensors Python API(107.3)](https://docs.omniverse.nvidia.com/kit/docs/omni_physics/107.3/extensions/runtime/source/omni.physics.tensors/docs/api/python.html)、[isaacsim.core.prims(5.1.0)](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/py/source/extensions/isaacsim.core.prims/docs/index.html)、[usdrt::RtXformable(7.5.0)](https://docs.omniverse.nvidia.com/kit/docs/usdrt.scenegraph/7.5.0/api/classusdrt_1_1_rt_xformable.html)。
+
+本篇延伸閱讀:[04 篇](../04-physics-world/README.md)(teleport vs drive 兩條互斥控制路徑)、[09 篇](../09-physics-simulation-fundamentals/README.md)(reset 語意)、[10 篇](../10-scene-physics-authoring/README.md)(剛體分層——決定你該讀哪一層)。
 
 ## 1. 根本問題:場景狀態有不只一份
 
@@ -16,7 +18,7 @@
 
 - **USD Stage(authored)** —— 模型檔裡寫的初始值。除非有人明確寫回去,否則**模擬跑再久它都不變**。
 - **PhysX 內部狀態** —— solver 每步積分出來的真實位姿。這是「模擬當下」的定義。
-- **Fabric / USDRT** —— 為了讓渲染與下游元件不必每幀走 USD 而設的扁平化快取,由物理層同步過去。只有被同步過的 prim 才有資料。
+- **Fabric / USDRT** —— 為了讓渲染與下游元件不必每幀走 USD 而設的扁平化快取。官方對 `RtXformable::HasWorldXform()` 的定義是「**Check if the Fabric prim has any world transform attributes**」——它問的是「這個 prim 在 Fabric 上有沒有被寫入 world transform 屬性」,來源可以是明確建立、`SetWorldXformFromUsd()`,或模擬端寫入,**不是**一個「有沒有被同步過」的旗標。同一頁也明寫 Fabric 是 USD 之上的 transient store,寫進 Fabric 的值不會自動推回 USD stage。
 
 讀 authored 值不會報錯,因為那是一個合法且存在的數字。它只是回答了另一個問題:「這個物件當初被擺在哪」。
 
@@ -28,7 +30,7 @@
 |---|---|---|---|
 | `isaacsim.core.utils.xforms.get_world_pose` | ❌ authored 靜態值 | 無 | 只能當對照組 |
 | `usdrt`(Fabric)`Rt.Xformable` | ❌ 本組態 `HasWorldXform()=False` | 無 | 視 app 組態而定,不可預設可用 |
-| `isaacsim.core.prims.XFormPrim.get_world_poses()` | ✅ 即時 | 🔴 建立 PhysX tensor view,**使既有 simulation view 失效** | **禁用**(見 §3) |
+| `isaacsim.core.prims.XFormPrim.get_world_poses()` | ✅ 即時 | 🔴 我們的組態下觀察到 simulation view 失效(機制未定,見 §3) | **長駐腳本避用** |
 | `omni.physx` 的 `get_rigidbody_transformation(path)` | ✅ 即時 | 無(唯讀查詢) | ✅ **正解** |
 
 正解的用法:
@@ -39,8 +41,13 @@ from omni.physx import get_physx_interface
 r = get_physx_interface().get_rigidbody_transformation(prim_path)
 # {'ret_val': True,
 #  'position': carb.Float3(x, y, z),
-#  'rotation': carb.Float4(x, y, z, w)}     # 實測:分量順序是 x,y,z,w
+#  'rotation': carb.Float4(x, y, z, w)}
 ```
+
+官方對這支 API 的說明(Omni PhysX 107.3 Python API,逐字):
+
+> Gets rigid body current transformation in a global space. […] `'ret_val'` : bool - whether transformation was found;
+> `'position'` : float3 - rigid body position; `'rotation'` : float4 - rigid body rotation (**quat - x, y, z, w**)
 
 兩個限制值得記住:
 
@@ -48,13 +55,24 @@ r = get_physx_interface().get_rigidbody_transformation(prim_path)
 - 場景重載後、物理物件尚未註冊完成時呼叫,log 會印
   `SimulationInterface function could not locate any objects at the specified path`。屬時序問題(無害),但**真值擷取要延後到物理就緒之後**。
 
-> 關於 `rotation` 的分量順序:實測回傳為 `(x, y, z, w)`,與 USD `Gf.Quat` 的 `(w, xyz)` 慣例相反。轉四元數時務必重排,否則會得到一個看起來合理、但旋轉錯誤的結果——這種錯誤在 yaw 接近 0 時完全看不出來。
+> **版本邊界**:上述條目在 omni.physx 107.x 的官方 Python API 文件中可查到;110.1 的索引已查不到 `omni.physx.bindings._physx.PhysX` 這個 class 的條目,而官方**沒有**發出廢止或改名聲明。引用時請標死版本,不要寫成「已移除」。
 
-## 3. XFormPrim 那個坑值得單獨記一筆
+### 四元數順序在同一個技術棧裡是分裂的
 
-`isaacsim.core.prims.XFormPrim(path).get_world_poses()` 是一個**批次張量 API**:它設計來一次讀 N 個 prim 的位姿,回傳張量。要做到這件事,它背後必須建立一個 PhysX **tensor view**。
+這一點兩邊都有官方明文,而且**方向相反**:
 
-問題在於 view 之間會互相作廢。這個唯讀查詢一跑,ActionGraph 既有的 simulation view 就失效了:
+| API | 官方寫的順序 |
+|---|---|
+| `omni.physx` `get_rigidbody_transformation` | `quat - x, y, z, w`(scalar-last) |
+| `isaacsim.core.prims.*.get_world_poses()` | `quaternion is scalar-first (w, x, y, z)` |
+
+所以不能記成「Isaac Sim 的四元數是某種順序」——**要記成「這支 API 的四元數是什麼順序」**。轉換時漏了重排,會得到一個看起來合理、但旋轉錯誤的結果;而這種錯誤在 yaw 接近 0 時完全看不出來,通常要等到轉彎才炸。
+
+## 3. simulation view 失效:一次事故,以及它的官方邊界
+
+### 事故本身
+
+在長駐的 exec 腳本裡加入 `isaacsim.core.prims.XFormPrim(path).get_world_poses()` 來取位姿之後,log 開始出現:
 
 ```
 [omni.physx.tensors.plugin] Simulation view object is invalidated and cannot be used again
@@ -63,13 +81,36 @@ r = get_physx_interface().get_rigidbody_transformation(prim_path)
 ArticulationController: Failed to get DOF position targets from backend
 ```
 
-**後果是永久且靜默的**:此後關節指令收得到卻不會生效。而最惡毒的地方是——模擬時鐘照常前進、`/joint_states` 照常發布(還讀得到真實 DOF 值)、log 除了上面那幾行之外一切正常,但機具完全不動,任務一路逾時中止。單純重啟模擬器不一定能救,實測要走完整場景重載流程才恢復。
+**後果是永久且靜默的**:此後關節指令收得到卻不會生效。最惡毒的地方是——模擬時鐘照常前進、`/joint_states` 照常發布(還讀得到真實 DOF 值)、log 除了上面那幾行之外一切正常,但機具完全不動,任務一路逾時中止。單純重啟模擬器不一定能救,實測要走完整場景重載流程才恢復。移除這段呼叫後不再復發。
 
-**規則:長駐的 exec 腳本裡不要用 `isaacsim.core.prims.*`、`SimulationContext`、`ArticulationView` 這類會建立 tensor view 的 API,即使「只是想讀個座標」。**
+### 但「XFormPrim 建立了 tensor view」這個因果,官方文件不支持
 
-這件事的通則比 API 名單本身更有價值:
+這是本篇最需要誠實標註的一段。查證官方 5.1.0 API 文件後:
 
-> **在這類框架裡,觀測不是免費的。** 凡是會回傳批次張量的 API,背後幾乎都要先建立一個 view;而 view 是有狀態的資源,不是純函式。「唯讀操作應該無副作用」這個來自一般軟體的直覺,在模擬框架裡不成立。
+- `XFormPrim.get_world_poses()` 的參數 `usd` 官方寫的是「True to query from usd. Otherwise False to query from **Fabric** data」——**沒有提到 tensor API**;
+- `XFormPrim.initialize()` 的說明是「Create a physics simulation view […] using the PhysX tensor API」,但緊接著一句 **「Note: For this particular class, calling this method will do nothing」**;
+- 對照組:子類 `RigidPrim.initialize()` 就**沒有**那句「do nothing」,並額外警告每次 hard reset(Stop + Play)之後必須重新呼叫才能再互動。
+
+也就是說,**官方文件上明文與 tensor API 綁定的是 `RigidPrim` / `Articulation` 這類子類,不是 `XFormPrim`**。
+
+官方對「view 何時失效」的記載(`omni.physics.tensors`,逐字):
+
+> The simulation view can become invalid under certain conditions such as when a physX object participating in tensorization is **removed from the backend**. […]
+> `invalidate()` […] This is needed when **the topology of the stage changes** and the existing views of the physics objects cannot be used anymore.
+
+另外值得標註的是:`Simulation view object is invalidated…` 這個確切字串**只出現在 runtime 錯誤訊息、開發者論壇與 GitHub issue**,查不到官方文件出處——它是實際訊息,不是文件用語。
+
+**所以正確的結論是比較弱的一條**:在我們這個組態下,引入該呼叫與 view 失效之間有可重現的相關性,但確切機制未確認(可能經由 stage topology 變動,也可能經由其他路徑)。**不要把「XFormPrim 讀位姿 → 建立 tensor view → 弄壞 ActionGraph」當成已證實的機制傳下去。**
+
+### 可以安全帶走的規則
+
+即使機制未定,下面這條在官方文件上是站得住的,而且已足夠指導實作:
+
+**長駐的 exec 腳本裡,取位姿優先用 `omni.physx` 的唯讀查詢,避免 `isaacsim.core.prims.*`、`SimulationContext`、`ArticulationView` 這類明文與 PhysX tensor API 綁定的類別——即使「只是想讀個座標」。**
+
+以及一條更通用的直覺修正:
+
+> **在這類框架裡,觀測未必是免費的。** 回傳批次張量的 API 背後常常需要一個有狀態的 view,而 view 會因 stage 變動而互相作廢。「唯讀操作應該無副作用」這個來自一般軟體的直覺,在模擬框架裡不能預設成立——它可能成立,但要驗過。
 
 ## 4. 雙胞胎陷阱:讀對 API,讀錯層
 
@@ -84,7 +125,7 @@ ArticulationController: Failed to get DOF position targets from backend
     └── /mesh_b                    ← CollisionAPI + mass
 ```
 
-**這個錯誤和 §2 的錯誤症狀一模一樣(數字不變),原因卻完全不同。** 量測前先確認「哪一層才是會動的那個」:查 `RigidBodyAPI` 落在哪層,或直接對照 ROS TF 的 `base_link`。
+**這個錯誤和 §1 讀到 authored 值的症狀一模一樣(數字不變),原因卻完全不同。** 量測前先確認「哪一層才是會動的那個」:查 `RigidBodyAPI` 落在哪層,或直接對照 ROS TF 的 `base_link`。
 
 同一個陷阱會咬第二次,而且咬在意想不到的地方:**跟隨鏡頭**。把鏡頭綁在機具根 Xform 上,查詢靜默失敗、退回 authored 值,鏡頭就永遠定在初始位置。畫面上看起來像「鏡頭壞了」或「鏡頭參數沒調好」,實際上是位姿來源錯了——會讓人往完全錯誤的方向調參數。跟隨目標一定要指向剛體層。
 
@@ -120,7 +161,7 @@ ArticulationController: Failed to get DOF position targets from backend
 
 ## 7. 誤差會累積,而且是正回饋
 
-連續五輪同一個位置的平面座標:
+連續四輪同一個位置的平面座標:
 
 ```
 5.100 → 5.132 → 5.203 → 5.302     (每輪往深處推 5 ~ 10 cm)
@@ -167,4 +208,4 @@ ArticulationController: Failed to get DOF position targets from backend
 - [ ] 看連續 N 次的漂移曲線,不看單次
 - [ ] 每個調參假設都有前後對照數據,**失敗的假設也記錄**
 - [ ] 止血門檻訂在「還能運作的上緣」並實測驗證過
-- [ ] 長駐腳本裡沒有任何會建立 tensor view 的 API
+- [ ] 長駐腳本取位姿走 `omni.physx` 唯讀查詢,未使用與 PhysX tensor API 綁定的類別

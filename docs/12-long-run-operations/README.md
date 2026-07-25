@@ -4,7 +4,9 @@
 
 本篇記錄的都是「第二次遇到才發現自己第一次就該記下來」的東西:重啟造成的兩份狀態分歧、看門狗互相打架、串流凍在最後一幀,以及三個吃掉最多時間的環境陷阱。
 
-延伸閱讀:[06 篇](../06-webrtc-streaming/README.md)(WebRTC 單 client 限制與 relay 分流)、[09 篇 §7](../09-physics-simulation-fundamentals/README.md)(reset 到底重置了什麼)、[11 篇](../11-live-pose-and-accuracy/README.md)(漂移量測)。
+官方規格:[Identifiers for WebRTC's Statistics API(W3C)](https://www.w3.org/TR/webrtc-stats/)。
+
+本篇延伸閱讀:[06 篇](../06-webrtc-streaming/README.md)(WebRTC 單 client 限制與 relay 分流)、[09 篇 §7](../09-physics-simulation-fundamentals/README.md)(reset 到底重置了什麼)、[11 篇](../11-live-pose-and-accuracy/README.md)(漂移量測)。
 
 ## 1. 根本問題:狀態不只存在於模擬器裡
 
@@ -58,7 +60,13 @@
 
 WebRTC 連線中斷後,瀏覽器端的畫面會**凍在最後一幀**,而連線狀態可能還顯示正常。觀眾看到的是一張靜止的圖,不是錯誤訊息——展示現場最糟的失敗模式,因為沒有人會發現。
 
-不能等它報錯,要主動偵測。可用的活性訊號是 `getStats()` 裡的 `framesDecoded`:**連續 N 次沒有增長就判定卡住**,主動重建連線。
+不能等它報錯,要主動偵測。可用的活性訊號是 `getStats()` 裡的 `framesDecoded`,W3C 的定義(逐字)是:
+
+> It represents the total number of frames **correctly decoded** for this RTP stream, i.e., frames that would be displayed if no frames are dropped.
+
+「correctly decoded」正是我們要的語意——它不是收到多少封包,而是真的解出了多少可顯示的畫面。**連續 N 次沒有增長就判定卡住**,主動重建連線。
+
+(同一份規格裡的 `framesPerSecond`、`framesRendered`、`framesDropped` 也可用;`framesDecoded` 的好處是單調遞增,做差分最單純。以上欄位規格明訂 audio 不得存在,取值時要先過濾 `kind === 'video'`。)
 
 ```js
 // 3 秒輪詢一次,連續 3 次 framesDecoded 沒增長 → 重建連線
@@ -118,7 +126,7 @@ some_command $ARGS          # bash:展開成四個參數
 
 **做 A/B 測試之前,先確認自己沒有在同一時間改動別的東西。**
 
-我們曾在「自己的診斷腳本已經把模擬弄壞了」的狀態下(就是 [11 篇 §3](../11-live-pose-and-accuracy/README.md) 那個 tensor view 陷阱),去測兩個啟動旗標對機構動作的影響。結論是「這兩個旗標會讓機構失效」——冤枉了寫那段程式的同事。重測四種組合才平反:四種組合全部正常。
+我們曾在「自己的診斷腳本已經把模擬弄壞了」的狀態下(就是 [11 篇 §3](../11-live-pose-and-accuracy/README.md) 那個 simulation view 失效事故),去測兩個啟動旗標對機構動作的影響。結論是「這兩個旗標會讓機構失效」——冤枉了寫那段程式的同事。重測四種組合才平反:四種組合全部正常。
 
 > **症狀相同不代表原因相同。** 尤其當你手上同時有好幾個變因,而其中一個是你自己剛加上去的。
 
