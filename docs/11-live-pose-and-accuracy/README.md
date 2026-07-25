@@ -49,9 +49,50 @@ r = get_physx_interface().get_rigidbody_transformation(prim_path)
 > Gets rigid body current transformation in a global space. […] `'ret_val'` : bool - whether transformation was found;
 > `'position'` : float3 - rigid body position; `'rotation'` : float4 - rigid body rotation (**quat - x, y, z, w**)
 
-兩個限制值得記住:
+### ⚠ `ret_val=True` 不代表值可用
 
-- **只對剛體有效**。非剛體(純 Xform 的父節點)回 `ret_val=False`——這正是 §4 的陷阱;
+官方寫 `ret_val` 是「whether transformation was found」,直覺會把它當成成功旗標。**實測不是。**
+
+對一個**非剛體**的 prim(articulation 的根 Xform)呼叫,實測得到:
+
+```python
+{'ret_val': True,
+ 'position': carb.Float3(4.0356e-41, -3.806e+09, 3.20449e-41),
+ 'rotation': carb.Float4(2.52234e-44, 0, -1.4203e-21, 4.59135e-41)}
+```
+
+旗標是 `True`,位置卻是 `-3.8e+09`(場景只有幾十公尺),四元數范數約等於 0——這是**未初始化
+記憶體**。同一支 API 對真剛體回傳的值完全正常。
+
+所以呼叫端必須自己驗數值:
+
+```python
+def _pose_is_sane(pos, rot):
+    vals = [float(pos[0]), float(pos[1]), float(pos[2])]
+    q = [float(rot[i]) for i in range(4)]
+    if not all(math.isfinite(v) for v in vals + q):
+        return False
+    if max(abs(v) for v in vals) > 500.0:      # 遠超場景尺度
+        return False
+    n = math.sqrt(sum(v * v for v in q))
+    return 0.5 < n < 2.0                        # 垃圾四元數范數 ≈ 0
+```
+
+### 這個 bug 怎麼被掩蓋的(比 bug 本身更值得記)
+
+垃圾座標餵給跟隨鏡頭之後,畫面**沒有**飛到宇宙深處——因為鏡頭位置外面包了一層保護性的
+`clamp()`,把 x/y 夾回場景範圍。實際看到的是:鏡頭固定在場景邊界的某個角落,角度一直很奇怪。
+
+於是診斷結論變成「跟隨鏡頭參數沒調好」,往調參數的方向走了很久,真正的問題卻是**位姿來源
+根本是垃圾**。
+
+> **保護性 clamp 會把「壞掉」偽裝成「沒調好」。** 排查一個「輸出不太對但也不離譜」的元件時,
+> 先確認中間有沒有 clamp / 預設值 / fallback 把異常吸收掉了;必要時暫時關掉,或把夾之前的原始值
+> 印出來。防禦性程式碼保護了系統,同時也銷毀了證據。
+
+### 其他限制
+
+- **只對剛體有效**。非剛體要靠上面的數值檢查擋下來——這正是 §4 的陷阱;
 - 場景重載後、物理物件尚未註冊完成時呼叫,log 會印
   `SimulationInterface function could not locate any objects at the specified path`。屬時序問題(無害),但**真值擷取要延後到物理就緒之後**。
 
@@ -157,7 +198,22 @@ ArticulationController: Failed to get DOF position targets from backend
 
 最後一列是整張表的關鍵:**停靠準、放置不準,代表誤差不在導航,而在末端動作**——插取行程的深度,加上被搬物在承載面上的側滑。往導航參數去調,方向就錯了。
 
-分情境統計也不是形式主義:同一套動作,放進料架(有側向約束)和放在地面(無約束)的誤差分布完全不同。混在一起算平均,兩邊的問題都會被稀釋掉。
+分情境統計也不是形式主義,而且它給出了一個機制上的解釋。同一套動作的兩種情境實測:
+
+| 情境 | 平面誤差 | 偏航角誤差 |
+|---|---|---|
+| 放進料架(有側向約束) | 4 ~ 13 cm | 0.3 ~ 1.1° |
+| 放在地面暫存位(無約束) | 4.7 cm | **4.6°**(另一次量到 6.9°) |
+
+平面誤差同量級,偏航角差了近一個數量級。原因不難推:**料架的槽位幾何本身會把被搬物擺正**
+——放進去的過程中,側板與導軌構成被動約束,機具的航向誤差被吸收掉了。地面沒有任何東西做這件事,
+**機具停靠時的航向誤差就原封不動轉移到被搬物上**。
+
+這個推論還有一個佐證:地面那次的誤差分解是 x 差 0.6 cm、y 差 4.6 cm、yaw 差 4.6°——
+橫向幾乎沒差,誤差集中在「沿著走道方向 + 轉角」,正是航向偏差的特徵,不是插取行程的特徵。
+
+**含意**:兩種情境要往不同方向修。料架放置修插取行程(見 §7),地面放置修**停靠航向**——
+改插取參數對它幾乎沒有幫助。這是分情境統計唯一能告訴你的事,合併算平均就看不到了。
 
 ## 7. 誤差會累積,而且是正回饋
 
