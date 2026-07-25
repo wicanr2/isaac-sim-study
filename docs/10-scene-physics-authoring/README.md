@@ -4,7 +4,7 @@
 
 差別幾乎全在 prim 階層怎麼切、質量怎麼配、以及物理材質有沒有真的綁上去。這三件事的共同特徵是:**設錯不會報錯**,只會在動力學行為上表現成一堆看似無關的症狀。
 
-官方文件:[Rigid Bodies(Isaac Sim 4.5.0)](https://docs.isaacsim.omniverse.nvidia.com/4.5.0/physics/rigid_bodies.html)、[Physics Materials](https://docs.isaacsim.omniverse.nvidia.com/4.5.0/physics/physics_materials.html)、[OpenUSD UsdShade MaterialBindingAPI](https://openusd.org/release/api/class_usd_shade_material_binding_a_p_i.html)、[UsdPhysics 規格](https://openusd.org/release/wp_usdphysics.html)。API 版本以 Isaac Sim 4.5–5.1.x 為準。
+官方文件:[OpenUSD UsdShadeMaterialBindingAPI](https://openusd.org/dev/api/class_usd_shade_material_binding_a_p_i.html)、[UsdShade Material Assignment 白皮書](https://openusd.org/release/wp_usdshade.html)、[UsdPhysics schema](https://openusd.org/dev/api/usd_physics_page_front.html)、[Rigid Body Physics in USD 提案](https://openusd.org/release/wp_rigid_body_physics.html)。API 版本以 Isaac Sim 4.5–5.1.x 為準。
 
 ## 1. 根本問題:剛體不是「一個物件」,是「一組碰撞體的剛性集合」
 
@@ -83,11 +83,25 @@ USD 於是把它表達成階層:**RigidBodyAPI 掛在父節點,CollisionAPI 掛�
 
 USD 的材質綁定不是單一插槽。同一個 prim 可以同時綁「渲染用的外觀材質」與「物理用的摩擦/彈性材質」,兩者透過 **material purpose** 區分。這個設計是必要的:視覺與物理是兩套完全獨立的屬性,一個橡膠外觀的物件在物理上可能被刻意設成無摩擦。
 
-`UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial(purpose)` 就是「解析出這個 purpose 下實際生效的材質」的官方入口。
+UsdShade 白皮書把 `full`(最高保真的最終算圖)與 `preview`(服務於操作、建模、即時播放)訂為 canonical 值,加上 fallback 的 `allPurpose`(空 token),並明文「We see no reason to limit the possible purposes」——**purpose 是可擴充的**。UsdPhysics 正是用了這個擴充點(逐字):
+
+> USD Physics materials are bound in the same way as graphics materials using UsdShadeMaterialBindingAPI, **either wih no material purpose or with a specific "physics" purpose.**
+
+(原文的 `wih` typo 保留。)對應到 usda 就是 `rel material:binding:physics = </World/Looks/RegularMaterial>`。
+
+`UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial(purpose)` 是「解析出這個 purpose 下實際生效的材質」的官方入口。**Python 版與 C++ 版的回傳不同**,官方明文:
+
+> The python version of this method returns a tuple containing the bound material and the "winning" binding relationship.
+
+> ⚠ `MaterialBindingAPI.GetMaterialPurposes()` 官方只寫「Returns a vector of the possible values for the 'material purpose'」,**沒有逐字列舉內容**。要知道當前 USD 版本認哪些值,呼叫它印出來,不要憑印象寫死一份清單。
 
 ### 陷阱:它幾乎不會回 None
 
-這裡是最容易誤判的地方。查詢 `physics` purpose 時,若該 prim 上**沒有**綁物理材質,解析可能沿著 fallback 規則回傳 **`allPurpose` 的那個渲染材質**——你拿到一個非 `None` 的結果,程式看起來一切正常,但 PhysX 用的是預設摩擦值。
+這裡是最容易誤判的地方,而且它是**官方解析規則的直接後果**,不是實作 bug。官方對材質解析的第 3 條規則寫得很清楚(逐字):
+
+> The purpose of the resolved material binding must either match the requested special (i.e. restricted) purpose **or be an all-purpose binding**. The restricted purpose binding, if available is preferred over an all-purpose binding.
+
+也就是:查詢 `physics` purpose 時,若該 prim 上**沒有**綁物理材質,解析會合法地退回 **`allPurpose` 的那個渲染材質**——你拿到一個非 `None` 的結果,程式看起來一切正常,但 PhysX 用的是預設摩擦值。
 
 **判準不能是「有沒有回傳東西」,必須是「回傳的東西是不是 PhysicsMaterial」:**
 

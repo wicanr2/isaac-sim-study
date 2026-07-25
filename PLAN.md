@@ -25,8 +25,10 @@
 素材來自一段連續調試期的實測:場景物理結構盤點、放置精度量測工具鏈,以及一次「唯讀觀測 API 弄壞控制鏈」的事故。
 
 - [x] 新增 10 篇「場景資產的物理結構」:從「剛體 = 一組碰撞體的剛性集合」推導三層結構的必然性,並說明兩種錯法(RigidBodyAPI 掛葉節點 / CollisionAPI 只在剛體層)各自怎麼壞;質量比與接觸求解收斂的關係;USD material purpose 機制與 `ComputeBoundMaterial("physics")` 的誤判判準(回傳非 None 不代表綁上了);執行期補綁的三個邊界。
-- [x] 新增 11 篇「即時位姿與放置精度」:四種讀位姿方法的實測對照(只有 `omni.physx` 的 `get_rigidbody_transformation` 可用);`XFormPrim.get_world_poses()` 建立 tensor view 使 ActionGraph 既有 simulation view 永久失效的事故;讀錯層的雙胞胎陷阱(含跟隨鏡頭);量測管線的自證步驟(靜置全 0);誤差來源拆解與逐輪正回饋累積;兩個失敗修法(收緊容差反而惡化、高摩擦只治側滑)。
+- [x] 新增 11 篇「即時位姿與放置精度」:四種讀位姿方法的實測對照(只有 `omni.physx` 的 `get_rigidbody_transformation` 可用);一次 simulation view 永久失效的事故(含官方查證後的因果修訂,見下);讀錯層的雙胞胎陷阱(含跟隨鏡頭);量測管線的自證步驟(靜置全 0);誤差來源拆解與逐輪正回饋累積;兩個失敗修法(收緊容差反而惡化、高摩擦只治側滑)。
 - [x] 新增 12 篇「長跑維運」:重啟只重置物理狀態造成的帳面分歧(表現形式是「成功」);三層看門狗與執行器不重疊原則;基於 `framesDecoded` 的串流卡死偵測;三個殼層陷阱(`/proc/<pid>/fd/1` 反查 log、`pkill -f` 自匹配、zsh 不斷詞);A/B 測試的單變因紀律。
+- [x] **官方查證後的修訂(重要)**:原稿把「`XFormPrim.get_world_poses()` 建立 tensor view → 弄壞 ActionGraph」寫成機制,但 Isaac Sim 5.1.0 官方文件明寫 `XFormPrim.get_world_poses()` 讀的是 USD/Fabric、`XFormPrim.initialize()` 「will do nothing」,明文與 tensor API 綁定的是 `RigidPrim` / `Articulation` 子類。已改寫成「可重現的相關性、機制未確認」,並補上 `SimulationView.is_valid` / `invalidate()` 的官方失效條件,以及「該錯誤字串只出現在 runtime 與論壇,非文件用語」的標註。同時修正 usdrt `HasWorldXform()` 的語意(官方是「Fabric prim 有無被寫入 world transform 屬性」,不是「有沒有被同步過」),並補上四元數順序在 `omni.physx`(x,y,z,w)與 `isaacsim.core.prims`(w,x,y,z)之間分裂的官方對照。
+- [x] 補齊逐字引用與 URL:omni.physx `get_rigidbody_transformation`(107.3,含 110.1 索引查無的版本邊界標註)、OpenUSD 材質解析第 3 條規則與 UsdPhysics 的 `"physics"` purpose 明文、W3C `framesDecoded` 定義。移除先前憑印象寫下、未經查證的連結。
 - [x] 新增 5 張 SVG,chrome-headless 逐張渲染檢查(過大箭頭、標籤壓線、標記顏色不一致均已修):`rigidbody-collision-layering`、`live-pose-read-paths`、`placement-error-decomposition`、`state-divergence-on-restart`、`watchdog-layers`。
 
 ## R2(2026-07-23 完成)
@@ -60,5 +62,5 @@
 
 ## 待決事項
 
-- [ ] GitHub remote 名稱:CLAUDE.md 寫 `issac-sim-study`(疑為 isaac 拼字誤植),push 前與使用者確認。
+- [x] GitHub remote 名稱已定:`wicanr2/issac-sim-study`(拼字沿用既有 repo,不更名)。
 - [ ] USD 素材(倉儲場景、棧板、AMR 模型)體積大,決定放 repo、Git LFS 或外部下載連結。
