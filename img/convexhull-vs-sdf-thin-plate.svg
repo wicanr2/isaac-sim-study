@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="820" height="440" viewBox="0 0 820 440" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="820" height="440" fill="#ffffff"/>
+
+  <text x="410" y="30" text-anchor="middle" font-size="17" font-weight="600" fill="#1a1a1a">同一片帶孔棧板:碰撞近似決定叉齒插不插得進去</text>
+  <text x="410" y="52" text-anchor="middle" font-size="12.5" fill="#666">凸包填實凹特徵是定義的後果,不是精度不足</text>
+
+  <!-- ══ 左:convexHull ══ -->
+  <rect x="26" y="70" width="372" height="316" rx="8" fill="#fdf2f2" stroke="#e8b4b4"/>
+  <text x="212" y="94" text-anchor="middle" font-size="14.5" font-weight="600" fill="#b03030">convexHull —— 孔被填實</text>
+
+  <!-- 原始幾何(虛線輪廓) -->
+  <text x="212" y="118" text-anchor="middle" font-size="11.5" fill="#888">虛線 = 原始 mesh,實色 = 碰撞代理形狀</text>
+
+  <!-- 代理形狀:整塊實心 -->
+  <rect x="96" y="150" width="232" height="72" fill="#e8a0a0" stroke="#b03030" stroke-width="1.8"/>
+  <!-- 原始孔洞(虛線) -->
+  <rect x="132" y="162" width="46" height="48" fill="none" stroke="#8a3030" stroke-width="1.4" stroke-dasharray="5,4"/>
+  <rect x="246" y="162" width="46" height="48" fill="none" stroke="#8a3030" stroke-width="1.4" stroke-dasharray="5,4"/>
+  <text x="155" y="192" text-anchor="middle" font-size="10.5" fill="#8a3030">孔</text>
+  <text x="269" y="192" text-anchor="middle" font-size="10.5" fill="#8a3030">孔</text>
+  <text x="212" y="142" text-anchor="middle" font-size="12" fill="#5a5a5a">棧板</text>
+
+  <!-- 叉齒(也是凸包 → 實心楔形) -->
+  <polygon points="40,172 120,178 120,196 40,202" fill="#c05050" stroke="#8a2020" stroke-width="1.6"/>
+  <text x="46" y="246" font-size="11.5" fill="#8a2020">叉齒(凸包→實心楔形)</text>
+
+  <!-- 碰撞爆點 -->
+  <circle cx="122" cy="187" r="15" fill="none" stroke="#c0392b" stroke-width="2.4"/>
+  <line x1="112" y1="177" x2="132" y2="197" stroke="#c0392b" stroke-width="2.4"/>
+  <line x1="132" y1="177" x2="112" y2="197" stroke="#c0392b" stroke-width="2.4"/>
+
+  <text x="212" y="268" text-anchor="middle" font-size="13" fill="#b03030" font-weight="600">g &lt; 0(穿透)→ solver 產生巨大推開力</text>
+
+  <rect x="52" y="282" width="320" height="92" rx="6" fill="#ffffff" stroke="#e0c0c0"/>
+  <text x="66" y="301" font-size="12.5" fill="#333">conv(V) = { Σ λᵢvᵢ | λᵢ ≥ 0, Σλᵢ = 1 }</text>
+  <text x="66" y="322" font-size="12" fill="#555">孔內每一點都是孔周頂點的凸組合</text>
+  <text x="66" y="341" font-size="12" fill="#555">→ 必然落在凸包內 → 孔必被填實</text>
+  <text x="66" y="364" font-size="12.5" fill="#b03030" font-weight="600">症狀:完全插不進去、物件從未被抬起</text>
+
+  <!-- ══ 右:SDF ══ -->
+  <rect x="422" y="70" width="372" height="316" rx="8" fill="#f2faf4" stroke="#a8d4b4"/>
+  <text x="608" y="94" text-anchor="middle" font-size="14.5" font-weight="600" fill="#2c7a4b">sdf —— 孔被保留</text>
+  <text x="608" y="118" text-anchor="middle" font-size="11.5" fill="#888">體素化有號距離場 φ(x),內負外正</text>
+
+  <!-- 代理形狀:保留孔 -->
+  <path d="M 492 150 H 724 V 222 H 492 Z M 528 162 h 46 v 48 h -46 Z M 642 162 h 46 v 48 h -46 Z"
+        fill="#9fce b0" fill-rule="evenodd" stroke="#2c7a4b" stroke-width="1.8"/>
+  <path d="M 492 150 H 724 V 222 H 492 Z M 528 162 h 46 v 48 h -46 Z M 642 162 h 46 v 48 h -46 Z"
+        fill="#a8d8b8" fill-rule="evenodd" stroke="#2c7a4b" stroke-width="1.8"/>
+  <text x="700" y="142" text-anchor="middle" font-size="12" fill="#5a5a5a">棧板</text>
+
+  <!-- 叉齒插入孔中 -->
+  <rect x="436" y="176" width="120" height="18" fill="#3d8f5d" stroke="#20603a" stroke-width="1.6"/>
+  <text x="440" y="246" font-size="11.5" fill="#20603a">叉齒(sdf → 保留薄板形狀)</text>
+
+  <!-- 接觸標記 -->
+  <circle cx="551" cy="167" r="4" fill="#c05621"/>
+  <circle cx="551" cy="204" r="4" fill="#c05621"/>
+  <text x="600" y="136" font-size="11" fill="#c05621">接觸點 λₙ &gt; 0</text>
+
+  <text x="608" y="268" text-anchor="middle" font-size="13" fill="#2c7a4b" font-weight="600">g = 0 在孔壁上 → 生成有效接觸約束</text>
+
+  <rect x="448" y="282" width="320" height="92" rx="6" fill="#ffffff" stroke="#c0e0c8"/>
+  <text x="462" y="301" font-size="12.5" fill="#333">φ 是純量場,對拓撲沒有限制</text>
+  <text x="462" y="322" font-size="12" fill="#555">代價:記憶體 O(res³)、載入時體素化較慢</text>
+  <text x="462" y="341" font-size="12" fill="#555">判準:功能是否依賴凹特徵?是 → SDF</text>
+  <text x="462" y="364" font-size="12.5" fill="#2c7a4b" font-weight="600">實測:叉齒改 sdf(res 512)後 dyaw 0.1°</text>
+
+  <!-- 底部 -->
+  <rect x="26" y="396" width="768" height="0.8" fill="#e0e0e0"/>
+  <text x="410" y="424" text-anchor="middle" font-size="13.5" fill="#1a1a1a">
+    功能依賴凹特徵的零件(叉齒插孔、夾爪夾槽、插銷進洞)<tspan font-weight="600">必須</tspan>用 SDF;箱子、輪子、地板用凸包就夠
+  </text>
+</svg>
