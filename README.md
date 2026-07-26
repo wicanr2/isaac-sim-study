@@ -22,6 +22,12 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 
 從零開始建議按順序讀 01 → 04 → 09 → **13**,然後跳 07 動手;要自己建一個能跑物理搬運的場景,接著讀 10 → 11 → 12。13 篇是「為什麼調摩擦常常是錯的第一步」的完整推導,遇到夾不住/插不進去先讀它。已有 Isaac Sim 經驗、只想解特定問題,直接跳對應篇,每篇可獨立閱讀。API 版本以 Isaac Sim 4.5–5.1.x 為準(6.0 的 breaking change 見 01 篇 §3、08 篇)。08 篇性質是調查報告而非教學,結論分「官方出處」與「推測」兩級,誠實標註尚未實機重現的部分。
 
+## Claude Code skill
+
+[`skills/isaac-sim-physical-ai/SKILL.md`](skills/isaac-sim-physical-ai/SKILL.md) —— 把本 repo 的物理 AI 第一性原理
+濃縮成 agent 可直接載入的格式(接觸力學決定調參順序、碰撞近似是有損編碼、為什麼模擬器不報錯、三層真值、版本差異矩陣)。
+複製整個目錄到 `~/.claude/skills/` 即可使用。正文有完整推導與圖,skill 是濃縮版。
+
 ## 範例程式
 
 - [`examples/scriptnode_udp_pose.py`](examples/scriptnode_udp_pose.py) — ScriptNode:UDP 收 pose 直接控制 prim 位姿(實戰使用過的完整版)
