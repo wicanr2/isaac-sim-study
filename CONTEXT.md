@@ -29,6 +29,12 @@
 | texture streaming budget | Isaac Sim 控制貼圖串流佔用 GPU 記憶體上限的設定(`/rtx-transient/resourcemanager/texturestreaming/memoryBudget`),預設吃 60% GPU 記憶體容量。 |
 | Nucleus | Omniverse 的資產伺服器/版本控管系統;Isaac Sim 官方資產包掛在其下,路徑依版本命名空間化(如 `.../Isaac/6.0`)。 |
 | crate 格式(USD) | USD 的二進位序列化格式(`.usd` 副檔名但內容是 crate binary),以 `PXR-USDC` 開頭,欄位/schema 名稱存在字串 token 表,可用 `strings` 粗略比對版本差異。 |
+| gap function `g` | 兩物體最近點的**有號距離**:分開為正、恰好接觸為 0、穿透為負。接觸求解的基本量。 |
+| Signorini 條件 | 單邊接觸的三條約束:`g ≥ 0`、`λₙ ≥ 0`、`g·λₙ = 0`。第三條(互補)意謂「分開就沒有力,有力就一定貼著」。 |
+| 摩擦錐 | 庫倫摩擦的可行域:切向力受限於 `‖f_t‖ ≤ μ·λₙ`,幾何上是半頂角 `arctan(μ)` 的圓錐。`λₙ = 0` 時退化成一個點。 |
+| 碰撞近似(collision approximation) | 把 mesh 編碼成便於求 `g` 的代理形狀(convexHull / convexDecomposition / sdf / boundingCube …)。**有損**,損掉什麼決定哪些任務做不成。 |
+| 凸包 convexHull | 含所有頂點的最小凸集。**定義上無法表達凹特徵**——孔洞內每一點都是孔周頂點的凸組合,必被填實。 |
+| SDF(signed distance field) | 體素化的有號距離場 `φ(x)`,內負外正。純量場、對拓撲無限制,能表達孔洞與凹槽;代價是記憶體 `O(res³)`。 |
 | contact offset | 碰撞偵測開始產生接觸約束的距離門檻,不管 rest offset 設多少都適用;太小則偵測太晚(抖動/穿透),太大則約束變多變貴。 |
 | rest offset | 拿來膨脹或縮小碰撞幾何體的緩衝值,補視覺網格與碰撞近似體積之間的落差。 |
 | CCD(Continuous Collision Detection) | 連續碰撞偵測,對物體移動路徑做掃掠測試(sweep test),補「一步移動太快、離散取樣點漏抓」造成的穿透;只對有速度的連續運動有效,對每步直接覆寫位姿(teleport)無效。 |

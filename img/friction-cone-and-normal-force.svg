@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="760" height="420" fill="#ffffff"/>
+
+  <text x="380" y="30" text-anchor="middle" font-size="17" font-weight="600" fill="#1a1a1a">摩擦錐:切向力的上界正比於法向力</text>
+
+  <!-- ── 左:有接觸 ────────────────────────────────── -->
+  <rect x="30" y="52" width="330" height="330" rx="8" fill="#fafafa" stroke="#d8d8d8"/>
+  <text x="195" y="76" text-anchor="middle" font-size="14" font-weight="600" fill="#c05621">有接觸:g = 0,λₙ &gt; 0</text>
+
+  <!-- 錐體 -->
+  <path d="M 195 320 L 105 130 L 285 130 Z" fill="#fde8d7" stroke="#e08a3c" stroke-width="1.6"/>
+  <!-- 法線軸 -->
+  <line x1="195" y1="320" x2="195" y2="112" stroke="#7a7a7a" stroke-width="1.4" stroke-dasharray="5,4"/>
+  <polygon points="195,104 191,114 199,114" fill="#7a7a7a"/>
+  <text x="203" y="120" font-size="12.5" fill="#5a5a5a">法線 n</text>
+
+  <!-- 接觸面 -->
+  <line x1="75" y1="320" x2="315" y2="320" stroke="#333" stroke-width="2.4"/>
+  <text x="322" y="325" font-size="12.5" fill="#5a5a5a">接觸面</text>
+
+  <!-- 合力向量(錐內) -->
+  <line x1="195" y1="320" x2="252" y2="176" stroke="#c0392b" stroke-width="2.6"/>
+  <polygon points="255,168 246,177 256,181" fill="#c0392b"/>
+  <text x="258" y="166" font-size="12.5" fill="#c0392b" font-weight="600">合力</text>
+
+  <!-- 分量 -->
+  <line x1="195" y1="320" x2="195" y2="176" stroke="#2c7a4b" stroke-width="2"/>
+  <text x="150" y="250" font-size="13" fill="#2c7a4b" font-weight="600">λₙ</text>
+  <line x1="195" y1="176" x2="252" y2="176" stroke="#2d6cb5" stroke-width="2"/>
+  <text x="212" y="167" font-size="13" fill="#2d6cb5" font-weight="600">f_t</text>
+
+  <!-- 半頂角 -->
+  <path d="M 195 265 A 55 55 0 0 1 216 274" fill="none" stroke="#a05a20" stroke-width="1.3"/>
+  <text x="222" y="282" font-size="12" fill="#a05a20">arctan μ</text>
+
+  <text x="195" y="352" text-anchor="middle" font-size="13" fill="#333">‖f_t‖ ≤ μ · λₙ</text>
+  <text x="195" y="371" text-anchor="middle" font-size="12" fill="#666">錐內 = 黏著,錐面 = 滑動</text>
+
+  <!-- ── 右:無接觸 ────────────────────────────────── -->
+  <rect x="400" y="52" width="330" height="330" rx="8" fill="#fafafa" stroke="#d8d8d8"/>
+  <text x="565" y="76" text-anchor="middle" font-size="14" font-weight="600" fill="#8a8a8a">無接觸:g &gt; 0 ⟹ λₙ = 0</text>
+
+  <!-- 退化成一點 -->
+  <line x1="565" y1="320" x2="565" y2="112" stroke="#c8c8c8" stroke-width="1.4" stroke-dasharray="5,4"/>
+  <polygon points="565,104 561,114 569,114" fill="#c8c8c8"/>
+  <text x="573" y="120" font-size="12.5" fill="#a8a8a8">法線 n</text>
+
+  <line x1="445" y1="320" x2="685" y2="320" stroke="#333" stroke-width="2.4"/>
+  <text x="692" y="325" font-size="12.5" fill="#5a5a5a">接觸面</text>
+
+  <!-- 間隙 -->
+  <line x1="445" y1="286" x2="685" y2="286" stroke="#b0b0b0" stroke-width="2" stroke-dasharray="7,5"/>
+  <line x1="470" y1="288" x2="470" y2="318" stroke="#c0392b" stroke-width="1.2"/>
+  <text x="478" y="307" font-size="12.5" fill="#c0392b">g &gt; 0</text>
+  <text x="565" y="252" text-anchor="middle" font-size="12" fill="#888">物體懸空 / 未接觸</text>
+
+  <circle cx="565" cy="320" r="6" fill="#c0392b"/>
+  <text x="565" y="308" text-anchor="middle" font-size="12.5" fill="#c0392b" font-weight="600">錐退化成一個點</text>
+
+  <text x="565" y="352" text-anchor="middle" font-size="13" fill="#333">‖f_t‖ ≤ μ · 0 = 0</text>
+  <text x="565" y="371" text-anchor="middle" font-size="12" font-weight="600" fill="#c0392b">μ 再大也一樣</text>
+
+  <!-- 底部結論 -->
+  <rect x="30" y="392" width="700" height="0.8" fill="#e0e0e0"/>
+  <text x="380" y="412" text-anchor="middle" font-size="13.5" fill="#1a1a1a">
+    μ 控制錐的<tspan font-weight="600">張角</tspan>,不控制錐的<tspan font-weight="600">存在</tspan> —— 幾何決定 λₙ,摩擦只決定 f_t 的上限
+  </text>
+</svg>
