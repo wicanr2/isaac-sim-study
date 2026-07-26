@@ -225,6 +225,123 @@ x_{k+1} = x_k + Δ(x_k),  Δ > 0  ⟹  單調發散
 4. DDS 版本檢查(§5.1);
 5. 記憶體:大場景在 6.0 有 OOM 風險,遷移前先量 VRAM 基線。
 
+### 5.4 ROS2 TF graph:6.0 必壞的一層
+
+6.0 把 TF 的 prim 解析從 `ROS2PublishTransformTree` 拆到新的 `IsaacComputeTransformTree`
+(`isaacsim.core.nodes`),舊的 `targetPrims` 直連被標 deprecated。
+**deprecated 的表現形式是靜默產出空 topic + 以 30 Hz 洗版的 warning**,不是啟動失敗:
+
+```
+[Warning] [isaacsim.ros2.nodes] [PoseTree] target getObjectType eInvalid for '<prim>'
+```
+
+實測同一份 USD:5.1 上這個 warning **0 次**,6.0.1 上 **20,532,664 次**(約 125 MB/小時)。
+
+**判定手法**:同輸入、換版本、數同一個訊號出現幾次。這種定量對照比任何推論都有說服力,
+五分鐘就能拿到,而且能一次區分「版本回歸」與「設定寫錯」。
+
+**修法**:在驅動腳本裡 runtime 重建 graph(不改 USD),版本判斷用
+「該節點型別**註冊得到與否**」而非版本字串 —— 這樣同一份腳本兩台通吃。
+
+---
+
+## 5.5 跨主機移植:失效多半在接縫上,不在被移植的東西裡
+
+一次 5.1 → 6.0.1 的實戰移植裡,真正卡住整合的**沒有一個屬於 Isaac 本身**。
+更麻煩的是它們全部符合同一個模式:**載入成功、狀態正常、就是不會動。**
+
+### 5.5.1 USD 內嵌的絕對路徑 reference
+
+reference 斷鏈**不會中斷載入、不會報錯**,只讓該 prim 變成 typeless
+(`GetTypeName()` 回 `''`)、子節點數 0 —— 沒有 mesh、沒有剛體。
+
+實例:場景五顆棧板裡四顆寫死來源機的絕對路徑 `file:/home/<user>/<dir>/pallet.usd`,
+搬到新主機全滅,只有用相對路徑的那顆倖存。症狀表現成「叉車搬不動貨」。
+
+**移植前必做的兩個檢查(五分鐘)**:
+
+```bash
+strings scene.usd | grep -oE '[A-Za-z0-9_./-]*\.usd[a-z]?' | sort -u
+python3 -c "from pxr import Usd; Usd.Stage.Open('scene.usd')" 2>&1 | grep "Could not open"
+```
+
+容器內若 `from pxr import Usd` 失敗(6.0 的 `python.sh` 不帶 kit 的 PYTHONPATH),
+改用 `/isaac-sim/kit/python/bin/python3` 並把 `PYTHONPATH`/`LD_LIBRARY_PATH`
+指到 `extscache/omni.usd.libs-*`。
+
+**修法用 `Sdf.Layer` 層級改寫**(不需解析,所以不受斷鏈影響):
+
+```python
+dst = Sdf.Layer.CreateNew(DST); dst.TransferContent(Sdf.Layer.FindOrOpen(SRC))
+dst.GetPrimAtPath(p).referenceList.prependedItems = [Sdf.Reference('../pallet.usd')]
+dst.Save()
+```
+
+> 打包工具(Omniverse Collector)只收它認得的相依,**手動加的 reference 不會被收進去**——
+> 所以「Collected 包看起來自足」是假象。而且來源機上那條絕對路徑永遠是對的,
+> **在原機做任何驗證都測不出來**。
+
+### 5.5.2 素材目錄權限 vs 容器 uid
+
+貼圖目錄是 `drwxrwx---`(770,owner uid 1000),Isaac 容器跑在 `uid=1234` → 讀不到。
+主場景檔是 644 所以載得進去,於是「載入成功」,只是材質缺一半。`chmod -R o+rX` 解決。
+
+`tar` 會保留權限位;來源機上 owner 對得起來所以沒事,落到容器裡 uid 不同就全擋。
+**跨主機搬資產,權限跟檔案一樣要驗。**
+
+### 5.5.3 時間基準衝突:兩個 `/tf` 發布者
+
+```
+/tf Publisher count: 2
+  → Isaac 的 ROS2PublishTransformTree(發 sim time)
+  → 某支 Python bridge     (發 wall time)
+```
+
+訂閱端若 `use_sim_time=False` 且沒人發 `/clock`,wall time 那份先進 TF buffer,
+sim time 那份就成了「遠古資料」被整批丟棄:
+
+```
+Warning: TF_OLD_DATA ignoring data from the past for frame base_link at time 339.750000
+```
+
+下游拿不到任何有效位姿 → 判定無法執行 → 任務被裝置端取消(看起來像「車壞了」)。
+
+**先數發布者再查內容**:`ros2 topic info /tf -v`。頻率正常、topic 有資料,
+不代表資料**能用** —— 兩個發布者打架時 `topic hz` 反而更高。
+
+### 5.5.4 自動化腳本的 fallback 會把你打回舊軌
+
+殘留節點常常不是「沒殺乾淨」,而是**被某個 watchdog / listener 重新拉起來的**。
+判別:看進程的啟動時間 —— 若晚於你的清理動作,就是有東西在拉它。
+
+實例:一支 MQTT listener 用「讀場景檔找標記字串」決定重啟哪條軌的 ROS 節點,
+新軌沒登記標記 → fallback 到舊軌 → 把舊 bridge 拉回來污染 `/tf`。
+而它的原始碼註解**早就寫了**「若之後基線改變要同步更新」。
+
+> **註解裡的警語不是機制。** 要嘛讓它自動偵測,要嘛讓它在偵測不到時**拒絕動作**,
+> 而不是 fallback 到某個當時看起來合理的猜測。
+
+### 5.5.5 `pkill -f` 在 `docker exec` 裡會自殺
+
+`docker exec <c> bash -c "pkill -9 -f my_node; echo done"` —— `pkill` 的 pattern
+會匹配到**自己那行 shell 命令**,先殺掉自己,後面的 `echo` 從來不會執行
+(這也是判別徵兆:預期的輸出憑空消失)。用明確 PID `kill -9`,或 `[m]y_node` 括號技巧。
+
+### 5.5.6 移植的驗收條件
+
+**不能是「有沒有錯誤訊息」。** 上面五個問題全部「沒有錯誤訊息」。
+唯一有效的驗收是**端到端跑一趟真實任務**,並且用物理量而非帳面狀態判定:
+
+| 驗收項 | 量法 | 判準 |
+|---|---|---|
+| 抓握 | 貨物相對取放機構的距離,全程取樣 | 恆定(轉彎中變化 < 2 cm)= 咬住沒滑 |
+| 不飛 | 放下後連續取樣位置 | 多個取樣點完全不變、高度歸零 |
+| 落點 | 終點座標 vs 目標端點座標 | 平面誤差在容差內 |
+| 帳面一致 | 業務 DB 的貨物位置 | 與物理位置指向同一個儲位 |
+
+**在調物理參數之前,先確認你要調的東西真的存在、而且真的有被驅動。**
+那次移植若一開始就去調摩擦係數,會在一個根本沒有剛體的 prim 上調到天亮。
+
 ---
 
 ## 6. 快速體檢清單
@@ -241,6 +358,13 @@ x_{k+1} = x_k + Δ(x_k),  Δ > 0  ⟹  單調發散
 8. **雙軌對照** — 物理座標 vs 業務 DB(§4.1)。
 
 前七項全綠但東西還是沒動 → 懷疑傳輸層靜默丟資料(§5.1)。
+
+**剛換過主機或版本**,再補三項(§5.5):
+
+9. **東西還在嗎** — dump prim 數與剛體清單,對照來源機。斷鏈的 reference 會讓 prim
+   靜默變成 typeless 空殼;**md5 相同只證明檔案相同,不證明場景相同**。
+10. **有幾個發布者** — `ros2 topic info /tf -v`。兩個發布者用不同時間基準比沒有發布者更難查。
+11. **殘留是誰拉起來的** — 看進程啟動時間;晚於你的清理動作 = 有 watchdog/listener 在拉。
 
 ---
 
@@ -259,13 +383,6 @@ x_{k+1} = x_k + Δ(x_k),  Δ > 0  ⟹  單調發散
   —— 第 13 篇「接觸與抓握的第一性原理」(摩擦錐、凸包 vs SDF 兩張 SVG)、
   09 篇(timestep/CCD/PD/solver)、10 篇(材質綁定、質量比)、11 篇(讀位姿與放置精度)、
   08 篇(5.1→6.0 遷移風險)。
-- **本 repo 對應章節**:[13 接觸與抓握的第一性原理](../../docs/13-contact-and-grasp-first-principles/README.md)
-  (§1–§2 的完整推導與兩張 SVG)、[09 物理模擬基礎](../../docs/09-physics-simulation-fundamentals/README.md)、
-  [10 場景資產的物理結構](../../docs/10-scene-physics-authoring/README.md)、
-  [11 即時位姿與放置精度](../../docs/11-live-pose-and-accuracy/README.md)、
-  [12 長跑維運](../../docs/12-long-run-operations/README.md)。
-
-> 本檔是 Claude Code skill 格式(前置 YAML + 觸發條件),放在教學 repo 供直接取用:
-> 複製整個 `skills/isaac-sim-physical-ai/` 到 `~/.claude/skills/` 即可。
-> 內容與 repo 正文同源;正文有完整推導與圖,skill 是給 agent 用的濃縮版。
-> 專案內部實作細節(主機、路徑、探針命令表)不在公開版內。
+- **專案實例(按需讀)**:[`references/circ-ai-playbook.md`](references/circ-ai-playbook.md) ——
+  headless Isaac 5.1 的 UDP 探針命令表、連續取樣腳本、漂移門檻的取值理由、A/B 紀律。
+  **只有在需要可直接照抄的實作時才讀。**
