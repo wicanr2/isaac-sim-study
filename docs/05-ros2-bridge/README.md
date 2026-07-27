@@ -93,5 +93,8 @@ Isaac Sim:articulation 執行、TF 回報
 
 ## 5. 延伸閱讀
 
+- **同章深入**:[關節命令送不到:把驅動鏈路切成四段來查](joint-command-chain-diagnosis.md)
+  —— 上游印「已送出」、關節卻不動且無錯誤時,怎麼在控制器 / topic / ActionGraph / 關節
+  之間定位斷點,以及為什麼開環控制器印的 `current` 不能當量測值
 - 官方文件:Isaac Sim ROS2 Bridge、simulation_interfaces
 - 下一篇:[06 WebRTC 串流與多 client](../06-webrtc-streaming/README.md)
