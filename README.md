@@ -30,9 +30,14 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 
 ## Claude Code skill
 
-[`skills/isaac-sim-physical-ai/SKILL.md`](skills/isaac-sim-physical-ai/SKILL.md) —— 把本 repo 的物理 AI 第一性原理
-濃縮成 agent 可直接載入的格式(接觸力學決定調參順序、碰撞近似是有損編碼、為什麼模擬器不報錯、三層真值、版本差異矩陣)。
-複製整個目錄到 `~/.claude/skills/` 即可使用。正文有完整推導與圖,skill 是濃縮版。
+兩支,分工互補。複製整個目錄到 `~/.claude/skills/` 即可使用;正文有完整推導與圖,skill 是濃縮版。
+
+- [`skills/isaac-sim-physical-ai/SKILL.md`](skills/isaac-sim-physical-ai/SKILL.md) —— **版本無關的第一性原理**:
+  接觸力學決定調參順序、碰撞近似是有損編碼、為什麼模擬器不報錯、三層真值、版本差異矩陣。
+- [`skills/isaac-sim-60/SKILL.md`](skills/isaac-sim-60/SKILL.md) —— **6.0.x 特有的行為與陷阱**:
+  物理後端判定(log 有 newton ≠ Newton 在跑)、`maxJointVelocity` 從 1e6 變 inf、
+  參數的四個無聲失效條件、三個標 Deprecated 指向 Newton 的物理屬性、ROS 2 Bridge 的三個判讀陷阱、
+  容器內沒有 usdcat 時怎麼讀寫 USD、關鍵預設值速查。
 
 ## 範例程式
 
