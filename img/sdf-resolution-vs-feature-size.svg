@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="470" viewBox="0 0 880 470" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="880" height="470" fill="#ffffff"/>
+  <text x="440" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">用了 SDF 不等於孔表達得出來:解析度決定那個孔有幾個取樣點</text>
+  <text x="440" y="46" text-anchor="middle" font-size="12" fill="#777">體素邊長 = 最長 AABB 邊 ÷ sdfResolution(PhysX schema 定義)</text>
+
+  <defs>
+    <marker id="arrBad" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#c94f4f"/>
+    </marker>
+    <marker id="arrGood" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#5a9367"/>
+    </marker>
+  </defs>
+
+  <!-- ============ Panel A: 256 ============ -->
+  <g>
+    <text x="220" y="76" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#b34747">❌ sdfResolution = 256(schema 預設值)</text>
+    <rect x="24" y="88" width="392" height="250" rx="10" fill="#fdf7f6" stroke="#e6cfcf"/>
+
+    <!-- 粗體素格 (每格 32px = 4.21mm) -->
+    <g stroke="#d9b3b3" stroke-width="1">
+      <line x1="60" y1="130" x2="380" y2="130"/><line x1="60" y1="162" x2="380" y2="162"/>
+      <line x1="60" y1="194" x2="380" y2="194"/><line x1="60" y1="226" x2="380" y2="226"/>
+      <line x1="60" y1="258" x2="380" y2="258"/><line x1="60" y1="290" x2="380" y2="290"/>
+      <line x1="60" y1="130" x2="60" y2="290"/><line x1="92" y1="130" x2="92" y2="290"/>
+      <line x1="124" y1="130" x2="124" y2="290"/><line x1="156" y1="130" x2="156" y2="290"/>
+      <line x1="188" y1="130" x2="188" y2="290"/><line x1="220" y1="130" x2="220" y2="290"/>
+      <line x1="252" y1="130" x2="252" y2="290"/><line x1="284" y1="130" x2="284" y2="290"/>
+      <line x1="316" y1="130" x2="316" y2="290"/><line x1="348" y1="130" x2="348" y2="290"/>
+      <line x1="380" y1="130" x2="380" y2="290"/>
+    </g>
+
+    <!-- 棧板實體(上下兩塊木板) -->
+    <rect x="60" y="130" width="320" height="32" fill="#c8b394" stroke="#8f7b5e" stroke-width="1.5"/>
+    <rect x="60" y="258" width="320" height="32" fill="#c8b394" stroke="#8f7b5e" stroke-width="1.5"/>
+    <!-- 叉孔真實輪廓 -->
+    <rect x="60" y="162" width="320" height="96" fill="#ffffff" stroke="#5b7fa6" stroke-width="2.5" stroke-dasharray="7,4"/>
+    <text x="220" y="215" text-anchor="middle" font-size="13" fill="#5b7fa6" font-weight="bold">叉孔真實開口 18 mm</text>
+
+    <!-- 只有 4.3 個體素 -->
+    <line x1="404" y1="162" x2="404" y2="258" stroke="#c94f4f" stroke-width="2"/>
+    <line x1="399" y1="162" x2="409" y2="162" stroke="#c94f4f" stroke-width="2"/>
+    <line x1="399" y1="258" x2="409" y2="258" stroke="#c94f4f" stroke-width="2"/>
+
+    <!-- 亂掉的法線 -->
+    <line x1="140" y1="180" x2="128" y2="200" stroke="#c94f4f" stroke-width="2" marker-end="url(#arrBad)"/>
+    <line x1="220" y1="176" x2="238" y2="198" stroke="#c94f4f" stroke-width="2" marker-end="url(#arrBad)"/>
+    <line x1="300" y1="182" x2="286" y2="204" stroke="#c94f4f" stroke-width="2" marker-end="url(#arrBad)"/>
+
+    <text x="220" y="312" text-anchor="middle" font-size="12" fill="#b34747">體素 4.21 mm → 整個孔只有 <tspan font-weight="bold" font-size="13">4.3 個取樣點</tspan></text>
+    <text x="220" y="330" text-anchor="middle" font-size="11.5" fill="#b34747">孔緣位置與表面法線都只是粗略插值 → 接觸力方向不可靠</text>
+  </g>
+
+  <!-- ============ Panel B: 512 ============ -->
+  <g>
+    <text x="660" y="76" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#3f7a53">✅ sdfResolution = 512</text>
+    <rect x="440" y="88" width="392" height="250" rx="10" fill="#f6fbf7" stroke="#cfe2d4"/>
+
+    <!-- 細體素格 (每格 16px = 2.11mm) -->
+    <g stroke="#bcd8c4" stroke-width="0.8">
+      <line x1="476" y1="130" x2="796" y2="130"/><line x1="476" y1="146" x2="796" y2="146"/>
+      <line x1="476" y1="162" x2="796" y2="162"/><line x1="476" y1="178" x2="796" y2="178"/>
+      <line x1="476" y1="194" x2="796" y2="194"/><line x1="476" y1="210" x2="796" y2="210"/>
+      <line x1="476" y1="226" x2="796" y2="226"/><line x1="476" y1="242" x2="796" y2="242"/>
+      <line x1="476" y1="258" x2="796" y2="258"/><line x1="476" y1="274" x2="796" y2="274"/>
+      <line x1="476" y1="290" x2="796" y2="290"/>
+      <line x1="476" y1="130" x2="476" y2="290"/><line x1="492" y1="130" x2="492" y2="290"/>
+      <line x1="508" y1="130" x2="508" y2="290"/><line x1="524" y1="130" x2="524" y2="290"/>
+      <line x1="540" y1="130" x2="540" y2="290"/><line x1="556" y1="130" x2="556" y2="290"/>
+      <line x1="572" y1="130" x2="572" y2="290"/><line x1="588" y1="130" x2="588" y2="290"/>
+      <line x1="604" y1="130" x2="604" y2="290"/><line x1="620" y1="130" x2="620" y2="290"/>
+      <line x1="636" y1="130" x2="636" y2="290"/><line x1="652" y1="130" x2="652" y2="290"/>
+      <line x1="668" y1="130" x2="668" y2="290"/><line x1="684" y1="130" x2="684" y2="290"/>
+      <line x1="700" y1="130" x2="700" y2="290"/><line x1="716" y1="130" x2="716" y2="290"/>
+      <line x1="732" y1="130" x2="732" y2="290"/><line x1="748" y1="130" x2="748" y2="290"/>
+      <line x1="764" y1="130" x2="764" y2="290"/><line x1="780" y1="130" x2="780" y2="290"/>
+      <line x1="796" y1="130" x2="796" y2="290"/>
+    </g>
+
+    <rect x="476" y="130" width="320" height="32" fill="#c8b394" stroke="#8f7b5e" stroke-width="1.5"/>
+    <rect x="476" y="258" width="320" height="32" fill="#c8b394" stroke="#8f7b5e" stroke-width="1.5"/>
+    <rect x="476" y="162" width="320" height="96" fill="#ffffff" stroke="#5b7fa6" stroke-width="2.5" stroke-dasharray="7,4"/>
+    <text x="636" y="215" text-anchor="middle" font-size="13" fill="#5b7fa6" font-weight="bold">同一個 18 mm 開口</text>
+
+    <line x1="820" y1="162" x2="820" y2="258" stroke="#5a9367" stroke-width="2"/>
+    <line x1="815" y1="162" x2="825" y2="162" stroke="#5a9367" stroke-width="2"/>
+    <line x1="815" y1="258" x2="825" y2="258" stroke="#5a9367" stroke-width="2"/>
+
+    <!-- 一致的法線 -->
+    <line x1="556" y1="170" x2="556" y2="196" stroke="#5a9367" stroke-width="2" marker-end="url(#arrGood)"/>
+    <line x1="636" y1="170" x2="636" y2="196" stroke="#5a9367" stroke-width="2" marker-end="url(#arrGood)"/>
+    <line x1="716" y1="170" x2="716" y2="196" stroke="#5a9367" stroke-width="2" marker-end="url(#arrGood)"/>
+
+    <text x="636" y="312" text-anchor="middle" font-size="12" fill="#3f7a53">體素 2.11 mm → 孔有 <tspan font-weight="bold" font-size="13">8.5 個取樣點</tspan></text>
+    <text x="636" y="330" text-anchor="middle" font-size="11.5" fill="#3f7a53">孔緣與法線方向穩定 → 接觸力算得準</text>
+  </g>
+
+  <!-- ============ 底部:算式與實例 ============ -->
+  <rect x="24" y="352" width="808" height="100" rx="10" fill="#f7f9fb" stroke="#dde4ea"/>
+  <text x="44" y="376" font-size="12.5" font-weight="bold" fill="#33506b">怎麼反推該設多少</text>
+  <text x="44" y="398" font-size="12" fill="#444" font-family="monospace">resolution = 最長 AABB 邊 ÷ (最小特徵尺寸 ÷ 想要的取樣點數)</text>
+  <text x="44" y="418" font-size="12" fill="#444" font-family="monospace">           = 1.079 m ÷ (0.018 m ÷ 8) ≈ 480  →  取 512</text>
+  <text x="44" y="440" font-size="11.5" fill="#888">實例對照:同場景中叉齒 fork_liftA1 已被調成 512,棧板兩塊碰撞網格卻留在預設 256 —— 而需要表達精細凹特徵的正是棧板側。</text>
+  <text x="700" y="440" font-size="11.5" fill="#b35c1e">⚠ 調高記憶體漲得快,改完要實測 VRAM</text>
+</svg>

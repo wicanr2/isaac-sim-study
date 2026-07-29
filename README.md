@@ -21,6 +21,9 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 | [13](docs/13-contact-and-grasp-first-principles/README.md) | 接觸與抓握的第一性原理 | Signorini 互補條件 + 摩擦錐推出「μ 是乘在一個可能為零的量上」;碰撞近似是有損編碼、凸包填實凹特徵是定義的後果;調參順序為何必然是幾何→質量→offset→摩擦;開環致動的結構性漂移;為什麼模擬器永遠不報錯 |
 | [14](docs/14-ros2-bridge-6.0-architecture/README.md) | ROS 2 Bridge 在 6.0 的架構重組 | 一個 extension 拆成五個;設定鍵命名空間沒跟著搬家、extension 版本號與產品版號脫鉤、被 deprecate 但仍可用的 TF/JointState 接法——三個「看起來變了其實沒變」的判讀陷阱;rclpy 的 system→internal fallback 與「啟動前不要 source ROS」的機制 |
 | [15](docs/15-physics-backend-5.1-to-6.0/README.md) | 5.1 → 6.0 的物理層變動 | PhysX 換代(107→110)與 Newton 後端加入是**兩件獨立的事**;怎麼確定自己跑哪個後端(log 有 newton ≠ Newton 在跑);5.x 場景官方建議留在 PhysX;`MassAPI` 授權規則改變的無聲影響;跨版本排查順序 |
+| [16](docs/16-model-tuning-for-6.0/README.md) | **把 5.x 場景調到 6.0 能跑,東西不會亂飛** | 從零講起,不需先熟 Isaac Sim:一個「會被搬動的箱子」由哪些貼紙組成、為什麼 `.usd` 用 VS Code 打不開、怎麼把 crate 轉成文字改、什麼時候該改啟動腳本而不是改檔;四個「設定得進去但不生效」的結構問題(剛體/碰撞分層、質量掛錯層、材質綁定 fallback 回渲染材質、SDF 解析度不足以表達孔洞);東西亂飛的成因排序與診斷決策樹 |
+
+**完全不熟 Isaac Sim、但手上有一個「物理跑不對」的場景要修** → 直接讀 **[16](docs/16-model-tuning-for-6.0/README.md)**,它從「一個會被搬動的箱子由什麼組成」講起,不預設前置知識。
 
 從零開始建議按順序讀 01 → 04 → 09 → **13**,然後跳 07 動手;要自己建一個能跑物理搬運的場景,接著讀 10 → 11 → 12。13 篇是「為什麼調摩擦常常是錯的第一步」的完整推導,遇到夾不住/插不進去先讀它。已有 Isaac Sim 經驗、只想解特定問題,直接跳對應篇,每篇可獨立閱讀。API 版本以 Isaac Sim 4.5–5.1.x 為準;**升到 6.0 的人先讀 15 篇**(物理後端)與 14 篇(ROS 2),兩篇都以官方 repo tag 快照為依據並標註實測來源,6.0 的其他 breaking change 見 01 篇 §3、08 篇。08 篇性質是調查報告而非教學,結論分「官方出處」與「推測」兩級,誠實標註尚未實機重現的部分。
 
@@ -33,6 +36,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 ## 範例程式
 
 - [`examples/scriptnode_udp_pose.py`](examples/scriptnode_udp_pose.py) — ScriptNode:UDP 收 pose 直接控制 prim 位姿(實戰使用過的完整版)
+- [`examples/usd_peek.py`](examples/usd_peek.py) — 唯讀檢視 crate 場景裡某個 prim 的物理結構(貼了哪些 API、質量、碰撞近似、bbox),並可把子樹匯出成 `.usda` 文字。搭配 [16 篇](docs/16-model-tuning-for-6.0/README.md)
 
 ## 其他
 
