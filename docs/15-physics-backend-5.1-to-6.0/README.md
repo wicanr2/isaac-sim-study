@@ -164,6 +164,43 @@ exts."isaacsim.physics.newton".capture_graph_physics_step = true
 
 ---
 
+## 4.5 唯一改變的 schema 預設值:關節速度上限沒了
+
+逐項比對兩版 `PhysxSchema/resources/generatedSchema.usda` 裡所有帶預設值的屬性(107.3.26 共 235 條、110.1.13 共 190 條),**同名屬性的預設值只有一項不同**:
+
+```
+physxJoint:maxJointVelocity      107.3.26: 1000000        110.1.13: inf
+```
+
+官方 doc:
+
+> Maximum joint velocity. **Only applies to joints that are part of an articulation**
+> (see PhysicsArticulationRootAPI). All joint axes will use the same maximum joint velocity value.
+
+也就是說,**5.x 時代所有 articulation 的關節都有一道 1e6 的速度上限,6.0 把它拿掉了**。求解器在接觸不穩定時算出的異常關節速度,在 5.x 會被夾住,在 6.0 原樣生效。
+
+對機械臂、夾爪、堆高機叉齒這類**由 articulation 驅動去接觸別的物體**的場景,這是一條需要留意的行為變更:關節暴衝會把巨大動量傳給被接觸的物體,表現為「東西突然飛出去」,而且**不會有任何錯誤訊息**。
+
+旁證是 110 同時**新增**的兩個場景層屬性,其中一個正是同一組機制:
+
+```
+physxScene:solveArticulationContactLast   ← 110 新增
+  doc: Order articulation contact constraints and articulation joint
+       maximum velocity constraints so that they are solved after all
+       other constraints in the solver.
+physxScene:disableSleeping                ← 110 新增
+```
+
+「articulation joint **maximum velocity constraints**」——110 不只改了預設值,還為這組約束加了求解順序的開關。**這一區在 107 → 110 之間被整體動過。**
+
+**遷移時的處置**:如果你的場景依賴 articulation 去推、夾、叉東西,升上 6.0 後行為變得不穩,**先顯式把 `physxJoint:maxJointVelocity` 設回一個有限值**再談其他調參。這是一個成本極低、機制明確的對照實驗。
+
+> ⚠ 這個比對只涵蓋 **USD schema 曝露的預設值**。PhysX SDK 內部不透過 schema 曝露的預設值沒有比對到,C++ 層仍可能有其他變更。「只有一項不同」限定在 schema 這一層。
+
+另外,110 相對 107 **移除了 45 條**屬性,全部集中在 `physxDeformable*` / `physxParticle*` / `physxAutoParticleCloth*` / `physxAutoAttachment*`——與 §4 講的「粒子與可變形體整組移除」一致,剛體搬運類場景不受影響。
+
+---
+
 ## 5. Schema 授權規則的變動:匯入器改寫 Newton schema
 
 6.0 的 URDF / MJCF 匯入器**預設對匯入資產套用 Newton schema**,可在匯入時選後端。具體變動:
@@ -262,6 +299,7 @@ source/deprecated/isaacsim.core.utils/
 | log 有 newton 就是 Newton 嗎? | 否。`pip.newton` 與 `usd.schema.newton` 在 PhysX 環境也會載入 |
 | 舊 API 會不會壞? | 短期不會,搬到 `source/deprecated/` 仍可用 |
 | 升級最該重新量的是什麼? | 質量(`MassAPI` 授權規則變了且不報警) |
+| **articulation 推東西變得會亂飛?** | **`physxJoint:maxJointVelocity` 預設從 1e6 變成 inf,先設回有限值試(§4.5)** |
 
 ---
 
