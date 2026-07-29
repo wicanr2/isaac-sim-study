@@ -1,6 +1,6 @@
 ---
 name: isaac-sim-physical-ai
-description: 在 Isaac Sim(4.5 / 5.1 / 6.0.x)上做 physical AI —— 讓模擬裡的接觸、抓握、搬運「物理上真的成立」,而不是帳面成功。核心命題兩條:①接觸力學決定調參順序,摩擦係數 μ 是一個乘數,乘在一個可能為零的法向力上,所以幾何永遠先於摩擦;②物理求解器沒有「非法狀態」的概念,永遠給得出答案,所以「沒報錯」攜帶零資訊,只能主動量測。附版本差異矩陣與 headless 觀測手法。觸發:「夾爪/叉齒抓不住、物件滑掉、插不進去」「調摩擦 / 碰撞近似 / 接觸參數 / 質量」「Isaac 車不動但沒錯誤」「模擬跑得動但實體沒動」「headless Isaac 怎麼除錯」「Isaac 版本升級 / 5.1→6.0 遷移」「sim-to-sim 把場景搬到另一台」。
+description: 在 Isaac Sim(4.5 / 5.1 / 6.0.x)上做 physical AI —— 讓模擬裡的接觸、抓握、搬運「物理上真的成立」,而不是帳面成功。核心命題兩條:①接觸力學決定調參順序,摩擦係數 μ 是一個乘數,乘在一個可能為零的法向力上,所以幾何永遠先於摩擦;②物理求解器沒有「非法狀態」的概念,永遠給得出答案,所以「沒報錯」攜帶零資訊,只能主動量測。附版本差異矩陣(含 6.0 的 PhysX 110 換代與 Newton 後端判定)與 headless 觀測手法。觸發:「夾爪/叉齒抓不住、物件滑掉、插不進去」「調摩擦 / 碰撞近似 / 接觸參數 / 質量」「Isaac 車不動但沒錯誤」「模擬跑得動但實體沒動」「headless Isaac 怎麼除錯」「Isaac 版本升級 / 5.1→6.0 遷移」「sim-to-sim 把場景搬到另一台」「6.0 用 PhysX 還是 Newton / 後端怎麼選」「MassAPI / Newton schema 靜默失效」。
 ---
 
 # Isaac Sim Physical AI
@@ -193,7 +193,9 @@ x_{k+1} = x_k + Δ(x_k),  Δ > 0  ⟹  單調發散
 | 面向 | 4.5 | 5.1 | 6.0.x |
 |---|---|---|---|
 | Kit | 105 | 106 | 110 |
-| 核心 API 命名空間 | `omni.isaac.*` | `isaacsim.core.api` / `.prims` / `.utils` | 整組移至 `isaacsim.core.experimental.*`(**breaking**) |
+| **物理引擎** | PhysX | PhysX | PhysX **或 Newton**(要顯式選,見 §5.6) |
+| **PhysX 版本**(實測) | — | `omni.physx-107.3.26` | `omni.physx-110.1.13`(**跨三個大版號**) |
+| 核心 API 命名空間 | `omni.isaac.*` | `isaacsim.core.api` / `.prims` / `.utils` | 整組移至 `isaacsim.core.experimental.*`(**breaking**);舊的搬到 `source/deprecated/`,仍可用 |
 | 關節目標設定 | `set_joint_position_targets` | 同左 | **已移除** → 用 `apply_action`(PD 物理驅動) |
 | 典型部署 | — | native(`isaac-sim.streaming.sh` + `isaacsim.exp.full.streaming.kit`) | 容器 `nvcr.io/nvidia/isaac-sim:6.0.1` |
 | ROS2 bridge 內附 DDS | humble FastDDS 2.6.11 | 同左 | **jazzy FastDDS 2.14.6** |
@@ -344,10 +346,55 @@ Warning: TF_OLD_DATA ignoring data from the past for frame base_link at time 339
 
 ---
 
+## 5.6 6.0 的第零步:先確認 active 物理後端
+
+6.0 起 PhysX 不再是唯一選擇。**在調任何接觸參數之前,先確定跑的是哪個引擎** —— 兩者的求解器不同,
+參數語意與調參經驗不能互換。
+
+判定機制:`isaacsim.core.simulation_manager` 的 `default_engine` 預設 `physx`,**但**
+`isaacsim.physics.newton` 的 `auto_switch_on_startup` 預設 `true` —— 只要該 extension 被啟用,
+啟動時就會把 active engine 搶成 Newton,`default_engine` 寫什麼都沒用。
+
+```
+app 有沒有 enable isaacsim.physics.newton ?
+├─ 沒有 → PhysX
+└─ 有 → auto_switch_on_startup(預設 true)→ Newton
+```
+
+**判定三法**(由弱到強):
+
+| 方法 | 怎麼做 | 注意 |
+|---|---|---|
+| 讀 app 檔 | grep `/isaac-sim/apps/<你用的>.kit` 有無 `isaacsim.physics.newton` | 最直接的靜態證據 |
+| 看 log | 找 `[ext: isaacsim.physics.newton-…] startup` | **見下方陷阱** |
+| 執行期查詢 | `SimulationManager.get_active_physics_engine()` | 最權威 |
+
+⚠ **陷阱:log 出現 newton 字樣不代表 Newton 在跑。** 一台實測跑 PhysX 的 6.0.1:
+
+```
+[ext: isaacsim.pip.newton-0.6.1] startup          ← pip 套件,標準安裝就有
+[ext: omni.usd.schema.newton-1.2.1] startup       ← USD schema,認得 token 而已
+[ext: omni.physx-110.1.13] startup                ← 真正在跑的
+```
+
+關鍵是**有沒有** `isaacsim.physics.newton`(引擎本體)。只有它 startup 才代表 Newton 參與模擬。
+
+**選哪個**:官方對「來自 5.x 的既有 PhysX 場景」的建議是**留在 PhysX**;Newton 的定位是 RL 大規模平行、
+可微分模擬、軟體/布料。做版本遷移的情境,通常不該切過去。
+
+⚠ 另一個組合風險:**6.0 的 URDF/MJCF 匯入器預設套 Newton schema**
+(`NewtonArticulationRootAPI` 取代 `PhysxArticulationAPI`、`NewtonMimicAPI` 取代 `PhysxMimicJointAPI`),
+而 `MassAPI` 改成**只在設定非預設密度時才授權**。若資產帶 Newton schema 卻跑在 PhysX 上,
+那些設定會被**靜默丟棄**(schema extension 有載入,所以讀得進去、不報錯)。
+**跨版本搬場景時,質量屬於「要重新量、不能假設沿用」的那一類。**
+
+---
+
 ## 6. 快速體檢清單
 
 東西不動 / 沒被搬走 / 數字很怪,照這個順序問:
 
+0. **(6.0 起)active 物理後端是哪個** — PhysX 還是 Newton?決定後面所有參數語意(§5.6)。
 1. **進程與 log** — 元件在不在?log 最後寫入距今幾秒?(從 `/proc/<pid>/fd/1` 反查真檔,**不要猜檔名**)
 2. **載入的是哪份場景** — `/proc/<pid>/maps` 反查 + 對 md5。這是唯一可信的答案。
 3. **位姿來源** — 拿到的是**即時值**還是 authored fallback?值合理嗎(§3)?
@@ -364,6 +411,9 @@ Warning: TF_OLD_DATA ignoring data from the past for frame base_link at time 339
 9. **東西還在嗎** — dump prim 數與剛體清單,對照來源機。斷鏈的 reference 會讓 prim
    靜默變成 typeless 空殼;**md5 相同只證明檔案相同,不證明場景相同**。
 10. **有幾個發布者** — `ros2 topic info /tf -v`。兩個發布者用不同時間基準比沒有發布者更難查。
+    ⚠ **問「有幾個」要問 topic,不要數進程**:`pgrep -x` 與 `ps -e -o comm` 會把 zombie 一起算進去
+    (zombie 的 `comm` 還在、`cmdline` 是空的)。實測一台 151 個同名進程裡 150 個是 zombie。
+    非數進程不可時用 `ps -ef | grep <完整 cmdline>`,有疑慮讀 `/proc/<pid>/status` 的 `State`。
 11. **殘留是誰拉起來的** — 看進程啟動時間;晚於你的清理動作 = 有 watchdog/listener 在拉。
 
 ---
