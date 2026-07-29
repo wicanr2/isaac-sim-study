@@ -22,6 +22,21 @@ import sys
 from pxr import Usd, UsdGeom, UsdPhysics
 
 
+def dump_attrs(prim, keyword=None):
+    """印出 prim 上所有 authored 屬性。查 PhysicsScene 的 timestep/solver/CCD 用這個。"""
+    print("--- %s <%s> 的 authored 屬性 ---" % (prim.GetPath(), prim.GetTypeName()))
+    for attr in prim.GetAttributes():
+        if not attr.HasAuthoredValue():
+            continue
+        name = attr.GetName()
+        if keyword and keyword.lower() not in name.lower():
+            continue
+        try:
+            print("  %-52s = %s" % (name, attr.Get()))
+        except Exception as e:
+            print("  %-52s = <讀取失敗: %s>" % (name, e))
+
+
 def describe(prim, indent=0):
     pad = "  " * indent
     apis = []
@@ -70,6 +85,13 @@ def main():
         return 1
     # LoadNone 開的 stage 需要把這一支 payload 載進來才看得到子樹
     prim.Load()
+
+    if "--attrs" in sys.argv:
+        i = sys.argv.index("--attrs")
+        kw = sys.argv[i + 1] if len(sys.argv) > i + 1 and not sys.argv[i + 1].startswith("--") else None
+        print()
+        dump_attrs(prim, kw)
+        return 0
 
     print("\n=== %s 的物理結構 ===" % prim_path)
     describe(prim)
