@@ -22,6 +22,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 | [14](docs/14-ros2-bridge-6.0-architecture/README.md) | ROS 2 Bridge 在 6.0 的架構重組 | 一個 extension 拆成五個;設定鍵命名空間沒跟著搬家、extension 版本號與產品版號脫鉤、被 deprecate 但仍可用的 TF/JointState 接法——三個「看起來變了其實沒變」的判讀陷阱;rclpy 的 system→internal fallback 與「啟動前不要 source ROS」的機制 |
 | [15](docs/15-physics-backend-5.1-to-6.0/README.md) | 5.1 → 6.0 的物理層變動 | PhysX 換代(107→110)與 Newton 後端加入是**兩件獨立的事**;怎麼確定自己跑哪個後端(log 有 newton ≠ Newton 在跑);5.x 場景官方建議留在 PhysX;`MassAPI` 授權規則改變的無聲影響;跨版本排查順序 |
 | [16](docs/16-model-tuning-for-6.0/README.md) | **把 5.x 場景調到 6.0 能跑,東西不會亂飛** | 從零講起,不需先熟 Isaac Sim:一個「會被搬動的箱子」由哪些貼紙組成、為什麼 `.usd` 用 VS Code 打不開、怎麼把 crate 轉成文字改、什麼時候該改啟動腳本而不是改檔;四個「設定得進去但不生效」的結構問題(剛體/碰撞分層、質量掛錯層、材質綁定 fallback 回渲染材質、SDF 解析度不足以表達孔洞);東西亂飛的成因排序與診斷決策樹 |
+| [17](docs/17-physics-parameter-tuning-6.0/README.md) | **6.0 的物理調參:入口、生效條件、完整參數表** | 三個調參入口(USD 屬性 / 啟動參數 / runtime API);四個會讓設定**無聲失效**的條件(貼錯 prim 缺對應 API、後端不吃、被 runtime patch 覆蓋、combine mode 稀釋);`physxScene`/`RigidBody`/`Collision`/`SDF`/`Material`/`Articulation`/`Joint` 七類的完整預設值表(取自 6.0.1 實機 schema);穩定性問題的調參順序;為什麼只有「設極端值看行為差異」能證明參數生效 |
 
 **完全不熟 Isaac Sim、但手上有一個「物理跑不對」的場景要修** → 直接讀 **[16](docs/16-model-tuning-for-6.0/README.md)**,它從「一個會被搬動的箱子由什麼組成」講起,不預設前置知識。
 
@@ -36,6 +37,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 ## 範例程式
 
 - [`examples/scriptnode_udp_pose.py`](examples/scriptnode_udp_pose.py) — ScriptNode:UDP 收 pose 直接控制 prim 位姿(實戰使用過的完整版)
+- [`examples/scan_physics.py`](examples/scan_physics.py) — 掃描場景所有 **authored** 物理屬性(區分「刻意設定」與「吃預設」),並列出各 prim 的 `apiSchemas`。跨版本/跨主機比對場景時的主力工具
 - [`examples/usd_peek.py`](examples/usd_peek.py) — 唯讀檢視 crate 場景裡某個 prim 的物理結構(貼了哪些 API、質量、碰撞近似、bbox),並可把子樹匯出成 `.usda` 文字。搭配 [16 篇](docs/16-model-tuning-for-6.0/README.md)
 
 ## 其他

@@ -53,6 +53,9 @@
 | 慣性張量 | 物體對旋轉的「阻力」,由質量分布計算。算出來異常小的話,微小力矩就造成巨大角加速度——症狀是物件先瘋狂旋轉再飛走。質量貼在碰撞子層而非剛體層時特別容易出問題。 |
 | 孤兒設定 | 貼在「缺少對應能力標籤」的 prim 上的參數,例如把 `sdfResolution` 設在沒有 `CollisionAPI` 的 prim 上。grep 得到、不報錯、完全不生效。 |
 | runtime patch(啟動時套用) | 不改場景檔,而在啟動腳本(`--exec`)於場景載入後用程式改屬性。好處是原檔不動、腳本可版控可 review、同一份場景能餵給不同版本的機器;代價是啟動多幾秒且腳本要維護。 |
+| combine mode | 兩個接觸面材質合成有效值的方式(`average` 預設 / `min` / `max` / `multiply`),由 `physxMaterial:frictionCombineMode` 等指定。**同一個綁定狀態在不同 mode 下有效值完全不同**:`max` 下單側綁定就足夠,`min` 下綁了等於沒綁。 |
+| authored value | 場景檔真的寫下的值,相對於「吃 schema 預設」。判斷一個設定是刻意為之還是預設值,要看它有沒有 authored;`HasAuthoredValue()` 是這個區分的 API。 |
+| 哨兵值 `-inf` | PhysX schema 用來表示「未設定,由系統推導」的預設值(如 `physxCollision:contactOffset`),不是真的負無限大。 |
 | umbrella package(門面 extension) | 自己不含實作、只在 `[dependencies]` 列出實作者的 extension。Kit 會遞迴解析依賴,所以 enable 門面等於 enable 整套。6.0 的 `isaacsim.ros2.bridge` 即為此形態。 |
 | active physics engine | 當前實際參與模擬的物理引擎(`physx` 或 `newton`)。由 `isaacsim.core.simulation_manager` 的 `default_engine` 與 `isaacsim.physics.newton` 的 `auto_switch_on_startup` 共同決定,後者預設 true 會搶成 Newton。 |
 | `auto_switch_on_startup` | `isaacsim.physics.newton` 的設定,預設 `true`:只要該 extension 被啟用,啟動時就把 active engine 切成 Newton,即使 `default_engine` 仍寫 `physx`。 |
