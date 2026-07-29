@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="440" viewBox="0 0 880 440" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="880" height="440" fill="#ffffff"/>
+  <text x="440" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">物理材質綁定:ComputeBoundMaterial 幾乎不會回 None,所以「查得到」證明不了任何事</text>
+  <text x="440" y="46" text-anchor="middle" font-size="12" fill="#777">判準不是「有沒有回傳」,是「回傳的型別是不是 PhysicsMaterial」</text>
+
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#8a97a5"/>
+    </marker>
+  </defs>
+
+  <!-- 查詢起點 -->
+  <rect x="30" y="86" width="200" height="54" rx="8" fill="#eef3fa" stroke="#5b7fa6" stroke-width="1.5"/>
+  <text x="130" y="108" text-anchor="middle" font-size="12.5" font-weight="bold" fill="#33506b">對某個碰撞體查詢</text>
+  <text x="130" y="128" text-anchor="middle" font-size="11.5" fill="#33506b" font-family="monospace">ComputeBoundMaterial("physics")</text>
+
+  <line x1="230" y1="113" x2="286" y2="113" stroke="#8a97a5" stroke-width="1.6" marker-end="url(#ar)"/>
+
+  <!-- 分岔 -->
+  <rect x="290" y="86" width="180" height="54" rx="8" fill="#f7f9fb" stroke="#b9c4cf"/>
+  <text x="380" y="108" text-anchor="middle" font-size="12" fill="#444">這個 prim 上有直接綁定</text>
+  <text x="380" y="126" text-anchor="middle" font-size="12" fill="#444">物理材質嗎?</text>
+
+  <!-- 有 → 正確 -->
+  <line x1="470" y1="100" x2="536" y2="100" stroke="#8a97a5" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="503" y="93" text-anchor="middle" font-size="11" fill="#5a9367" font-weight="bold">有</text>
+  <rect x="540" y="76" width="310" height="48" rx="8" fill="#f2f9f4" stroke="#5a9367" stroke-width="1.5"/>
+  <text x="556" y="96" font-size="12" fill="#3f7a53">✅ 回傳 <tspan font-family="monospace">PhysicsMaterial</tspan></text>
+  <text x="556" y="114" font-size="11.5" fill="#3f7a53">摩擦 / 彈性真的會被採用</text>
+
+  <!-- 沒有 → fallback -->
+  <line x1="380" y1="140" x2="380" y2="176" stroke="#8a97a5" stroke-width="1.6" marker-end="url(#ar)"/>
+  <text x="404" y="162" font-size="11" fill="#b35c1e" font-weight="bold">沒有</text>
+  <rect x="266" y="180" width="228" height="46" rx="8" fill="#f7f9fb" stroke="#b9c4cf"/>
+  <text x="380" y="200" text-anchor="middle" font-size="12" fill="#444">沿 fallback 往上找</text>
+  <text x="380" y="217" text-anchor="middle" font-size="11.5" fill="#888">(父層綁定會往下傳)</text>
+
+  <line x1="494" y1="203" x2="536" y2="203" stroke="#8a97a5" stroke-width="1.6" marker-end="url(#ar)"/>
+  <rect x="540" y="176" width="310" height="56" rx="8" fill="#fdf7f6" stroke="#c94f4f" stroke-width="1.5"/>
+  <text x="556" y="197" font-size="12" fill="#b34747">⚠ 回傳<tspan font-weight="bold">渲染材質</tspan>(決定外觀,沒有摩擦係數)</text>
+  <text x="556" y="216" font-size="11.5" fill="#b34747">你拿到一個非空值 → 誤判成「綁好了」</text>
+
+  <!-- 實例 -->
+  <rect x="30" y="252" width="820" height="164" rx="10" fill="#fafbfc" stroke="#dde4ea"/>
+  <text x="48" y="276" font-size="12.5" font-weight="bold" fill="#33506b">同一個場景的實測結果:四行都「查得到東西」,只有兩行是真的</text>
+
+  <text x="48" y="302" font-size="11.5" font-family="monospace" fill="#3f7a53">fork_tilt      → /World/PhysicsMaterials/high_friction_fork_pallet</text>
+  <text x="640" y="302" font-size="11.5" fill="#3f7a53">✅ PhysicsMaterial</text>
+
+  <text x="48" y="324" font-size="11.5" font-family="monospace" fill="#3f7a53">fork_tilt_01   → /World/PhysicsMaterials/high_friction_fork_pallet</text>
+  <text x="640" y="324" font-size="11.5" fill="#3f7a53">✅ PhysicsMaterial</text>
+
+  <text x="48" y="346" font-size="11.5" font-family="monospace" fill="#b34747">fork_liftA1    → /World/Looks/Metal_Glossy_A</text>
+  <text x="640" y="346" font-size="11.5" fill="#b34747">❌ 渲染材質(看起來像金屬)</text>
+
+  <text x="48" y="368" font-size="11.5" font-family="monospace" fill="#b34747">棧板全部 prim  → .../Looks/Wood_Recycled_A</text>
+  <text x="640" y="368" font-size="11.5" fill="#b34747">❌ 渲染材質(看起來像木頭)</text>
+
+  <line x1="48" y1="380" x2="832" y2="380" stroke="#e4e9ee"/>
+  <text x="48" y="400" font-size="12" fill="#b35c1e" font-weight="bold">後果:那個 μ=5.0 的高摩擦材質只綁在叉齒單側,棧板側走 PhysX 預設值。</text>
+  <text x="48" y="410" font-size="0"> </text>
+  <text x="440" y="400" font-size="12" fill="#555">摩擦是<tspan font-weight="bold">兩個</tspan>接觸面材質的組合結果 —— 一邊沒綁,組合出來的就不是你以為的值。</text>
+</svg>
