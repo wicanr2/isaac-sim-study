@@ -48,3 +48,9 @@
 | soft-pass 容差 | 控制器在主要容差達不到時退用的次要(較寬)容差。把主要容差設得太緊會讓系統幾乎每次都走這條退路,實際精度反而由退路決定。 |
 | framesDecoded | W3C WebRTC 統計欄位(`RTCInboundRtpStreamStats`),累計已解碼的視訊幀數;連續數次不增長即可判定串流卡死,比連線狀態更能證明「真的在工作」。 |
 | 狀態分歧 | 模擬器持有的物理狀態與外部系統持有的帳面狀態不一致。單獨重啟其中一方即會產生,且表現形式通常是流程「成功」空轉而非報錯。 |
+| umbrella package(門面 extension) | 自己不含實作、只在 `[dependencies]` 列出實作者的 extension。Kit 會遞迴解析依賴,所以 enable 門面等於 enable 整套。6.0 的 `isaacsim.ros2.bridge` 即為此形態。 |
+| active physics engine | 當前實際參與模擬的物理引擎(`physx` 或 `newton`)。由 `isaacsim.core.simulation_manager` 的 `default_engine` 與 `isaacsim.physics.newton` 的 `auto_switch_on_startup` 共同決定,後者預設 true 會搶成 Newton。 |
+| `auto_switch_on_startup` | `isaacsim.physics.newton` 的設定,預設 `true`:只要該 extension 被啟用,啟動時就把 active engine 切成 Newton,即使 `default_engine` 仍寫 `physx`。 |
+| rclpy fallback 鏈 | Isaac Sim 啟動 ROS 2 時「先試系統 rclpy、失敗才載內建」的順序。啟動前 source 系統 ROS 會讓第一步成功,載進為系統 Python 編譯的 C extension,造成 ABI 不匹配且不報乾淨的錯。 |
+| deprecated 而非移除 | 官方把 extension 從 `source/extensions/` 移到 `source/deprecated/`:仍可用、仍隨版本散佈,只是不再建議。**目錄結構的增減不能直接讀成功能存廢。** |
+| 無聲丟棄(schema 不匹配) | 場景 USD 帶著某後端專屬的 schema token(如 `Newton*API`),但實際跑的是另一個後端。schema extension 有載入所以讀得進去、不報錯,設定卻不被採用。 |
