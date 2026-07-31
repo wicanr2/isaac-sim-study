@@ -157,3 +157,9 @@ export LD_LIBRARY_PATH=${USDLIB}bin:$LD_LIBRARY_PATH
 - [`10` 場景物理授權](../10-scene-physics-authoring/README.md)
 - [`17` 6.0 物理調參](../17-physics-parameter-tuning-6.0/README.md)
 - 專案實例:`isaac-sim-60-tuning` 的 `docs/142`(場景物理快照)、`docs/144`(保真度實驗設計)
+
+## 子頁
+
+- [用 VDI 2198 規格表取得堆高機的真實物理參數](vdi2198-forklift-datasheets.md)
+  —— 工業車輛(堆高機/前伸式/AGV)的規格是**標準化且公開**的。欄位編號對照表、
+  型錄沒列牽引力時的三條獨立推導、型號對不上時怎麼用功能等價去找。
