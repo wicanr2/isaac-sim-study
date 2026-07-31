@@ -23,6 +23,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 | [15](docs/15-physics-backend-5.1-to-6.0/README.md) | 5.1 → 6.0 的物理層變動 | PhysX 換代(107→110)與 Newton 後端加入是**兩件獨立的事**;怎麼確定自己跑哪個後端(log 有 newton ≠ Newton 在跑);5.x 場景官方建議留在 PhysX;`MassAPI` 授權規則改變的無聲影響;跨版本排查順序 |
 | [16](docs/16-model-tuning-for-6.0/README.md) | **把 5.x 場景調到 6.0 能跑,東西不會亂飛** | 從零講起,不需先熟 Isaac Sim:一個「會被搬動的箱子」由哪些貼紙組成、為什麼 `.usd` 用 VS Code 打不開、怎麼把 crate 轉成文字改、什麼時候該改啟動腳本而不是改檔;四個「設定得進去但不生效」的結構問題(剛體/碰撞分層、質量掛錯層、材質綁定 fallback 回渲染材質、SDF 解析度不足以表達孔洞);東西亂飛的成因排序與診斷決策樹 |
 | [17](docs/17-physics-parameter-tuning-6.0/README.md) | **6.0 的物理調參:入口、生效條件、完整參數表** | 三個調參入口(USD 屬性 / 啟動參數 / runtime API);四個會讓設定**無聲失效**的條件(貼錯 prim 缺對應 API、後端不吃、被 runtime patch 覆蓋、combine mode 稀釋);`physxScene`/`RigidBody`/`Collision`/`SDF`/`Material`/`Articulation`/`Joint` 七類的完整預設值表(取自 6.0.1 實機 schema);穩定性問題的調參順序;為什麼只有「設極端值看行為差異」能證明參數生效 |
+| [18](docs/18-finding-physical-parameters/README.md) | **建場域時,物理參數要去哪裡找** | PhysX 對未授權質量的預設是「網格體積 × **1000 kg/m³**(水)」—— 鋼構件因此輕 7.9 倍,而且**不會有任何警告**;四種來源的優先順序與各自的盲點;⚠ 規格書公布的是**載重能力不是自重**(製造商不公布 tare weight);查不到時用「幾何 × 材料密度」估,含常用密度表與合理性檢核;⚠ NVIDIA Warehouse 資產包(24 GB)實測**完全沒有物理 API**,純幾何+材質;為什麼不能用 grep 判斷 usdc 有沒有某屬性;建場域的七項檢查清單 |
 
 **完全不熟 Isaac Sim、但手上有一個「物理跑不對」的場景要修** → 直接讀 **[16](docs/16-model-tuning-for-6.0/README.md)**,它從「一個會被搬動的箱子由什麼組成」講起,不預設前置知識。
 
