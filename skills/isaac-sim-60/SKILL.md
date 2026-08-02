@@ -4,7 +4,8 @@ description: >
   Isaac Sim 6.0.x 特有的行為、陷阱與操作。涵蓋:物理後端判定(PhysX vs Newton,
   auto_switch_on_startup 預設 true 會搶成 Newton,但 log 有 newton 不代表 Newton 在跑);
   PhysX 107→110 換代唯一改變的 schema 預設值(physxJoint:maxJointVelocity 從 1e6 變 inf,
-  只作用於 articulation —— 用關節去推/夾/叉東西的場景升上 6.0 後暴衝,先查這個);
+  只作用於 articulation —— 升 6.0 後暴衝可先拿它做低成本對照實驗,但實案根因常是
+  睡不著的接觸對,別當結論);
   ROS 2 Bridge 拆成五個 extension 但設定鍵命名空間沒跟著搬;三個標 Deprecated 並指向
   Newton 的物理屬性(timeStepsPerSecond / contactOffset / restOffset);物理參數的四個
   無聲失效條件;容器內沒有 usdcat 時怎麼讀寫 USD。觸發:「Isaac Sim 6.0 / 6.0.1」
@@ -105,9 +106,9 @@ physxScene:disableSleeping
 
 ---
 
-## 2. 物理參數的四個無聲失效條件
+## 2. 物理參數的五個無聲失效條件
 
-參數設了沒作用,幾乎都是這四條之一。**四條都不報錯。**
+參數設了沒作用,幾乎都是這五條之一。**五條都不報錯。**
 
 | # | 條件 | 檢查 |
 |---|---|---|
@@ -115,6 +116,7 @@ physxScene:disableSleeping
 | 2 | **後端不吃** | `physx*` 由 PhysX 讀、`newton:*` 由 Newton 讀,設錯會被靜默忽略 |
 | 3 | **被 runtime patch 覆蓋** | 場景檔的 authored 值 ≠ 跑起來的有效值,啟動腳本可能改過 |
 | 4 | **combine mode 稀釋** | 摩擦/彈性是兩側材質合成,mode 決定怎麼合 |
+| 5 | **runtime 授權「剛體」屬性不被採用** | 模擬中途對 USD 寫剛體屬性(速度、`maxLinearVelocity` 等),回讀成功但 PhysX 不吃(彈道正對照:設 `velocity=(0,0,10)`,Δz=0)。**關節 drive 屬性走 runtime 授權會生效** —— 兩者路徑不同,不要互相推論。要真的施加剛體屬性:寫進資產,或載入前/reset 時機用 physx API 設 |
 
 ### 2.1 三個標了 Deprecated 並指向 Newton 的物理屬性
 
@@ -146,6 +148,32 @@ physxCollision:restOffset       → "Deprecated: use newton:contactMargin"   預
 另外 `ComputeBoundMaterial("physics")` **幾乎不會回 `None`** —— 找不到物理材質會沿 fallback
 回傳**渲染材質**。判準是**回傳型別是不是 PhysicsMaterial**,不是有沒有回傳。
 
+### 2.3 關節的名字不等於它的世界軸
+
+關節軸(`physics:axis`)在 joint frame 局部座標;body 鏈上任一層的 `xformOp:orient`
+會把它轉走。實測:命名 `world_x`/`world_y` 的底盤關節因根 prim orient,
+實際各沿世界 **−Y** / **−X**(互換帶負號)。控制鏈自洽時無症狀,逐軸調參才炸。
+**逐軸實驗前先讀 joint frame + 祖先旋轉,或用極端值實測哪個軸動。**
+相鄰官方陷阱(Known Issues):joint 的 parent 不是 `body0` 時,
+「the value returned from physX will be the negation of the USD value」。
+
+### 2.4 drive 的力與增益要等比例一起調
+
+`F = stiffness×Δpos + damping×Δvel`,截到 `maxForce`。增益是在力無上限的前提下
+調出來的 —— **只砍 maxForce,阻尼項一起被截,控制器收不斂**(實測:定位逾時,
+症狀像路徑問題)。要縮放一個軸的力氣:三者同乘一個係數(= 均勻縮放該軸加速度)。
+另注意 `type = force | acceleration`:acceleration 模式下增益效果與質量無關,
+對照別人的增益數字前先確認 type。
+
+### 2.5 間歇性「東西自己飛走」:先查嫌疑接觸對睡了沒
+
+間隙僅數 mm 的剛體對會因接觸求解殘餘持續抖動(位置靜止到 mm、|ω| 0.07~1 rad/s
+跳動)—— **每步互相重置 wake counter,永遠睡不著**,某步能量同相就對稱彈開。
+判準:讀角速度序列(凍結=睡著;毫米靜止但 ω 跳動=醒著在抖)。
+睡著的對子不會被沒碰到它的鄰近任務吵醒;「建好就開跑」的流程讓它永遠沒機會睡。
+修法方向:靜置讓它入睡、修接觸幾何讓抖動消失 —— **限速無效**(wake counter
+每步被重置,速度上限管不到)。機制推導見 study 09 篇 §2.5。
+
 ---
 
 ## 3. 關鍵預設值速查(110.1.13)
@@ -158,6 +186,8 @@ physxCollision:restOffset       → "Deprecated: use newton:contactMargin"   預
 | `physxRigidBody:maxLinearVelocity` | **`inf`** | 不設限 |
 | `physxRigidBody:maxAngularVelocity` | 5729.58 | 度/秒 |
 | `physxRigidBody:maxDepenetrationVelocity` | **3** | 初始穿透暴衝的主控點 |
+| `physxRigidBody:sleepThreshold` | 5e-5 | 質量正規化動能;睡不著的接觸對見 §2.5 |
+| `physxScene:disableSleeping` | **0** | 110 新增;誤開=全場永遠醒著 |
 | `physxRigidBody:solverPositionIterationCount` | 16 | |
 | `physxRigidBody:solverVelocityIterationCount` | **1** | |
 | `physxArticulation:solverPositionIterationCount` | 32 | |

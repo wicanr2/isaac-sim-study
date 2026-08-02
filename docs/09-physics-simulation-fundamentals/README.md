@@ -31,6 +31,26 @@ Isaac Sim 用一個 Physics Scene prim 定義這個切法:**Simulation Steps per
 
 薄板類物件(棧板、隔板)是這裡的常見痛點:convex hull 對扁平形狀的近似誤差比例上更大,contact offset 沒抓好時最容易看到「明明疊在一起卻在抖」或「輕輕一碰就掉過去」。
 
+### 2.5 睡眠:wake counter,與「抖動的接觸對永遠不睡」
+
+**根本問題**:靜止的物體不需要每步重算,PhysX 用「睡眠」把它們移出求解——但**誰能睡、誰永遠睡不著**,直接決定一個場景的長期穩定性。
+
+官方機制(PhysX SDK [Rigid Body Dynamics — Sleeping](https://nvidia-omniverse.github.io/PhysX/physx/5.4.1/docs/RigidBodyDynamics.html)):每個動態剛體有一個 **wake counter**,動能低於 `sleepThreshold`(質量正規化)的每一步,counter 扣掉一個 timestep;**只要有一步高於門檻,counter 整個重置**,從頭數起。counter 歸零才「有資格」睡,實際入睡還要等同島(接觸相連的一組剛體)都準備好。喚醒則需要外來的接觸或力把動能推回門檻之上——**已睡著的剛體,鄰近的活動若沒有實際碰到它,不會吵醒它**。
+
+兩個直接推論,都有實測對應(來源:isaac-sim-60-tuning docs/148、151):
+
+- **貼得極近的接觸對可能永遠睡不著。** 兩個間隙只有幾 mm 的剛體,接觸求解的微小殘餘
+  讓它們持續「抖動」——位置靜止到毫米級、姿態只變 0.0x°,但角速度在 0.07~1 rad/s
+  之間跳動,**每一步都在重置彼此的 wake counter**。這種對子是懸在場景裡的不定時炸彈:
+  求解的能量某一步湊巧同相,就對稱反向彈開(實測:貨架上相鄰兩顆棧板在叉車於 3 m
+  外作業時互彈飛出,間歇發生率 30%)。
+- **睡著之後就穩了。** 同一對剛體靜置 240 秒入睡後,旁邊整趟搬運任務(183 秒)跑完,
+  它們的六個位姿數字逐位元不變——任務沒碰到它們,就不會喚醒它們。反過來說,
+  「建好場景立刻開跑」的流程讓那對**永遠沒機會入睡**,這解釋了「失穩一律發生在
+  第一次迴圈」的觀測。
+
+實務結論:間歇性「東西自己飛走」的排查清單裡,要有一項是**查嫌疑接觸對睡了沒**(讀角速度序列:凍結 = 睡著;毫米級靜止但 ω 跳動 = 醒著在抖)。修法方向是讓它睡得著(靜置、加大間隙、調 `sleepThreshold`)或讓抖動消失(接觸幾何/offset),而不是限速——速度上限對「每步都被重置的 wake counter」無能為力。⚠ 場景層有 `physxScene:disableSleeping`(110 新增,見 [17 篇](../17-physics-parameter-tuning-6.0/README.md)參數表),誤開等於全場永遠醒著。
+
 ## 3. 高速穿透與 CCD:offset 補不了的另一種誤差
 
 **根本問題**:contact offset 假設「物體在接近的路徑上會被取樣點抓到」;但一個 timestep 內若物體移動距離大於自身厚度,兩次取樣之間整段路徑都可能沒被抓到——物體從 A 直接「跳」到 B,中間的碰撞完全沒發生。這是**時間離散化**的誤差,跟 contact offset 補的**空間離散化**誤差是兩回事,見上圖 B 區對照。
@@ -56,7 +76,18 @@ force = stiffness * (targetPosition - position) + damping * (targetVelocity - ve
 - 兩者獨立可調,標準做法(官方 [Tuning Joint Drive Gains](https://docs.isaacsim.omniverse.nvidia.com/4.5.0/robot_setup/joint_tuning.html) 教程):先把 damping 設 0、拉高 stiffness 到收斂,再退一個數量級,damping 抓比 stiffness 低一個數量級當基準,細調兩者。**位置控制**(stiffness > 0)與**速度控制**(stiffness = 0,只用 damping)是兩種模式,不要混用同一顆關節。
 - 進一步的穩定性分析用自然頻率與阻尼比(官方 Articulation Stability Guide):`naturalFrequency = sqrt(stiffness / inertia)`、`dampingRatio = damping / (2·sqrt(stiffness·inertia))`——阻尼比決定關節是欠阻尼(震盪逼近)、臨界阻尼(最快不過衝)還是過阻尼(慢慢逼近),三種收斂行為見下圖右側。
 
+另外兩個屬性常被忽略(官方 [UsdPhysicsDriveAPI](https://openusd.org/release/api/class_usd_physics_drive_a_p_i.html)):
+
+- **maxForce**:上式算出的力超過它就**截斷**;「inf means not limited」。截斷是無聲的。
+- **type = force | acceleration**(預設 force):acceleration 模式下同一條公式算出的是
+  **加速度**——增益的效果與質量無關。同一組增益數字,兩種 type 的行為差一個質量倍數;
+  對照別人的增益值之前先確認 type 一致。
+
+**耦合陷阱:maxForce 不能單獨砍**(實測,來源 isaac-sim-60-tuning docs/158)。增益是在「力無上限」的前提下調出來的;只把 `maxForce` 砍到 1/30,阻尼項跟著被截斷,控制器失去煞停能力,定位收不斂而逾時——而且症狀出現在**移動階段**,很容易誤判成路徑或容差問題。要縮放一個軸的「力氣」,`stiffness`、`damping`、`maxForce` **三者同乘一個係數**:因為 `a = F/m`,等比例縮放等於把該軸的加速度能力均勻縮小,速度剖面形狀不變(實測 ×1/10 功能完整,時間線與基線重合)。這是柵欄原則的量化版:改 A 之前先問 A 的現值是在什麼前提下調出來的。
+
 **實戰坑(對應公式直接推出來,不是巧合)**:一個 joint 若沒設 stiffness/damping(兩者皆 0),上式恆為 0——對它送 `apply_action` 位置目標形同沒發生,**不報錯,但也絕不會動**。這是「命令發了、車不動」最常見的暗坑,10 次有 8 次是漏設這組增益([04 篇](../04-physics-world/README.md#4-關節控制-api兩種語意別混用)已從 API 層面提過,這裡補上它背後的公式解釋:不是 bug,是 F=0 的必然結果)。
+
+**另一個實戰坑:關節的名字不等於它的世界軸。** 關節軸(`physics:axis` = X/Y/Z)定義在 **joint frame 的局部座標**;body 鏈上任何一層的 `xformOp:orient` 都會把它轉到別的世界方向。實測案例:一台 AMR 的底盤三關節命名 `world_x`/`world_y`/`world_yaw`,但根 prim 有一個 `orient=(-0.5,-0.5,0.5,0.5)` 的旋轉,展開後 `world_x` 實際沿**世界 −Y**、`world_y` 沿**世界 −X**——名字與軸互換且各帶負號。做逐軸實驗(只調一軸的增益/力)之前,先讀 joint frame 與祖先旋轉,或用極端值實測哪個軸動。相鄰的官方陷阱:joint 的 parent prim 若不是 `body0`,「the value returned from physX will be the negation of the USD value」(Isaac Sim 官方 [Known Issues](https://docs.isaacsim.omniverse.nvidia.com/latest/overview/known_issues.html))。
 
 ## 5. Solver:PGS 與 TGS,疊代次數決定「鏈」有多穩
 
