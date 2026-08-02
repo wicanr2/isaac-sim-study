@@ -148,6 +148,26 @@ exts."isaacsim.physics.newton".capture_graph_physics_step = true
 >
 > — Isaac Sim 6.0.0 release notes
 
+### 3.1 官方已知限制:PhysX 資產切 Newton 會踩的九件事
+
+官方 [Newton Physics Backend](https://docs.isaacsim.omniverse.nvidia.com/6.0.0/physics/newton_physics.html)(@6.0.0)列出的限制,對「既有 PhysX 場景該不該切」是最實際的判斷依據:
+
+| # | 限制 | 對 PhysX 資產的意義 |
+|---|---|---|
+| 1 | joint 必須 `body0`=父、`body1`=子 | **PhysX 資產常常反著寫**(PhysX 不在乎順序,只影響回傳值正負) |
+| 2 | 不支援閉合運動鏈(loop joint) | 平行連桿機構直接失敗 |
+| 3 | 動態剛體必須有非零質量/慣量 | PhysX 容忍的近零質量會讓初始化失敗 |
+| 4 | 碰撞形狀不得零尺寸 | PhysX 的 placeholder 幾何過不了 |
+| 5 | 所有 joint 必須屬於某個 `ArticulationRootAPI` | 散裝 joint 不行 |
+| 6 | USD composition 錯誤直接失敗 | 「PhysX 默默忽略」的破 reference / 缺 payload,Newton 報 `USD stage has composition errors` |
+| 7 | 不處理負 scale 的碰撞形狀 | PhysX 用鏡射處理,Newton 尚未支援 |
+| 8 | MuJoCo 求解器要求場景至少一個 joint | 純剛體場景不行 |
+| 9 | 接觸數上限 `nconmax` 會溢位 | 高接觸密度場景要手動調 |
+
+加上官方的總結句:PhysX 調好的資產「may not produce optimal results with Newton/MuJoCo out of the box」——**§3 那條「5.x 場景留在 PhysX」的建議,背後就是這張清單**。
+
+另外兩條 6.0.x release notes 裡與 schema 授權相關的變化(對照 §5):URDF/MJCF 匯入器現在對匯入資產**同時授權 Newton schema**(`NewtonArticulationRootAPI`、`NewtonMimicAPI`),articulation root 上**不再授權 `PhysxArticulationAPI`**、mimic joint 不再寫 `PhysxMimicJointAPI`;`MassAPI` 只在有非預設密度時才授權(「links with no mass no longer have a MassAPI applied」)。**新匯入的資產與 5.x 時代的資產,授權組成不一樣**——比對兩個時期的資產時這不是漂移,是匯入器版本差。
+
 ---
 
 ## 4. PhysX 110 拿掉了什麼
@@ -194,6 +214,8 @@ physxScene:disableSleeping                ← 110 新增
 「articulation joint **maximum velocity constraints**」——110 不只改了預設值,還為這組約束加了求解順序的開關。**這一區在 107 → 110 之間被整體動過。**
 
 **遷移時的處置**:如果你的場景依賴 articulation 去推、夾、叉東西,升上 6.0 後行為變得不穩,**先顯式把 `physxJoint:maxJointVelocity` 設回一個有限值**再談其他調參。這是一個成本極低、機制明確的對照實驗。
+
+⚠ **但把它當對照實驗,不要當結論。** 來源專案實測:AMR 全關節限速後,間歇性「棧板飛走」的發生率**沒有可量測的下降**——最後定位到的現場是一對**永遠睡不著的相鄰接觸對**([09 篇 §2.5](../09-physics-simulation-fundamentals/README.md)),與關節速度無關。「schema 預設值確實變了」是事實;「它是你場景失穩的原因」要靠實驗證明,兩者不要混。
 
 > ⚠ 這個比對只涵蓋 **USD schema 曝露的預設值**。PhysX SDK 內部不透過 schema 曝露的預設值沒有比對到,C++ 層仍可能有其他變更。「只有一項不同」限定在 schema 這一層。
 
