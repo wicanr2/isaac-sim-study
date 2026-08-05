@@ -203,6 +203,38 @@ def count_geometry(stage):
 兩個數字的用途不同:**唯一幾何**決定記憶體與 cook 成本、也是你要檢查的幾何本體;
 **展開後的實例數**才是場景裡實際存在幾個物件。
 
+### 3.1a `GetPrototypes()` 的順序不保證穩定
+
+`GetPrototypes()` 回傳的是一個 list,但**同一份檔案在不同次 `Stage.Open` 之間,
+順序可能不同**(prototype 路徑形如 `/__Prototype_1`,編號由 instancing 的處理順序決定)。
+
+實測踩到:第一次分析時 `proto[3]` 是一個參考包絡框、`proto[1]` 是零件;
+第二次執行同一份檔案,兩者對調。腳本裡寫死 `EXCLUDE = 3` 去排除包絡框,
+第二次就**把 9 個零件一起排除了**,而輸出看起來完全正常(只是少了一類零件)。
+
+> **不要用 prototype 的索引當識別。用內容特徵。**
+
+```python
+def classify(stage, cache):
+    """用內容特徵標記 prototype,而不是索引。"""
+    tags = {}
+    for pr in stage.GetPrototypes():
+        ms = [q for q in Usd.PrimRange(pr, Usd.PrimAllPrimsPredicate)
+              if q.IsA(UsdGeom.Mesh)]
+        tri = sum(sum(max(0, c - 2) for c in
+                      (UsdGeom.Mesh(q).GetFaceVertexCountsAttr().Get() or []))
+                  for q in ms)
+        r = cache.ComputeUntransformedBound(pr).ComputeAlignedRange()
+        ext = sorted([r.GetMax()[k] - r.GetMin()[k] for k in range(3)], reverse=True)
+        tags[pr.GetPath()] = dict(mesh=len(ms), tri=tri, ext=ext,
+                                  box_like=(len(ms) <= 6 and tri <= 12))
+    return tags
+```
+
+`box_like`(6 個 mesh / 12 三角形 = 一個純六面盒)是個實用的判別式:
+CAD 檔裡常混著**參考包絡框、量測基準面、包裝空間標示**這類非零件幾何,
+它們的共同特徵就是「一個沒有任何細節的盒子」。
+
 ### 3.2 為什麼正對照沒有擋住這個錯
 
 這個錯誤實際發生過,而且當時是做過對照的:用同一段程式讀一份美術資產,
@@ -307,6 +339,14 @@ $ISAAC_SIM/kit/kit \
 —— **CAD 檔裡混著參考包絡框**,不是零件。沒有這個剖面,整體 bbox 會把包絡框算進去,
 得到一個比實際零件大得多的尺寸。
 
+**離群零件是同一類問題的另一種形狀。** 同一份檔案排除包絡框之後,整體尺寸仍比
+標稱值大 86.8 mm。列出每個零件的座標範圍才看出來:26 個零件裡有 **25 個**
+的某軸範圍落在同一組值上,**只有 1 個**偏移了整整一個零件寬度 —— 那是 CAD 裡
+一個沒對齊的零件。
+
+> 讀整體尺寸時,順手做一次「各零件座標範圍的次數統計」。
+> 出現次數為 1 的那組值就是離群值,而**平均值或 bbox 都不會告訴你它存在**。
+
 ---
 
 ## 6. 讀幾何尺寸時的座標與單位陷阱
@@ -363,6 +403,8 @@ hz = min(range(3), key=lambda k: ext[k])      # 最薄的那軸 = 板件的高�
 - [ ] prim 名稱有 `tn__` / `DE<數字>` 嗎?有 → 是 CAD 轉出的(§1.2)
 - [ ] 材質是 PBR 貼圖組還是 `PreviewSurface`?
 - [ ] 整體 bbox 與「一個零件應該多大」差很多嗎?差很多 → 檔案裡混著別的東西,做佔用剖面(§5)
+- [ ] 排除非零件幾何時,用的是**內容特徵**還是 prototype 索引?索引跨 session 會變(§3.1a)
+- [ ] 整體 bbox 有沒有被**單一離群零件**撐大?列出各零件的座標範圍找離群值
 - [ ] 要讀尺寸:讀的是局部座標還是 world AABB?物件有傾角嗎?(§6.1)
 - [ ] 高度軸是從資料判出來的,還是假設的?(§6.2)
 - [ ] 單位用已知真值反推過了嗎?(§6.3)
