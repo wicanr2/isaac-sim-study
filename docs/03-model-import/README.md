@@ -22,7 +22,7 @@ Isaac Sim 不「支援很多格式」,它只真正認得一種:**USD**(Universal
 機構設計輸出的 CAD 檔要經 Omniverse CAD Converter 轉換。實戰驗證過的流程:
 
 1. **CAD 清理**:先在 CAD 軟體移除細小特徵(螺絲牙、倒角細節)。CAD 的精度對模擬是負擔——面數影響渲染與碰撞計算,而模擬不需要製造級細節。
-2. **轉 USD**:用 Omniverse Converter 轉出幾何。
+2. **轉 USD**:用 Omniverse Converter 轉出幾何。Isaac Sim 6.0.1 已內建整條轉換鏈(HOOPS Exchange),不必另裝桌面版——**實際呼叫方式、IGES 檔的判讀、以及「轉出來看起來是空的」這個最常見的誤判,見 [21 CAD 資產的判讀與轉換](../21-cad-asset-reading-and-conversion/README.md)**。
 3. **加 collision / physics**:轉出來的只有視覺幾何,碰撞體與物理屬性(質量、關節)要在 Isaac Sim 內另外加上(見 [04-physics-world](../04-physics-world/README.md))。
 4. **分層**:拆成多個 sublayer/reference 子檔組合(即 §1 表中的 Layer/SubLayer 機制),把一台車、一個貨架拆成多個子 USD 再組合,方便替換與重用。
 

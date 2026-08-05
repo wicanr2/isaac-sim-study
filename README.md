@@ -26,6 +26,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 | [18](docs/18-finding-physical-parameters/README.md) | **建場域時,物理參數要去哪裡找** | PhysX 對未授權質量的預設是「網格體積 × **1000 kg/m³**(水)」—— 鋼構件因此輕 7.9 倍,而且**不會有任何警告**;四種來源的優先順序與各自的盲點;⚠ 規格書公布的是**載重能力不是自重**(製造商不公布 tare weight);查不到時用「幾何 × 材料密度」估,含常用密度表與合理性檢核;⚠ NVIDIA Warehouse 資產包(24 GB)實測**完全沒有物理 API**,純幾何+材質;為什麼不能用 grep 判斷 usdc 有沒有某屬性;建場域的七項檢查清單 |
 | [19](docs/19-tuning-experiment-methodology/README.md) | **調參實驗的方法論** | 極端值正對照(旋鈕接上了嗎)、耦合參數等比例動、二元判準的統計陷阱與連續量出路(30% 對半砍要 121 輪/組)、逐輪交錯 A/B、每輪閘門(臂別/生效證據/輪數對帳)、低佔比模式的取樣經濟學、間歇性問題的宣告門檻;附開跑前檢查清單 |
 | [20](docs/20-claude-code-driven-tuning/README.md) | **用 Claude Code 跑調參的工作法** | agent 不是常駐進程 → 兩層監看(事件層+後備層,安靜≠順利);批次腳本自己守門;逐輪紀錄/失敗清單當跨 session 記憶;模型成本分工(貴的判斷、便宜的機械活);「固定參數重試 N 次不是實驗」;長時間工具要冪等;驗證用與執行不同的機制 |
+| [21](docs/21-cad-asset-reading-and-conversion/README.md) | **CAD 資產的判讀與轉換** | 同一個物件在資產庫裡常有三份(CAD 原始檔 / CAD 轉出的 USD / 美術資產),而哪一份能用不寫在檔名上;不開 CAD 軟體判讀 IGES(實體型別決定要不要 tessellation、Hollerith 單位陷阱、**blanked 佔八成是常態不是失敗原因**);🔴 **`stage.Traverse()` 對 instanced 資產回 0 mesh** —— CAD 轉換器預設就開 instancing,數 mesh 前先問 `GetPrototypes()`;Isaac Sim 6.0.1 內建轉換鏈的實際呼叫方式與三條死路;驗證三層與 world AABB／軸向／單位三個「看起來合理但錯誤」的陷阱 |
 
 **完全不熟 Isaac Sim、但手上有一個「物理跑不對」的場景要修** → 直接讀 **[16](docs/16-model-tuning-for-6.0/README.md)**,它從「一個會被搬動的箱子由什麼組成」講起,不預設前置知識。
 
