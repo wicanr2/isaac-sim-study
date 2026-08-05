@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="470" viewBox="0 0 880 470" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <defs>
+    <marker id="ar" markerWidth="8" markerHeight="7" refX="7" refY="3.5" orient="auto">
+      <path d="M0,0 L8,3.5 L0,7 z" fill="#b35c1e"/>
+    </marker>
+    <marker id="al" markerWidth="8" markerHeight="7" refX="1" refY="3.5" orient="auto">
+      <path d="M8,0 L0,3.5 L8,7 z" fill="#b35c1e"/>
+    </marker>
+  </defs>
+  <rect width="880" height="470" fill="#ffffff"/>
+
+  <text x="440" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">薄件的垂直佔用:決定成敗的不是板厚,是姿態掃過的範圍</text>
+  <text x="440" y="48" text-anchor="middle" font-size="11.5" fill="#888">剖面圖,件沿長度方向約 1 m;數值取自一次實測</text>
+
+  <!-- Panel A -->
+  <rect x="24" y="66" width="406" height="234" rx="10" fill="#f9fbfd" stroke="#ddd"/>
+  <text x="227" y="88" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">佔用 = 板厚 + 姿態上翹</text>
+
+  <!-- flat plate -->
+  <line x1="70" y1="130" x2="360" y2="130" stroke="#ccc" stroke-width="1" stroke-dasharray="4,4"/>
+  <rect x="80" y="124" width="270" height="12" fill="#8d99a6" stroke="#4d5556" stroke-width="1.2"/>
+  <line x1="362" y1="124" x2="374" y2="124" stroke="#b35c1e" stroke-width="1.6"/>
+  <line x1="362" y1="136" x2="374" y2="136" stroke="#b35c1e" stroke-width="1.6"/>
+  <line x1="368" y1="124" x2="368" y2="136" stroke="#b35c1e" stroke-width="1.2"/>
+  <text x="382" y="134" font-size="11.5" fill="#b35c1e">25 mm</text>
+  <text x="80" y="114" font-size="11.5" fill="#5d6d7e">tilt 0°:掃過的高度 = 板厚</text>
+
+  <!-- tilted plate + envelope -->
+  <rect x="80" y="196" width="270" height="62" fill="#e8853d" opacity="0.13"/>
+  <polygon points="80,246 350,196 350,208 80,258" fill="#8d99a6" stroke="#4d5556" stroke-width="1.2"/>
+  <text x="80" y="186" font-size="11.5" fill="#5d6d7e">tilt −2.6°:尖端上翹 50 mm</text>
+  <text x="356" y="192" font-size="11" fill="#888">尖端</text>
+  <text x="56" y="268" font-size="11" fill="#888">根部</text>
+  <line x1="368" y1="196" x2="368" y2="258" stroke="#b35c1e" stroke-width="1.4" marker-start="url(#al)" marker-end="url(#ar)"/>
+  <text x="378" y="222" font-size="12" font-weight="bold" fill="#b35c1e">75 mm</text>
+  <text x="378" y="238" font-size="10.5" fill="#b35c1e">= 25 + 50</text>
+
+  <!-- Panel B -->
+  <rect x="450" y="66" width="406" height="234" rx="10" fill="#f9fbfd" stroke="#ddd"/>
+  <text x="653" y="88" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">插入端:窗口 = 開口淨高 − 佔用</text>
+
+  <rect x="516" y="108" width="248" height="16" fill="#c9a227" stroke="#8d7215" stroke-width="1.2"/>
+  <rect x="516" y="245" width="248" height="16" fill="#c9a227" stroke="#8d7215" stroke-width="1.2"/>
+  <text x="522" y="104" font-size="10.5" fill="#8d7215">孔頂</text>
+  <text x="522" y="273" font-size="10.5" fill="#8d7215">孔底</text>
+
+  <line x1="500" y1="124" x2="500" y2="245" stroke="#5b7fa6" stroke-width="1.4" marker-start="url(#al)" marker-end="url(#ar)"/>
+  <text x="492" y="180" text-anchor="end" font-size="11.5" fill="#5b7fa6">孔淨高</text>
+  <text x="492" y="196" text-anchor="end" font-size="11.5" fill="#5b7fa6">80.8</text>
+
+  <rect x="534" y="130" width="212" height="112" fill="#8d99a6" stroke="#4d5556" stroke-width="1.2"/>
+  <text x="640" y="192" text-anchor="middle" font-size="11.5" fill="#ffffff">垂直佔用 75 mm</text>
+
+  <line x1="778" y1="124" x2="778" y2="130" stroke="#c0392b" stroke-width="2.5"/>
+  <line x1="778" y1="242" x2="778" y2="245" stroke="#c0392b" stroke-width="2.5"/>
+  <text x="788" y="180" font-size="11.5" font-weight="bold" fill="#c0392b">窗口</text>
+  <text x="788" y="196" font-size="11.5" font-weight="bold" fill="#c0392b">5.8 mm</text>
+
+  <text x="470" y="284" font-size="11.5" fill="#5d6d7e">帳面「25 對 80.8,餘裕 ±27 mm」—— 實際掃過的是 75 mm。</text>
+
+  <!-- bottom band -->
+  <rect x="24" y="316" width="406" height="128" rx="10" fill="#fdf6ef" stroke="#e8cdae"/>
+  <text x="44" y="340" font-size="12.5" font-weight="bold" fill="#b35c1e">插入端:佔用越大,窗口越窄</text>
+  <text x="44" y="364" font-size="11.5" fill="#444">tilt −2.6° → 窗口 <tspan font-weight="bold" fill="#c0392b">5.8 mm</tspan>(比掃描步距還小)</text>
+  <text x="44" y="386" font-size="11.5" fill="#444">tilt −0.5° → 窗口 34.8 mm</text>
+  <text x="44" y="408" font-size="11.5" fill="#444">tilt  0°  → 窗口 <tspan font-weight="bold" fill="#5a9367">55.8 mm</tspan></text>
+  <text x="44" y="430" font-size="10.5" fill="#888">窗口小於步距時,掃描結果會長得像「這個旋鈕沒有效果」</text>
+
+  <rect x="450" y="316" width="406" height="128" rx="10" fill="#fdf6ef" stroke="#e8cdae"/>
+  <text x="470" y="340" font-size="12.5" font-weight="bold" fill="#b35c1e">退出端:佔用越大,侵入越深</text>
+  <text x="470" y="364" font-size="11.5" fill="#444">件落座後上緣貼孔底,要脫離就得再降 ——</text>
+  <text x="470" y="386" font-size="11.5" fill="#444">下緣 = 孔底 − 佔用:−2.6° 侵入承載結構 <tspan font-weight="bold" fill="#c0392b">55 mm</tspan></text>
+  <text x="470" y="408" font-size="11.5" fill="#444">0° 侵入 <tspan font-weight="bold" fill="#5a9367">4.8 mm</tspan></text>
+  <text x="470" y="430" font-size="10.5" fill="#888">侵入到撞上承載結構時,退出會把剛放好的件鏟走</text>
+
+  <text x="440" y="462" text-anchor="middle" font-size="12" fill="#33506b">兩端嫌的是同一個量,而且都嫌它大 —— 所以擺平姿態會同時改善兩端,分頭調兩個參數不會</text>
+</svg>

@@ -27,6 +27,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 | [19](docs/19-tuning-experiment-methodology/README.md) | **調參實驗的方法論** | 極端值正對照(旋鈕接上了嗎)、耦合參數等比例動、二元判準的統計陷阱與連續量出路(30% 對半砍要 121 輪/組)、逐輪交錯 A/B、每輪閘門(臂別/生效證據/輪數對帳)、低佔比模式的取樣經濟學、間歇性問題的宣告門檻;附開跑前檢查清單 |
 | [20](docs/20-claude-code-driven-tuning/README.md) | **用 Claude Code 跑調參的工作法** | agent 不是常駐進程 → 兩層監看(事件層+後備層,安靜≠順利);批次腳本自己守門;逐輪紀錄/失敗清單當跨 session 記憶;模型成本分工(貴的判斷、便宜的機械活);「固定參數重試 N 次不是實驗」;長時間工具要冪等;驗證用與執行不同的機制 |
 | [21](docs/21-cad-asset-reading-and-conversion/README.md) | **CAD 資產的判讀與轉換** | 同一個物件在資產庫裡常有三份(CAD 原始檔 / CAD 轉出的 USD / 美術資產),而哪一份能用不寫在檔名上;不開 CAD 軟體判讀 IGES(實體型別決定要不要 tessellation、Hollerith 單位陷阱、**blanked 佔八成是常態不是失敗原因**);🔴 **`stage.Traverse()` 對 instanced 資產回 0 mesh** —— CAD 轉換器預設就開 instancing,數 mesh 前先問 `GetPrototypes()`;Isaac Sim 6.0.1 內建轉換鏈的實際呼叫方式與三條死路;驗證三層與 world AABB／軸向／單位三個「看起來合理但錯誤」的陷阱 |
+| [22](docs/22-geometry-and-measurement-discipline/README.md) | **幾何的量測紀律** | 薄件插進窄縫,決定成敗的是**姿態掃過的垂直包絡**而不是件的厚度(25 mm 的板在 −2.6° 下佔 75 mm,可插入窗口只剩 5.8 mm,比掃描步距還小);對稱撐開一個開口時**邊界移 12 mm 而中心只移 0.02 mm** —— 配對高度該跟哪一個,取決於哪個接觸在管事;prim 原點不是功能面(兩台板車原點差 6 mm、承載面差 75 mm);七種不會報錯的錯誤查法(數頂點判空腔、單位/軸向寫死、world AABB 被傾角撐大、不同截面相減、authored 姿態≠runtime 姿態、正對照挑錯同類);驗證用行為不用回讀(剛體屬性回讀成功但 PhysX 不採用,連帶讓 40 輪實驗的變因從未被施加);離線讀 USD 的環境、`--user 0:0` 與「必須在原位改」 |
 
 **完全不熟 Isaac Sim、但手上有一個「物理跑不對」的場景要修** → 直接讀 **[16](docs/16-model-tuning-for-6.0/README.md)**,它從「一個會被搬動的箱子由什麼組成」講起,不預設前置知識。
 

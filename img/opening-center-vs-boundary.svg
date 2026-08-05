@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="460" viewBox="0 0 860 460" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <defs>
+    <marker id="bu" markerWidth="8" markerHeight="7" refX="7" refY="3.5" orient="auto">
+      <path d="M0,0 L8,3.5 L0,7 z" fill="#c0392b"/>
+    </marker>
+  </defs>
+  <rect width="860" height="460" fill="#ffffff"/>
+
+  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">對稱撐開一個開口:邊界各移 12 mm,中心幾乎不動</text>
+  <text x="430" y="48" text-anchor="middle" font-size="11.5" fill="#888">剖面圖,縱向 2 px = 1 mm;高度相對件的底面</text>
+
+  <!-- left: original -->
+  <text x="215" y="82" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">原始:孔淨高 80.8 mm</text>
+  <line x1="100" y1="340" x2="345" y2="340" stroke="#aaa" stroke-width="1"/>
+  <text x="94" y="352" text-anchor="end" font-size="10.5" fill="#888">底面 0</text>
+  <rect x="115" y="299.6" width="200" height="40.4" fill="#c9a227" stroke="#8d7215" stroke-width="1.2"/>
+  <rect x="115" y="98" width="200" height="40.4" fill="#c9a227" stroke="#8d7215" stroke-width="1.2"/>
+  <rect x="115" y="138.4" width="200" height="161.2" fill="#eef3fa" stroke="#cfd9e4" stroke-width="1"/>
+  <text x="215" y="272" text-anchor="middle" font-size="12" fill="#5b7fa6">開口 80.8</text>
+  <text x="322" y="325" font-size="10.5" fill="#8d7215">底板</text>
+  <text x="322" y="122" font-size="10.5" fill="#8d7215">頂板</text>
+  <text x="108" y="303" text-anchor="end" font-size="10.5" fill="#444">孔底 20.19</text>
+  <text x="108" y="136" text-anchor="end" font-size="10.5" fill="#444">孔頂 100.96</text>
+
+  <!-- right: widened -->
+  <text x="645" y="82" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">撐開後:孔淨高 105.1 mm</text>
+  <line x1="530" y1="340" x2="775" y2="340" stroke="#aaa" stroke-width="1"/>
+  <rect x="545" y="324" width="200" height="16" fill="#c9a227" stroke="#8d7215" stroke-width="1.2"/>
+  <rect x="545" y="98" width="200" height="15.7" fill="#c9a227" stroke="#8d7215" stroke-width="1.2"/>
+  <rect x="545" y="113.7" width="200" height="210.3" fill="#eef3fa" stroke="#cfd9e4" stroke-width="1"/>
+  <text x="645" y="272" text-anchor="middle" font-size="12" fill="#5b7fa6">開口 105.1</text>
+  <text x="752" y="328" font-size="10.5" fill="#444">孔底 8.01</text>
+  <text x="752" y="112" font-size="10.5" fill="#444">孔頂 113.15</text>
+
+  <!-- center line across both -->
+  <line x1="100" y1="218.8" x2="775" y2="218.8" stroke="#5a9367" stroke-width="1.6" stroke-dasharray="7,5"/>
+  <text x="430" y="212" text-anchor="middle" font-size="12" font-weight="bold" fill="#5a9367">孔中心 60.58 → 60.56 mm(位移 0.02)</text>
+
+  <!-- boundary movement arrows -->
+  <line x1="430" y1="299.6" x2="430" y2="322" stroke="#c0392b" stroke-width="1.6" marker-end="url(#bu)"/>
+  <text x="438" y="316" font-size="11" fill="#c0392b">孔底 −12.18</text>
+  <line x1="430" y1="138.4" x2="430" y2="115.7" stroke="#c0392b" stroke-width="1.6" marker-end="url(#bu)"/>
+  <text x="438" y="130" font-size="11" fill="#c0392b">孔頂 +12.19</text>
+
+  <!-- bottom rules -->
+  <rect x="24" y="360" width="400" height="86" rx="10" fill="#f4f9f5" stroke="#c9e0cf"/>
+  <text x="44" y="384" font-size="12.5" font-weight="bold" fill="#3f7a56">件要「居中於開口」→ 看中心</text>
+  <text x="44" y="406" font-size="11.5" fill="#444">中心沒動 → 配對高度一動也不該動</text>
+  <text x="44" y="428" font-size="10.5" fill="#888">照孔底位移補了 12.2 mm 的那一輪:插入當場失敗,件被撬歪 roll −10.97°</text>
+
+  <rect x="436" y="360" width="400" height="86" rx="10" fill="#f9fbfd" stroke="#cfd9e4"/>
+  <text x="456" y="384" font-size="12.5" font-weight="bold" fill="#33506b">件「坐在孔底面上」→ 看孔底</text>
+  <text x="456" y="406" font-size="11.5" fill="#444">托面高度不變,件的落點卻差 14 mm</text>
+  <text x="456" y="428" font-size="10.5" fill="#888">與孔底位移 12.2 mm 同向同量級 —— 這一端就要補</text>
+</svg>
