@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>物理模擬健檢 — 你的模型有沒有偷懶？</title>
+<style>
+:root{
+  --bg:#fbfbfa; --fg:#1a1a19; --muted:#6b6b66; --line:#e0e0dc;
+  --card:#fff; --accent:#0b6b5f; --bad:#b4341f; --warn:#8a6100; --ok:#1f6b3a;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#16171a; --fg:#e8e8e4; --muted:#9a9a94; --line:#2c2e33;
+        --card:#1d1f23; --accent:#4fd1bd; --bad:#ff8a70; --warn:#e0b050; --ok:#6fd28f;}
+}
+:root[data-theme="dark"]{--bg:#16171a; --fg:#e8e8e4; --muted:#9a9a94; --line:#2c2e33;
+  --card:#1d1f23; --accent:#4fd1bd; --bad:#ff8a70; --warn:#e0b050; --ok:#6fd28f;}
+:root[data-theme="light"]{--bg:#fbfbfa; --fg:#1a1a19; --muted:#6b6b66; --line:#e0e0dc;
+  --card:#fff; --accent:#0b6b5f; --bad:#b4341f; --warn:#8a6100; --ok:#1f6b3a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;}
+.wrap{max-width:860px;margin:0 auto;padding:2.5rem 1.25rem 5rem}
+h1{font-size:1.9rem;line-height:1.25;margin:0 0 .4rem;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 2.5rem;font-size:1.02rem}
+h2{font-size:1.25rem;margin:3rem 0 .3rem;padding-top:1.6rem;border-top:1px solid var(--line)}
+h2:first-of-type{border-top:0;padding-top:0;margin-top:2rem}
+.why{color:var(--muted);font-size:.94rem;margin:.2rem 0 1.1rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1.1rem 1.2rem;margin:1rem 0}
+.f{font-family:var(--mono);font-size:.9rem;background:transparent;color:var(--accent);
+  border:1px dashed var(--line);border-radius:6px;padding:.55rem .8rem;margin:0 0 1rem;
+  overflow-x:auto;white-space:pre}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem .9rem}
+label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:.2rem}
+input{width:100%;padding:.45rem .55rem;font-family:var(--mono);font-size:.92rem;
+  background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px}
+input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.out{margin-top:1rem;padding-top:.9rem;border-top:1px solid var(--line);font-family:var(--mono);font-size:.9rem}
+.out div{margin:.22rem 0}
+.v{font-weight:700}
+.bad{color:var(--bad)} .ok{color:var(--ok)} .warn{color:var(--warn)}
+.verdict{margin-top:.7rem;padding:.6rem .8rem;border-radius:6px;font-family:inherit;font-size:.95rem;
+  border:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;font-size:.9rem;margin:.8rem 0}
+th,td{text-align:left;padding:.4rem .6rem;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600;font-size:.82rem}
+td.n{font-family:var(--mono)}
+ul{padding-left:1.2rem} li{margin:.35rem 0}
+code{font-family:var(--mono);font-size:.88em;background:var(--card);padding:.1em .35em;border-radius:4px;border:1px solid var(--line)}
+footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+a{color:var(--accent)}
+.scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>物理模擬健檢</h1>
+<p class="sub">
+為了「先讓它動起來」而繞過物理的每一個捷徑，症狀不會消失，只會搬到一個沒人會聯想到成因的地方。
+這幾個計算器把判斷這件事所需的算式做成可以填自己數字的形式 ——
+預設值是一個真實案例（Isaac Sim 裡的堆高機搬棧板）的實測值。
+</p>
+
+<h2>1. 載重會不會滑？</h2>
+<p class="why">
+最常被誤判成「摩擦不夠」的問題。先算數量級：致動器能給的加速度，
+和摩擦能承受的加速度，差幾倍。差一個數量級以上時，調摩擦是浪費時間。
+</p>
+<div class="card">
+<div class="f">摩擦上限   α_max = μ·g / r
+致動能力   α      = τ / I</div>
+<div class="grid">
+  <div><label>μ 摩擦係數</label><input id="s_mu" value="0.5"></div>
+  <div><label>r 載重到轉軸 (m)</label><input id="s_r" value="1.5"></div>
+  <div><label>τ 關節最大力矩 (N·m)</label><input id="s_tau" value="2000000"></div>
+  <div><label>I 轉動慣量 (kg·m²)</label><input id="s_I" value="1800"></div>
+</div>
+<div class="out" id="s_out"></div>
+</div>
+
+<h2>2. 薄件插不插得進窄縫？</h2>
+<p class="why">
+決定成敗的是<strong>姿態掃過的垂直包絡</strong>，不是件本身的厚度。
+一片 25 mm 的板傾斜 2.6° 時可以佔掉 75 mm。
+</p>
+<div class="card">
+<div class="f">垂直佔用   h(θ) = L·|sin θ| + t·|cos θ|      (旋轉矩形的外接高)
+可用餘裕   play = 開口 − h
+置中需抬   lift = play / 2</div>
+<div class="grid">
+  <div><label>L 件長 (mm)</label><input id="g_L" value="792.5"></div>
+  <div><label>t 等效厚 (mm)</label><input id="g_t" value="39.1"></div>
+  <div><label>θ 傾角 (°)</label><input id="g_th" value="-0.5"></div>
+  <div><label>開口淨高 (mm)</label><input id="g_p" value="100"></div>
+</div>
+<div class="out" id="g_out"></div>
+</div>
+
+<div class="card">
+<p class="why" style="margin-top:0">
+<strong>⚠ 別用標稱厚度。</strong> 真實件有跟部與錐度，不是乾淨的矩形。
+拿<strong>兩個實測點</strong>反解等效 L 與 t，誤差會小一個數量級 ——
+下面這組就是靠這招從 25 mm 的標稱值修正到 39.1 mm 的（差 14 mm，足以讓一輪失敗）。
+</p>
+<div class="grid">
+  <div><label>θ₁ (°)</label><input id="c_t1" value="-0.5"></div>
+  <div><label>實測佔用₁ (mm)</label><input id="c_h1" value="46.0"></div>
+  <div><label>θ₂ (°)</label><input id="c_t2" value="-2.6"></div>
+  <div><label>實測佔用₂ (mm)</label><input id="c_h2" value="75.0"></div>
+</div>
+<div class="out" id="c_out"></div>
+</div>
+
+<h2>3. 單位到底是什麼？</h2>
+<p class="why">
+<code>metersPerUnit</code> 不算數。幾何常常用原始單位授權，靠 prim 的 scale 縮下來，
+而且<strong>每一層 scale 可能不同、可能非均勻</strong>。
+這個案例裡若照父層的 0.001 推，輪半徑會算成 0.5 m 而不是 0.115 m —— 力矩換算直接差 4.3 倍。
+</p>
+<div class="card">
+<div class="f">有效值 = 原始值 × metersPerUnit × Π(各層 scale)</div>
+<div class="grid">
+  <div><label>原始值</label><input id="u_raw" value="500"></div>
+  <div><label>metersPerUnit</label><input id="u_mpu" value="1.0"></div>
+  <div><label>scale 鏈（逗號分隔）</label><input id="u_chain" value="0.001, 0.23"></div>
+</div>
+<div class="out" id="u_out"></div>
+</div>
+
+<h2>4. 致動權限 vs 真實設備</h2>
+<p class="why">
+把關節的 <code>maxForce</code> 換算回「這台真實設備能出多少力」。
+倍率超過個位數，模擬出來的就不是動力學，是運動學瞬移。
+</p>
+<div class="card">
+<div class="f">輪上力矩   τ = F_牽引 × r_輪</div>
+<div class="grid">
+  <div><label>F 真實牽引力 (N)</label><input id="t_F" value="5000"></div>
+  <div><label>r 輪半徑 (m)</label><input id="t_r" value="0.115"></div>
+  <div><label>模型現況 maxForce (N·m)</label><input id="t_cur" value="2000000"></div>
+</div>
+<div class="out" id="t_out"></div>
+</div>
+
+<h2>是簡化，還是捷徑？</h2>
+<p class="why">不是所有簡化都要修。判準只有一個。</p>
+<div class="scroll">
+<table>
+<tr><th>問題</th><th>簡化（可接受）</th><th>捷徑（會收費）</th></tr>
+<tr><td>它移除了什麼</td><td>計算量、外觀細節</td><td>一個<strong>上限</strong>或<strong>約束</strong></td></tr>
+<tr><td>待測的量受影響嗎</td><td>不會</td><td>會，但隔好幾層才看得出來</td></tr>
+<tr><td>例子</td><td>輪子的視覺網格簡化</td><td>輪子的<strong>關節</strong>改成 Fixed</td></tr>
+<tr><td>例子</td><td>遠處物件不做碰撞</td><td>摩擦調到非物理值去補償</td></tr>
+</table>
+</div>
+<p><strong>核心問句：這個簡化有沒有拿掉一個「本來會讓某件事做不到」的限制？</strong>
+真車轉不快，是因為輪胎摩擦圓限住了它。把輪子拿掉，就沒有任何東西限制轉速 ——
+而限制正是物理模擬的價值所在。</p>
+
+<h2>開始調參之前</h2>
+<ul>
+<li>待測的物理量，它的<strong>上限由什麼決定</strong>？那個機制在模型裡存在嗎</li>
+<li>算一次數量級（上面第 1 節）。差一個數量級以上就不要調參</li>
+<li>grep 所有繞過型參數（<code>*offset*</code>、<code>*filter*</code>、<code>*disable*</code>、非物理的摩擦值）的<strong>註解</strong>
+  —— 寫捷徑的人通常預測過它會在哪壞</li>
+<li>每個繞過型參數的<strong>前提還成立嗎</strong>？去量，不要讀舊註解</li>
+<li>質量、力、慣量與真實設備比對一次</li>
+<li>如果答案是「模型缺了一個限制」，<strong>不要用參數去模仿它</strong></li>
+</ul>
+
+<footer>
+算式與案例出自 <a href="https://github.com/wicanr2/isaac-sim-study">isaac-sim-study</a>：
+<a href="23-no-shortcuts-in-physics-sim/">doc 23 物理模擬不可以偷懶</a>、
+<a href="22-geometry-and-measurement-discipline/">doc 22 幾何與量測紀律</a>、
+<a href="18-finding-physical-parameters/">doc 18 怎麼找真車的物理參數</a>。
+</footer>
+
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const num=id=>{const v=parseFloat($(id).value);return isFinite(v)?v:NaN;};
+const G=9.80665;
+const fmt=(x,d=3)=>!isFinite(x)?"—":(Math.abs(x)>=1e5||(Math.abs(x)<1e-3&&x!==0)?x.toExponential(2):x.toFixed(d));
+function row(k,v,cls){return `<div>${k} <span class="v ${cls||''}">${v}</span></div>`;}
+function verdict(html,cls){return `<div class="verdict ${cls}">${html}</div>`;}
+
+function slip(){
+  const mu=num("s_mu"),r=num("s_r"),tau=num("s_tau"),I=num("s_I");
+  const amax=mu*G/r, aav=tau/I, ratio=aav/amax;
+  let h=row("摩擦能承受 α_max =",fmt(amax,2)+" rad/s²  ("+fmt(amax*180/Math.PI,0)+" °/s²)","ok");
+  h+=row("致動器可達 α =",fmt(aav,1)+" rad/s²","bad");
+  h+=row("載重側向加速度上限 =",fmt(mu*G,2)+" m/s²  ("+fmt(mu,2)+" g)");
+  if(isFinite(ratio)){
+    h+=row("倍率 =",fmt(ratio,0)+" ×",ratio>10?"bad":ratio>3?"warn":"ok");
+    if(ratio>10) h+=verdict("🔴 <strong>差 "+fmt(ratio,0)+" 倍。調摩擦是浪費時間</strong> —— 就算把 μ 加倍，也只把 α_max 抬一倍。要改的是致動端的權限或指令的加速度上限。","bad");
+    else if(ratio>1) h+=verdict("⚠ 致動能力超過摩擦上限 "+fmt(ratio,1)+" 倍。載重會在最激烈的動作下滑。","warn");
+    else h+=verdict("✅ 摩擦有餘裕。滑動若仍發生，成因在別處。","ok");
+  }
+  $("s_out").innerHTML=h;
+}
+function geom(){
+  const L=num("g_L"),t=num("g_t"),th=Math.abs(num("g_th"))*Math.PI/180,p=num("g_p");
+  const h0=L*Math.sin(th)+t*Math.cos(th), play=p-h0;
+  let h=row("垂直佔用 h =",fmt(h0,1)+" mm");
+  h+=row("可用餘裕 =",fmt(play,1)+" mm",play<=0?"bad":play<10?"warn":"ok");
+  h+=row("置中需抬 =",fmt(play/2,1)+" mm");
+  if(play<=0) h+=verdict("🔴 餘裕為負 —— 這個姿態下根本塞不進去。要動的是姿態，不是位置。","bad");
+  else if(play<10) h+=verdict("⚠ 餘裕只有 "+fmt(play,1)+" mm，可能比你的掃描步距還小 —— 掃高度掃不到解，先把傾角放平。","warn");
+  else h+=verdict("✅ 上下各約 "+fmt(play/2,1)+" mm。這個範圍內高度才是可調的旋鈕。","ok");
+  $("g_out").innerHTML=h;
+}
+function calib(){
+  const t1=Math.abs(num("c_t1"))*Math.PI/180,h1=num("c_h1");
+  const t2=Math.abs(num("c_t2"))*Math.PI/180,h2=num("c_h2");
+  const a1=Math.sin(t1),b1=Math.cos(t1),a2=Math.sin(t2),b2=Math.cos(t2);
+  const det=a1*b2-a2*b1;
+  let h;
+  if(Math.abs(det)<1e-12){ h=verdict("兩個角度太接近，解不出來 —— 換一組差距大一點的實測點。","warn"); }
+  else{
+    const L=(h1*b2-h2*b1)/det, t=(a1*h2-a2*h1)/det;
+    h=row("等效 L =",fmt(L,1)+" mm")+row("等效 t =",fmt(t,1)+" mm","ok");
+    h+=verdict("把這兩個值填進上面的計算器。<strong>等效厚度通常明顯大於標稱板厚</strong>（跟部與錐度），"+
+      "用標稱值會低估佔用。",(L>0&&t>0)?"":"warn");
+    if(L<=0||t<=0) h+=verdict("🔴 解出負值 —— 兩個實測點恐怕不是同一個機制量到的，回頭確認量法。","bad");
+  }
+  $("c_out").innerHTML=h;
+}
+function unit(){
+  const raw=num("u_raw"),mpu=num("u_mpu");
+  const parts=$("u_chain").value.split(",").map(s=>parseFloat(s.trim())).filter(v=>isFinite(v));
+  const prod=parts.reduce((a,b)=>a*b,1);
+  const eff=raw*mpu*prod;
+  let h=row("scale 連乘 =",fmt(prod,6));
+  h+=row("有效值 =",fmt(eff,4),"ok");
+  h+=row("（若只用 metersPerUnit）",fmt(raw*mpu,1),"bad");
+  const err=parts.length?Math.abs(eff/(raw*mpu*(parts[0]||1))):1;
+  if(parts.length>1) h+=verdict("⚠ scale 鏈有 "+parts.length+" 層。<strong>只套第一層會差 "+
+    fmt(1/parts.slice(1).reduce((a,b)=>a*b,1),2)+" 倍</strong> —— 每一層都要算，而且可能非均勻（分軸不同）。","warn");
+  else h+=verdict("只有一層 scale。仍要確認上層 prim 沒有另外的 scale，以及它是不是非均勻。","");
+  $("u_out").innerHTML=h;
+}
+function torque(){
+  const F=num("t_F"),r=num("t_r"),cur=num("t_cur");
+  const tau=F*r, ratio=cur/tau;
+  let h=row("真實輪上力矩 τ =",fmt(tau,1)+" N·m","ok");
+  h+=row("模型現況 =",fmt(cur,0)+" N·m","bad");
+  h+=row("倍率 =",fmt(ratio,0)+" ×",ratio>10?"bad":ratio>3?"warn":"ok");
+  if(ratio>10) h+=verdict("🔴 <strong>模型的權限是真實設備的 "+fmt(ratio,0)+" 倍。</strong> "+
+    "任何指令都會被當成運動學瞬移執行 —— 定位很準，但所有接觸物理都失真。這個倍數就是捷徑的規模。","bad");
+  else if(ratio>3) h+=verdict("⚠ 高出真實值 "+fmt(ratio,1)+" 倍。動態行為會偏硬。","warn");
+  else h+=verdict("✅ 與真實設備同量級。","ok");
+  $("t_out").innerHTML=h;
+}
+function all(){slip();geom();calib();unit();torque();}
+document.querySelectorAll("input").forEach(i=>i.addEventListener("input",all));
+all();
+</script>
+</body>
+</html>
