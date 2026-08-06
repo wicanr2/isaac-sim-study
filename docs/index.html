@@ -51,6 +51,17 @@ code{font-family:var(--mono);font-size:.88em;background:var(--card);padding:.1em
 footer{margin-top:4rem;padding-top:1.5rem;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
 a{color:var(--accent)}
 .scroll{overflow-x:auto}
+.fig{margin:1.2rem 0;padding:1rem;background:var(--card);border:1px solid var(--line);border-radius:10px}
+.fig svg{width:100%;height:auto;display:block}
+.fig figcaption{color:var(--muted);font-size:.86rem;margin-top:.7rem;line-height:1.55}
+.dim{fill:var(--accent);font-family:var(--mono);font-size:11px}
+.lbl{fill:var(--fg);font-size:12px}
+.mut{fill:var(--muted);font-size:11px}
+.bod{fill:none;stroke:var(--fg);stroke-width:2}
+.thin{fill:none;stroke:var(--muted);stroke-width:1;stroke-dasharray:4 3}
+.acc{fill:none;stroke:var(--accent);stroke-width:1.5}
+.fillmut{fill:var(--line);stroke:var(--muted);stroke-width:1}
+
 </style>
 </head>
 <body>
@@ -63,6 +74,61 @@ a{color:var(--accent)}
 預設值是一個真實案例（Isaac Sim 裡的堆高機搬棧板）的實測值。
 </p>
 
+
+<figure class="fig">
+<svg viewBox="0 0 720 260" role="img" aria-label="前伸式堆高機側視圖，標出公式用到的幾何量">
+  <defs>
+    <marker id="a" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <!-- 地面 -->
+  <line x1="20" y1="215" x2="700" y2="215" stroke="var(--muted)" stroke-width="1.5"/>
+  <!-- 車體(後) -->
+  <path class="bod" d="M95,215 L95,105 L215,105 L215,150 L250,150 L250,215 Z"/>
+  <text class="mut" x="112" y="128">車體 + 電池</text>
+  <text class="mut" x="112" y="142">＋配重</text>
+  <!-- 驅動輪(後,轉向輪) -->
+  <circle class="fillmut" cx="140" cy="200" r="15"/>
+  <line class="acc" x1="140" y1="200" x2="155" y2="200"/>
+  <text class="dim" x="150" y="196">r=0.115</text>
+  <line class="thin" x1="140" y1="200" x2="140" y2="72"/>
+  <text class="mut" x="106" y="66">轉向軸</text>
+  <!-- 門架 -->
+  <line class="bod" x1="285" y1="215" x2="285" y2="45"/>
+  <line class="bod" x1="300" y1="215" x2="300" y2="45"/>
+  <text class="mut" x="264" y="38">門架</text>
+  <!-- 前承載輪 -->
+  <circle class="fillmut" cx="300" cy="203" r="12"/>
+  <circle class="fillmut" cx="360" cy="203" r="12"/>
+  <line class="bod" x1="285" y1="203" x2="372" y2="203"/>
+  <text class="mut" x="300" y="238">承載輪(被動)</text>
+  <!-- 叉齒 + 棧板 -->
+  <line class="bod" x1="300" y1="130" x2="470" y2="130"/>
+  <rect class="fillmut" x="395" y="98" width="120" height="30"/>
+  <text class="lbl" x="425" y="118">棧板</text>
+  <!-- 尺寸線:轉向軸距 -->
+  <line class="acc" x1="140" y1="80" x2="300" y2="80" marker-start="url(#a)" marker-end="url(#a)" color="var(--accent)"/>
+  <text class="dim" x="163" y="74">d = 1.4115 m</text>
+  <line class="thin" x1="300" y1="80" x2="300" y2="130"/>
+  <!-- 尺寸線:r -->
+  <line class="acc" x1="300" y1="168" x2="455" y2="168" marker-start="url(#a)" marker-end="url(#a)" color="var(--accent)"/>
+  <text class="dim" x="330" y="163">r ≈ 1.5 m（載重到轉軸）</text>
+  <line class="thin" x1="455" y1="168" x2="455" y2="113"/>
+  <!-- 轉彎時的側向 -->
+  <path class="acc" d="M540,150 a55,55 0 0 1 55,-55" marker-end="url(#a)" color="var(--accent)"/>
+  <text class="dim" x="540" y="172">α（偏航角加速度）</text>
+  <line class="acc" x1="600" y1="105" x2="668" y2="105" marker-end="url(#a)" color="var(--accent)"/>
+  <text class="dim" x="596" y="97">a側 = α·r</text>
+  <text class="lbl" x="540" y="196">摩擦能承受 μ·g</text>
+  <text class="mut" x="540" y="212">→ α_max = μ·g / r</text>
+</svg>
+<figcaption>
+公式用到的三個幾何量。<strong>r 是載重到<em>轉軸</em>的距離</strong>，不是到叉齒根部
+——轉彎時甩出去的力臂是這一段。轉向軸距 d 用於阿克曼逆運動學；
+輪半徑 r_輪 用於把牽引力換算成關節力矩。比例依實測值繪製。
+</figcaption>
+</figure>
 <h2>1. 載重會不會滑？</h2>
 <p class="why">
 最常被誤判成「摩擦不夠」的問題。先算數量級：致動器能給的加速度，
@@ -81,6 +147,49 @@ a{color:var(--accent)}
 </div>
 
 <h2>2. 薄件插不插得進窄縫？</h2>
+<figure class="fig">
+<svg viewBox="0 0 720 210" role="img" aria-label="叉齒在叉孔中的剖面，標出傾角造成的垂直佔用">
+  <defs>
+    <marker id="b" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <!-- 叉孔上下緣 -->
+  <rect class="fillmut" x="90" y="28" width="500" height="22"/>
+  <rect class="fillmut" x="90" y="150" width="500" height="22"/>
+  <text class="mut" x="600" y="43">孔頂</text>
+  <text class="mut" x="600" y="165">孔底</text>
+  <!-- 開口尺寸 -->
+  <line class="acc" x1="70" y1="50" x2="70" y2="150" marker-start="url(#b)" marker-end="url(#b)" color="var(--accent)"/>
+  <text class="dim" x="14" y="104">開口 100</text>
+  <!-- 傾斜的齒(θ 誇張顯示) -->
+  <g transform="rotate(-7 340 100)">
+    <rect class="bod" x="150" y="92" width="380" height="16" fill="var(--card)"/>
+    <text class="lbl" x="300" y="105">叉齒（長 L、厚 t）</text>
+  </g>
+  <!-- 佔用包絡 -->
+  <line class="thin" x1="150" y1="70" x2="590" y2="70"/>
+  <line class="thin" x1="150" y1="132" x2="590" y2="132"/>
+  <line class="acc" x1="612" y1="70" x2="612" y2="132" marker-start="url(#b)" marker-end="url(#b)" color="var(--accent)"/>
+  <text class="dim" x="622" y="96">h(θ)</text>
+  <text class="dim" x="622" y="110">= 佔用</text>
+  <!-- 餘裕 -->
+  <line class="acc" x1="672" y1="50" x2="672" y2="70" marker-start="url(#b)" marker-end="url(#b)" color="var(--accent)"/>
+  <line class="acc" x1="672" y1="132" x2="672" y2="150" marker-start="url(#b)" marker-end="url(#b)" color="var(--accent)"/>
+  <text class="dim" x="682" y="66">餘裕/2</text>
+  <text class="dim" x="682" y="148">餘裕/2</text>
+  <!-- 角度 -->
+  <path class="acc" d="M175,100 a40,40 0 0 1 39,-5" color="var(--accent)"/>
+  <text class="dim" x="180" y="88">θ</text>
+</svg>
+<figcaption>
+<strong>決定成敗的是姿態掃過的垂直包絡 h(θ)，不是件本身的厚度 t。</strong>
+一片 25 mm 的板傾斜 2.6° 時佔用 75 mm ——
+在 100 mm 的開口裡只剩 25 mm 餘裕，而傾角放平到 0.5° 就變成 54 mm。
+高度掃不到解時，該動的往往是傾角。
+</figcaption>
+</figure>
+
 <p class="why">
 決定成敗的是<strong>姿態掃過的垂直包絡</strong>，不是件本身的厚度。
 一片 25 mm 的板傾斜 2.6° 時可以佔掉 75 mm。
