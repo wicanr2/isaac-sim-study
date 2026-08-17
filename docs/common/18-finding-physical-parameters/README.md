@@ -154,6 +154,8 @@ export LD_LIBRARY_PATH=${USDLIB}bin:$LD_LIBRARY_PATH
 
 ## 相關
 
+- 參數查到之後怎麼填進 USD、貼在 prim 樹的哪一層,以及關節怎麼建:[26 從規格表到會動的叉車](../26-forklift-physics-and-articulation/README.md)(把本篇子頁的 VDI 2198 欄位逐欄對到 USD 屬性)
+
 - [`10` 場景物理授權](../../common/10-scene-physics-authoring/README.md)
 - [`17` 6.0 物理調參](../../6.0.1/17-physics-parameter-tuning-6.0/README.md)
 - 專案實例:`isaac-sim-60-tuning` 的 `docs/142`(場景物理快照)、`docs/144`(保真度實驗設計)

@@ -6,7 +6,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 
 ## 三個入口
 
-**[共通:機制與方法論](common/)** · 17 篇
+**[共通:機制與方法論](common/)** · 19 篇
 引擎怎麼算一步、碰撞近似損掉什麼、質量該掛在哪一層、實驗怎麼設計才算數。這些在 5.1 與 6.0.1 上是同一套,因此不按版本分。
 
 **[Isaac Sim 5.1](5.1/)** · 2 篇
@@ -28,6 +28,7 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 | 夾不住、叉不起來、轉彎會滑 | [13 接觸與抓握的第一性原理](common/13-contact-and-grasp-first-principles/README.md) |
 | 尺寸都對但件插不進去 | [22 幾何的量測紀律](common/22-geometry-and-measurement-discipline/README.md) |
 | 要跑幾十輪調參 | [19 調參實驗的方法論](common/19-tuning-experiment-methodology/README.md) |
+| 手上有一台叉車/機器人,要把物理與關節建起來 | [26 從規格表到會動的叉車](common/26-forklift-physics-and-articulation/README.md) |
 | 場域主機不能對外,資產抓不到 | [25 官方資產的預先下載與離線佈署](common/25-offline-assets-deployment/README.md) |
 
 ## 工具

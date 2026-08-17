@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>26 · 從規格表到會動的叉車:物理參數與 articulation 的非 GUI 建法 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li><li><a href="../../common/26-forklift-physics-and-articulation/" class="on"><span class="n">26</span>從規格表到會動的叉車</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-一台叉車在-usd-裡是什麼">1. 一台叉車在 USD 裡是什麼</a></li><li class="l2"><a href="#2-規格表欄位-usd-屬性">2. 規格表欄位 → USD 屬性</a></li><li class="l3"><a href="#21-軸荷-質心">2.1 軸荷 → 質心</a></li><li class="l3"><a href="#22-牽引力-驅動關節的-maxforce">2.2 牽引力 → 驅動關節的 maxForce</a></li><li class="l3"><a href="#23-速度-關節速度上限">2.3 速度 → 關節速度上限</a></li><li class="l3"><a href="#24-單位填數字之前先問-metersperunit">2.4 單位:填數字之前先問 metersPerUnit</a></li><li class="l2"><a href="#3-三條寫進去的路">3. 三條寫進去的路</a></li><li class="l2"><a href="#4-articulation-怎麼建">4. Articulation 怎麼建</a></li><li class="l3"><a href="#41-在已匯入的-usd-上補最常見">4.1 在已匯入的 USD 上補(最常見)</a></li><li class="l3"><a href="#42-body0-body1-的順序">4.2 body0 / body1 的順序</a></li><li class="l3"><a href="#43-從零建最小可跑的骨架">4.3 從零建(最小可跑的骨架)</a></li><li class="l3"><a href="#44-要不要走-urdf">4.4 要不要走 URDF</a></li><li class="l2"><a href="#5-怎麼確認它真的生效">5. 怎麼確認它真的生效</a></li><li class="l2"><a href="#6-檢查清單">6. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="26-從規格表到會動的叉車物理參數與-articulation-的非-gui-建法">26 · 從規格表到會動的叉車:物理參數與 articulation 的非 GUI 建法</h1>
+<p>一台從資產庫或 CAD 來的叉車,進到 USD 裡通常只有幾何——沒有質量、沒有關節、沒有馬達。要讓它變成能被模擬的車,中間有兩件事要做:<strong>把真實世界的數字填進去</strong>,以及<strong>把零件之間的運動關係建起來</strong>。</p>
+<p>這兩件事都可以完全不開 GUI。而且不開 GUI 反而比較好——設定值進了版控、能 review、能對不同版本重跑,GUI 拖出來的東西則只存在於那個檔案裡。</p>
+<p>本篇把<a href="../../common/18-finding-physical-parameters/">18 篇</a>找到的參數與<a href="../../common/10-scene-physics-authoring/">10 篇</a>的分層原則接起來,走一遍完整流程:規格表欄位 → USD 屬性 → 貼在 prim 樹的哪一層 → 怎麼確認它真的生效。數值取自 <a href="../../common/18-finding-physical-parameters/vdi2198-forklift-datasheets.html">VDI 2198 子頁</a>實抽的 Linde R16 前伸式堆高機。</p>
+<p align="center"><img src="../../img/forklift-spec-to-usd.svg" width="800" alt="規格表欄位對應到 USD 屬性與 prim 樹層級"></p>
+
+<blockquote>
+<p><strong>驗證狀態</strong>:屬性名稱與預設值取自 <a href="../../6.0.1/17-physics-parameter-tuning-6.0/">17 篇</a>的 6.0.1 實機 schema 抽取,數值取自原廠 VDI 2198 型錄。<strong>本篇的程式碼未在本 repo 環境實機跑過</strong>,寫法依 OpenUSD 與 PhysX schema;凡是牽涉單位慣例的地方,文中都指出要用 §5 的方法自己驗一次,不要照抄。</p>
+</blockquote>
+<h2 id="1-一台叉車在-usd-裡是什麼">1. 一台叉車在 USD 裡是什麼</h2>
+<p>先把「車」這個字拆掉。物理引擎不認識車,它認識的是<strong>一組剛體,用關節連起來,其中一些關節帶馬達</strong>。</p>
+<p>一台前伸式堆高機至少是這幾個剛體:</p>
+<pre><code>/Forklift                     ← ArticulationRootAPI 貼這裡
+├── chassis                   ← RigidBody:自重的大部分
+│   └── collision/            ← CollisionAPI 貼子層(見 10 篇 §1)
+├── drive_wheel               ← RigidBody + revolute joint(驅動,帶 drive)
+├── steer_link                ← RigidBody + revolute joint(轉向,帶 drive)
+├── load_wheel_l / _r         ← RigidBody + revolute joint(從動,不帶 drive)
+├── reach_carriage            ← RigidBody + prismatic joint(前伸)
+│   └── mast_tilt             ← RigidBody + revolute joint(門架傾角)
+│       └── fork_carriage     ← RigidBody + prismatic joint(舉升)
+│           └── fork_l / _r   ← 叉齒,通常跟著 carriage 不另設關節
+</code></pre>
+<p>這棵樹決定了後面所有事情。<strong>分層錯了,參數怎麼調都不會對</strong>——質量掛在碰撞子層而不是剛體層,慣性張量會算出異常小的值,微小力矩就造成巨大角加速度,症狀是物件先瘋狂旋轉再飛走(<a href="../../common/10-scene-physics-authoring/">10 篇</a> §1、§2)。</p>
+<p>⚠ <strong>閉合運動鏈的陷阱在這裡</strong>。真實叉車的門架傾角常由油壓缸推動,油壓缸兩端各自鉸接在車體與門架上——那是一個閉鏈。PhysX 容忍度較高,但 Newton 後端<strong>明確不支援閉合運動鏈</strong>(見 <a href="../../6.0.1/15-physics-backend-5.1-to-6.0/">15 篇</a> §3.1 官方限制 #2)。模擬用的建模應該把油壓缸拿掉,直接用一個帶 drive 的 revolute 關節表達傾角,而不是把真實機構照搬。</p>
+<h2 id="2-規格表欄位-usd-屬性">2. 規格表欄位 → USD 屬性</h2>
+<p>VDI 2198 的好處是欄位編號標準化,每家廠商的型錄長得一樣(<a href="../../common/18-finding-physical-parameters/vdi2198-forklift-datasheets.html">18 篇子頁</a>)。下表把編號直接對到 USD:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>VDI</th>
+<th>欄位</th>
+<th>R16 實抽值</th>
+<th>USD 屬性</th>
+<th>貼在哪</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>2.1</strong></td>
+<td>自重</td>
+<td><strong>3470 kg</strong></td>
+<td><code>physics:mass</code></td>
+<td>車體剛體 prim</td>
+</tr>
+<tr>
+<td>6.5</td>
+<td>電池重量</td>
+<td>939 kg</td>
+<td><em>併入 2.1,不另外加</em></td>
+<td>—</td>
+</tr>
+<tr>
+<td>2.3</td>
+<td>軸荷(空車)</td>
+<td>2190 / 1280 kg</td>
+<td><code>physics:centerOfMass</code></td>
+<td>車體剛體 prim</td>
+</tr>
+<tr>
+<td>1.9</td>
+<td>軸距</td>
+<td>1380 mm</td>
+<td>輪子 prim 的位置</td>
+<td>幾何</td>
+</tr>
+<tr>
+<td>5.5 / 5.8</td>
+<td>牽引力</td>
+<td>~5 kN 持續、~15 kN 峰值</td>
+<td><code>drive:angular:physics:maxForce</code></td>
+<td>驅動輪 revolute joint</td>
+</tr>
+<tr>
+<td>5.1</td>
+<td>行駛速度</td>
+<td>14 km/h = 3.889 m/s</td>
+<td>驅動關節速度上限</td>
+<td>驅動輪 revolute joint</td>
+</tr>
+<tr>
+<td>—</td>
+<td>舉升力(推導)</td>
+<td>~25 kN</td>
+<td><code>drive:linear:physics:maxForce</code></td>
+<td>舉升 prismatic joint</td>
+</tr>
+<tr>
+<td>5.2</td>
+<td>舉升速度(載重)</td>
+<td>0.49 m/s</td>
+<td>舉升關節速度上限</td>
+<td>舉升 prismatic joint</td>
+</tr>
+<tr>
+<td>4.4</td>
+<td>舉升高度</td>
+<td>5710 mm</td>
+<td><code>physics:lowerLimit</code> / <code>upperLimit</code></td>
+<td>舉升 prismatic joint</td>
+</tr>
+<tr>
+<td>4.1</td>
+<td>門架前傾 / 後傾</td>
+<td>2.0° / 4.0°</td>
+<td><code>physics:lowerLimit</code> / <code>upperLimit</code></td>
+<td>傾角 revolute joint</td>
+</tr>
+<tr>
+<td>4.28</td>
+<td>前伸行程</td>
+<td>634 mm</td>
+<td><code>physics:lowerLimit</code> / <code>upperLimit</code></td>
+<td>前伸 prismatic joint</td>
+</tr>
+<tr>
+<td>5.4</td>
+<td>前伸速度</td>
+<td>0.2 m/s</td>
+<td>前伸關節速度上限</td>
+<td>前伸 prismatic joint</td>
+</tr>
+<tr>
+<td>4.22</td>
+<td>叉齒 厚×寬×長</td>
+<td>45×100×1150 mm</td>
+<td>幾何</td>
+<td>叉齒 mesh</td>
+</tr>
+</tbody>
+</table></div>
+<p>三個需要換算而不是直接填的欄位,底下分開講。</p>
+<h3 id="21-軸荷-質心">2.1 軸荷 → 質心</h3>
+<p>規格表不給質心,但給了軸荷,而<strong>兩個軸荷加上軸距就唯一決定質心的縱向位置</strong>。對驅動軸取力矩:</p>
+<pre><code>質心離驅動軸的距離 = (另一軸的軸荷 / 總重) × 軸距
+                   = (1280 / 3470) × 1380 mm
+                   ≈ 509 mm        ← 從驅動軸往承載輪方向
+</code></pre>
+<p>⚠ <strong>這一步最容易被規格表本身騙</strong>。R16 那份型錄的 2.3 / 2.4 兩行,<code>with load</code> 與 <code>without load</code> 的標籤是<strong>互換的</strong>——照字面用會讓驅動輪附著力算錯 3.6 倍。判別方法是拿算術對:標 "with load" 那行加起來等於 2.1 的自重,所以它其實是空車(<a href="../../common/18-finding-physical-parameters/vdi2198-forklift-datasheets.html">18 篇子頁</a>)。<strong>填任何一組軸荷之前,先把它加起來跟自重比一次。</strong></p>
+<p>質心設錯不會報錯,症狀是車在轉彎或載重時的翻覆行為不合理——而那個症狀不會指向質心。</p>
+<h3 id="22-牽引力-驅動關節的-maxforce">2.2 牽引力 → 驅動關節的 maxForce</h3>
+<p>revolute joint 的 drive <code>maxForce</code> 是<strong>力矩</strong>,而規格表給的是<strong>力</strong>。中間差一個輪半徑:</p>
+<pre><code>驅動力矩上限 = 牽引力 × 輪半徑
+</code></pre>
+<p>輪半徑不在上表——它在型錄的輪胎/車輪那一段,這次沒抽。<strong>沒有輪半徑就沒有這個數字</strong>,不要用「差不多 0.3 公尺」湊,因為它直接線性放大或縮小你給馬達的力。</p>
+<p>該填持續值(~5 kN)還是峰值(~15 kN),取決於你在模擬什麼:要重現「爬不上去」「推不動」這類飽和行為,填持續值;只是不想讓馬達變成無限力來源,填峰值。</p>
+<p>⚠ <strong>填之前先算一次數量級,確認你調的是不是限制因素</strong>。<a href="../../common/23-no-shortcuts-in-physics-sim/">23 篇</a>記過一個實例:需要的角加速度是 3.3 rad/s² 而關節可達 1100,差 330 倍——那種情況下調摩擦調到四倍真實值也只是杯水車薪,因為限制根本不在那裡。<a href="../../common/24-nonholonomic-vehicle-control/">24 篇</a> §2 走過完整的「馬達扭力 vs 抓地力誰先飽和」比較。</p>
+<h3 id="23-速度-關節速度上限">2.3 速度 → 關節速度上限</h3>
+<p>行駛速度 14 km/h 是<strong>車速</strong>,驅動關節要的是角速度,同樣要除輪半徑(<code>ω = v / r</code>)。舉升與前伸是 prismatic,速度就是線速度,不用換算。</p>
+<p>⚠ <strong>單位慣例要自己驗,不要照抄</strong>。UsdPhysics 的 revolute 角度限制用度、prismatic 用場景單位,而關節速度上限的單位在不同版本、不同後端可能不同。判別方法是 §5 的第 4 級:<strong>設一個極端值,看行為有沒有可觀察的差異</strong>。填了一個數字然後回讀成功,證明不了它參與計算。</p>
+<p>還有一個版本差異要注意:<code>physxJoint:maxJointVelocity</code> 在 5.x 的預設是 <code>1000000</code>,6.0 改成 <code>inf</code>(見<a href="../../version-matrix.html">版本速查表</a>)。也就是 5.x 時代所有 articulation 關節都有一道隱含的速度上限,6.0 拿掉了。<strong>升上 6.0 之後叉齒開始把東西彈飛,先把這個屬性顯式設回有限值再談其他調參。</strong></p>
+<h3 id="24-單位填數字之前先問-metersperunit">2.4 單位:填數字之前先問 metersPerUnit</h3>
+<p>上表的規格全是 mm,而場景的單位不一定是公尺。NVIDIA Warehouse 資產包實測是 <code>metersPerUnit = 0.01</code>(公分制),放進公尺制場景時父層會有 0.01 縮放(<a href="../../common/18-finding-physical-parameters/">18 篇</a> §2)。<strong>關節行程、質心偏移、輪半徑全部吃這個單位</strong>,而填錯的症狀是行程差 1000 倍——大到會被當成「關節壞了」而不是「單位錯了」。</p>
+<h2 id="3-三條寫進去的路">3. 三條寫進去的路</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>做法</th>
+<th>適合</th>
+<th>代價</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>改 <code>.usda</code> 文字</td>
+<td>少量、一次性的修正</td>
+<td><code>.usd</code> 是二進位 crate,要先轉文字;大檔難管</td>
+</tr>
+<tr>
+<td><strong>Python USD API 離線寫檔</strong></td>
+<td><strong>批次、可重跑、進版控</strong></td>
+<td>要寫腳本</td>
+</tr>
+<tr>
+<td>啟動時 runtime patch(<code>--exec</code>)</td>
+<td>原檔不能動、同一份場景要餵不同版本</td>
+<td>啟動慢幾秒;⚠ <strong>不是所有屬性都吃</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>第三條有一個會讓人白花時間的邊界:<strong>runtime 寫入不一定被採用,而且剛體與關節的行為不一樣</strong>(<a href="../../6.0.1/17-physics-parameter-tuning-6.0/">17 篇</a> §2.5)。<a href="../../common/22-geometry-and-measurement-discipline/">22 篇</a>記過一個代價很高的實例——剛體屬性回讀成功但 PhysX 不採用,連帶讓 40 輪實驗的變因<strong>從未被施加</strong>,而每一輪都跑完了、都有結果、都被拿去分析。</p>
+<p>所以建場域的預設應該是第二條:<strong>離線把值寫進檔案</strong>,runtime patch 留給診斷用。</p>
+<p>離線寫檔的骨架(未實機驗證):</p>
+<pre><code class="language-python">from pxr import Usd, UsdGeom, UsdPhysics, PhysxSchema, Gf
+
+stage = Usd.Stage.Open(&quot;forklift.usd&quot;)
+chassis = stage.GetPrimAtPath(&quot;/Forklift/chassis&quot;)
+
+# 剛體 + 質量。質量貼在剛體層,不是碰撞子層(10 篇 §1)
+UsdPhysics.RigidBodyAPI.Apply(chassis)
+mass_api = UsdPhysics.MassAPI.Apply(chassis)
+mass_api.CreateMassAttr(3470.0)                       # VDI 2.1 自重
+mass_api.CreateCenterOfMassAttr(Gf.Vec3f(0.0, -0.509, 0.0))   # §2.1 推導,單位看 metersPerUnit
+
+stage.GetRootLayer().Save()
+</code></pre>
+<p>⚠ <strong>不要用 grep 判斷 crate 檔裡有沒有某個屬性</strong>。<code>.usd</code> 的字串 token 表會讓 schema 名稱出現在檔案裡,即使沒有任何 prim 真的貼了它——grep 得到不代表 authored(<a href="../../common/18-finding-physical-parameters/">18 篇</a> §5)。要判斷就用 USD API 問 <code>HasAuthoredValue()</code>。</p>
+<h2 id="4-articulation-怎麼建">4. Articulation 怎麼建</h2>
+<h3 id="41-在已匯入的-usd-上補最常見">4.1 在已匯入的 USD 上補(最常見)</h3>
+<p>CAD 轉出來的 USD 只有視覺幾何(<a href="../../common/03-model-import/">03 篇</a> §2、<a href="../../common/21-cad-asset-reading-and-conversion/">21 篇</a>)。補的順序是固定的,因為後一步依賴前一步:</p>
+<ol>
+<li><strong>確定 prim 樹</strong>,決定哪些節點是 link。⚠ CAD 轉換器預設開 instancing,<code>stage.Traverse()</code> 對 instanced 資產會回 0 mesh——數之前先問 <code>GetPrototypes()</code>(<a href="../../common/21-cad-asset-reading-and-conversion/">21 篇</a>)。</li>
+<li><strong>貼 <code>RigidBodyAPI</code></strong>,每個 link 一個。碰撞體貼在子層,不要跟剛體貼同一個 prim。</li>
+<li><strong>貼質量</strong>。動態剛體必須有非零質量與慣量,否則 Newton 後端初始化會失敗(<a href="../../6.0.1/15-physics-backend-5.1-to-6.0/">15 篇</a> §3.1 限制 #3)。沒授權質量時 PhysX 用「網格體積 × 1000 kg/m³」當預設,鋼構件因此輕 7.9 倍且<strong>不會有任何警告</strong>(<a href="../../common/18-finding-physical-parameters/">18 篇</a> §0)。</li>
+<li><strong>建 joint prim</strong>,設 <code>body0</code> / <code>body1</code>。</li>
+<li><strong>貼 <code>ArticulationRootAPI</code></strong> 在包含整棵關節樹的 prim 上。⚠ 所有 joint 都必須屬於某個 articulation root,散裝 joint 在 Newton 後端不行(限制 #5)。</li>
+</ol>
+<h3 id="42-body0-body1-的順序">4.2 body0 / body1 的順序</h3>
+<p>這一條單獨拉出來講,因為它是<strong>兩版行為不同、而錯了不會報錯</strong>的那種:</p>
+<blockquote>
+<p><code>body0</code> 要是父、<code>body1</code> 要是子。<strong>PhysX 不在乎順序</strong>,只影響回傳值正負;<strong>Newton 硬性要求</strong>。而 PhysX 時代的資產常常反著寫。</p>
+</blockquote>
+<p>出處是 <a href="../../6.0.1/15-physics-backend-5.1-to-6.0/">15 篇</a> §3.1 的官方限制 #1。從 5.x 搬上來的叉車資產,這一項值得整批掃一次——PhysX 下跑得好好的東西,切到 Newton 會以「關節方向相反」或「初始化失敗」的形式出現,而症狀不會指向 body 順序。</p>
+<h3 id="43-從零建最小可跑的骨架">4.3 從零建(最小可跑的骨架)</h3>
+<pre><code class="language-python">from pxr import Usd, UsdGeom, UsdPhysics, PhysxSchema, Gf
+
+stage = Usd.Stage.CreateNew(&quot;forklift.usda&quot;)
+UsdGeom.SetStageMetersPerUnit(stage, 1.0)          # 先把單位釘死(§2.4)
+UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
+
+root = UsdGeom.Xform.Define(stage, &quot;/Forklift&quot;)
+UsdPhysics.ArticulationRootAPI.Apply(root.GetPrim())
+
+# --- 驅動輪:revolute + 角度 drive ---
+wheel = UsdGeom.Xform.Define(stage, &quot;/Forklift/drive_wheel&quot;)
+UsdPhysics.RigidBodyAPI.Apply(wheel.GetPrim())
+
+j = UsdPhysics.RevoluteJoint.Define(stage, &quot;/Forklift/joints/drive&quot;)
+j.CreateBody0Rel().SetTargets([&quot;/Forklift/chassis&quot;])      # 父
+j.CreateBody1Rel().SetTargets([&quot;/Forklift/drive_wheel&quot;])  # 子(§4.2)
+j.CreateAxisAttr(&quot;Y&quot;)
+
+drive = UsdPhysics.DriveAPI.Apply(j.GetPrim(), &quot;angular&quot;)
+drive.CreateTypeAttr(&quot;force&quot;)
+drive.CreateMaxForceAttr(TRACTION_N * WHEEL_RADIUS_M)     # §2.2:力矩,不是力
+drive.CreateDampingAttr(...)                              # 速度控制靠 damping
+drive.CreateStiffnessAttr(0.0)                            # 0 = 純速度控制
+
+# --- 舉升:prismatic + 線性 drive + 行程限制 ---
+lift = UsdPhysics.PrismaticJoint.Define(stage, &quot;/Forklift/joints/lift&quot;)
+lift.CreateAxisAttr(&quot;Z&quot;)
+lift.CreateLowerLimitAttr(0.0)
+lift.CreateUpperLimitAttr(5.710)                          # VDI 4.4,場景單位
+lift_drive = UsdPhysics.DriveAPI.Apply(lift.GetPrim(), &quot;linear&quot;)
+lift_drive.CreateMaxForceAttr(25000.0)                    # ~25 kN
+
+stage.GetRootLayer().Save()
+</code></pre>
+<p><strong>drive 的 stiffness / damping 決定控制語意</strong>:<code>stiffness</code> 大是位置控制(PD 把關節拉向目標角度/位置),<code>stiffness = 0</code> 而 <code>damping</code> 大是速度控制。驅動輪要的是速度控制,舉升要的是位置控制。PD 公式與增益怎麼取見 <a href="../../common/09-physics-simulation-fundamentals/">09 篇</a>;⚠ <strong>drive 力與增益要等比例動</strong>,只放大其中一個等於改了控制器的行為。</p>
+<p>兩個容易漏的 articulation 參數(<a href="../../6.0.1/17-physics-parameter-tuning-6.0/">17 篇</a> §3.6):</p>
+<ul>
+<li><code>physxArticulation:solverVelocityIterationCount</code> 預設 <strong>1</strong>,而官方對複雜關節建議 <strong>16</strong>。叉車這種多關節帶負載的樹,預設值偏低。</li>
+<li><code>physxJoint:armature</code> 預設 0,是致動器的等效慣性,可以穩定高增益驅動。叉齒抖動時這是比調摩擦更該先試的旋鈕。</li>
+</ul>
+<h3 id="44-要不要走-urdf">4.4 要不要走 URDF</h3>
+<p>ROS 生態來的機器人已經有 URDF 的話,用官方 importer(<code>isaacsim.asset.importer.urdf</code>)把 link/joint 結構直接轉成 articulation 最省事(<a href="../../common/03-model-import/">03 篇</a> §2)。</p>
+<p>但叉車這類「資產庫或 CAD 來的 USD,幾何已經在了、只缺物理」的情形,繞去寫 URDF 再轉回來是多一次轉換與一次資訊損失。<strong>直接在 USD 上補比較短</strong>,而且改的東西跟最後跑的東西是同一份。</p>
+<h2 id="5-怎麼確認它真的生效">5. 怎麼確認它真的生效</h2>
+<p>沿用 <a href="../../6.0.1/17-physics-parameter-tuning-6.0/">17 篇</a> §5 的四級可信度——<strong>只有第 4 級能證明參數參與計算</strong>:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>方法</th>
+<th>能證明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>在場景檔裡 grep 得到</td>
+<td>只證明寫下來了(而且對 crate 檔連這個都不成立)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>離線讀出 authored value</td>
+<td>值正確、格式沒錯</td>
+</tr>
+<tr>
+<td>3</td>
+<td>對跑著的模擬用探針讀回</td>
+<td>載入後仍是這個值</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>設極端值,行為有可觀察的差異</strong></td>
+<td><strong>它真的參與計算</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>叉車專屬的三個行為檢查:</p>
+<ol>
+<li><strong>質量對不對</strong> → 讓它自由落到地面,量沉陷量與接觸力。質量差一個數量級時沉陷行為明顯不同。</li>
+<li><strong>質心對不對</strong> → 用叉齒舉起額定載重,看有沒有翻覆傾向。質心設在幾何中心的車,載重時的行為會比真車穩得多。</li>
+<li><strong>驅動力上限有沒有生效</strong> → 給一個爬坡或推重物的情境,確認它在預期的地方<strong>推不動</strong>。推得動代表上限沒生效或設太大——而「一直都推得動」在功能測試裡看起來像成功。</li>
+</ol>
+<p>第 3 條是最容易被跳過的:飽和行為要<strong>故意去撞上限</strong>才驗得到,而正常的功能測試從不會走到那裡。這跟 <a href="../../common/12-long-run-operations/">12 篇</a>講的是同一件事——沉默相容於太多個世界。</p>
+<h2 id="6-檢查清單">6. 檢查清單</h2>
+<ul>
+<li>[ ] prim 樹畫出來了,剛體層與碰撞層分開</li>
+<li>[ ] 每個 link 有 <code>RigidBodyAPI</code>,質量貼在剛體層而不是碰撞子層</li>
+<li>[ ] 自重用 VDI 2.1,而且<strong>確認電池重量(6.5)已包含在內</strong></li>
+<li>[ ] 填軸荷之前,先把兩軸加起來跟自重比對一次(標籤可能互換)</li>
+<li>[ ] 質心由軸荷推導,不是放在幾何中心</li>
+<li>[ ] 場景 <code>metersPerUnit</code> 確認過,所有行程/偏移/半徑用同一個單位</li>
+<li>[ ] 驅動 <code>maxForce</code> 是<strong>力矩</strong>(牽引力 × 輪半徑),不是直接填牽引力</li>
+<li>[ ] 所有 joint 的 <code>body0</code> 是父、<code>body1</code> 是子</li>
+<li>[ ] 所有 joint 都在某個 <code>ArticulationRootAPI</code> 底下</li>
+<li>[ ] 沒有閉合運動鏈(油壓缸用單一 drive 關節取代)</li>
+<li>[ ] <code>solverVelocityIterationCount</code> 從預設 1 提高</li>
+<li>[ ] 升 6.0 的話,<code>physxJoint:maxJointVelocity</code> 顯式設回有限值</li>
+<li>[ ] 每個關鍵參數都用「設極端值看行為差異」驗過,不是只回讀</li>
+</ul>
+<hr />
+<p>延伸閱讀:<a href="../../common/18-finding-physical-parameters/">18 建場域時物理參數要去哪裡找</a>(來源優先序與估算法)、<a href="../../common/10-scene-physics-authoring/">10 場景資產的物理結構</a>(分層與材質綁定)、<a href="../../common/24-nonholonomic-vehicle-control/">24 把「會瞬移的底盤」換成「真的有輪子的車」</a>(輪系底盤的前提鏈與控制)、<a href="../../6.0.1/17-physics-parameter-tuning-6.0/">17 6.0 的物理調參</a>(完整參數表與生效條件)。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

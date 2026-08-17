@@ -19,7 +19,7 @@
 <p>NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件。但真正把它用在工程上——跑在遠端 GPU 伺服器、由程式建立與控制物理世界、接進既有系統——需要的是另一套「不碰 UI」的工作方法。</p>
 <p>這裡整理的是一段倉儲物流模擬專案(堆高機 AMR、貨架、派工系統整合)累積下來的東西:每篇從「要解決什麼根本問題」出發,標明哪些是官方機制、哪些是實測踩坑後的結論、哪些還只是推測。</p>
 <h2 id="三個入口">三個入口</h2>
-<p><strong><a href="common">共通:機制與方法論</a></strong> · 17 篇
+<p><strong><a href="common">共通:機制與方法論</a></strong> · 19 篇
 引擎怎麼算一步、碰撞近似損掉什麼、質量該掛在哪一層、實驗怎麼設計才算數。這些在 5.1 與 6.0.1 上是同一套,因此不按版本分。</p>
 <p><strong><a href="5.1">Isaac Sim 5.1</a></strong> · 2 篇
 只在 5.x 命名空間下成立的內容,主要是程式碼——6.0 起 <code>isaacsim.core.*</code> 整組搬到 <code>isaacsim.core.experimental.*</code>。</p>
@@ -59,6 +59,10 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 <tr>
 <td>要跑幾十輪調參</td>
 <td><a href="common/19-tuning-experiment-methodology/">19 調參實驗的方法論</a></td>
+</tr>
+<tr>
+<td>手上有一台叉車/機器人,要把物理與關節建起來</td>
+<td><a href="common/26-forklift-physics-and-articulation/">26 從規格表到會動的叉車</a></td>
 </tr>
 <tr>
 <td>場域主機不能對外,資產抓不到</td>

@@ -13,7 +13,7 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">5.1</div><ul class="side-l"><li><a href="../5.1/07-minimal-example/"><span class="n">07</span>最小可跑範例:從零到第一個會動的模擬</a></li><li><a href="../5.1/11-live-pose-and-accuracy/"><span class="n">11</span>讀取即時位姿與放置精度驗收</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#這一區只有兩篇的原因">這一區只有兩篇的原因</a></li><li class="l2"><a href="#篇章">篇章</a></li><li class="l2"><a href="#從零開始的閱讀動線">從零開始的閱讀動線</a></li><li class="l2"><a href="#準備升到-60">準備升到 6.0</a></li></ul></aside>
+  <aside class="side"><div class="side-h">5.1</div><ul class="side-l"><li><a href="../5.1/07-minimal-example/"><span class="n">07</span>最小可跑範例:從零到第一個會動的模擬</a></li><li><a href="../5.1/11-live-pose-and-accuracy/"><span class="n">11</span>讀取即時位姿與放置精度驗收</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#這一區只有兩篇的原因">這一區只有兩篇的原因</a></li><li class="l2"><a href="#篇章">篇章</a></li><li class="l2"><a href="#從零開始的閱讀動線">從零開始的閱讀動線</a></li><li class="l2"><a href="#參數預設值查哪裡">參數預設值查哪裡</a></li><li class="l2"><a href="#準備升到-60">準備升到 6.0</a></li></ul></aside>
   <main class="doc">
 <h1 id="isaac-sim-51">Isaac Sim 5.1</h1>
 <p>本 repo 的實測環境以 Isaac Sim 5.1.x 為主(部分 API 對照回溯到 4.5),這一區收「只在 5.x 命名空間下成立」的內容——主要是程式碼。兩版通用的機制與方法論在<a href="../common">共通區</a>,與 6.0.1 的差異見<a href="../version-matrix.html">版本速查表</a>。</p>
@@ -35,6 +35,8 @@
 <li>要建一個能跑物理搬運的場景,接著讀 <a href="../common/10-scene-physics-authoring/">10 場景資產的物理結構</a> → <a href="../5.1/11-live-pose-and-accuracy/">11</a> → <a href="../common/12-long-run-operations/">12 長跑維運</a>。</li>
 </ol>
 <p>接 ROS 2 或要遠端看畫面,另外讀 <a href="../common/05-ros2-bridge/">05 ROS2 橋接</a> 與 <a href="../common/06-webrtc-streaming/">06 WebRTC 串流</a>,兩篇的實測都在 5.1 上做的。</p>
+<h2 id="參數預設值查哪裡">參數預設值查哪裡</h2>
+<p><a href="../6.0.1/17-physics-parameter-tuning-6.0/">6.0.1 區的 17 篇</a> 有一張七類物理屬性的完整預設值表。它標的是 6.0.1,但那是抽取來源而不是適用範圍——兩版 schema 逐項比對後,同名屬性的預設值<strong>只有 <code>physxJoint:maxJointVelocity</code> 一項不同</strong>(5.1 是 <code>1000000</code>,6.0 改成 <code>inf</code>)。5.1 要查預設值直接看那一篇,記得把那一行換回來。</p>
 <h2 id="準備升到-60">準備升到 6.0</h2>
 <p>先讀 <a href="../6.0.1/15-physics-backend-5.1-to-6.0/">15 物理層變動</a> 與 <a href="../6.0.1/14-ros2-bridge-6.0-architecture/">14 ROS 2 Bridge 架構重組</a>,再看 <a href="../6.0.1/08-migration-5.1-to-6.0-oom-risk/">08 遷移風險調查</a>。整區入口在 <a href="../6.0.1">6.0.1</a>。</p>
   </main>

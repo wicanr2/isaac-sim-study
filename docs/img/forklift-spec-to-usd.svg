@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="470" viewBox="0 0 800 470" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="800" height="470" fill="#ffffff"/>
+  <text x="400" y="27" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">VDI 2198 規格表欄位 → USD 屬性 → 貼在哪一層</text>
+  <text x="400" y="46" text-anchor="middle" font-size="11" fill="#888">數值取自 Linde R16 前伸式堆高機原廠型錄實抽</text>
+
+  <text x="128" y="72" text-anchor="middle" font-size="11" font-weight="bold" fill="#666">規格表(公開、標準化)</text>
+  <text x="420" y="72" text-anchor="middle" font-size="11" font-weight="bold" fill="#666">USD 屬性</text>
+  <text x="690" y="72" text-anchor="middle" font-size="11" font-weight="bold" fill="#666">貼在這個 prim</text>
+  <line x1="20" y1="80" x2="780" y2="80" stroke="#ddd"/>
+
+  <!-- row 1: mass -->
+  <rect x="20" y="92" width="216" height="44" rx="7" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.4"/>
+  <text x="30" y="110" font-size="11.5" font-weight="bold" fill="#33506b">2.1 自重</text>
+  <text x="226" y="110" text-anchor="end" font-size="11.5" fill="#33506b">3470 kg</text>
+  <text x="30" y="127" font-size="10" fill="#888">6.5 電池 939 kg 已含在內</text>
+  <path d="M240 114 L 300 114" stroke="#666" stroke-width="1.3"/><path d="M300 114 l -7 -4 l 0 8 z" fill="#666"/>
+  <rect x="304" y="92" width="232" height="44" rx="7" fill="#eef6f0" stroke="#1f6b3a" stroke-width="1.4"/>
+  <text x="420" y="118" text-anchor="middle" font-size="12" font-family="ui-monospace,Menlo,Consolas,monospace" fill="#1f6b3a">physics:mass</text>
+  <path d="M540 114 L 590 114" stroke="#666" stroke-width="1.3"/><path d="M590 114 l -7 -4 l 0 8 z" fill="#666"/>
+  <text x="600" y="118" font-size="11.5" fill="#444">車體剛體 prim</text>
+
+  <!-- row 2: axle load -> COM -->
+  <rect x="20" y="146" width="216" height="44" rx="7" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.4"/>
+  <text x="30" y="164" font-size="11.5" font-weight="bold" fill="#33506b">2.3 軸荷(空車)</text>
+  <text x="226" y="164" text-anchor="end" font-size="11.5" fill="#33506b">2190 / 1280 kg</text>
+  <text x="30" y="181" font-size="10" fill="#b4341f">⚠ 標籤可能互換,先加總比對自重</text>
+  <path d="M240 168 L 300 168" stroke="#e8853d" stroke-width="1.3"/><path d="M300 168 l -7 -4 l 0 8 z" fill="#e8853d"/>
+  <rect x="248" y="152" width="46" height="15" rx="7" fill="#fff3e6" stroke="#e8853d"/>
+  <text x="271" y="163" text-anchor="middle" font-size="9" fill="#b35c1e">要換算</text>
+  <rect x="304" y="146" width="232" height="44" rx="7" fill="#eef6f0" stroke="#1f6b3a" stroke-width="1.4"/>
+  <text x="420" y="166" text-anchor="middle" font-size="12" font-family="ui-monospace,Menlo,Consolas,monospace" fill="#1f6b3a">physics:centerOfMass</text>
+  <text x="420" y="181" text-anchor="middle" font-size="9.5" fill="#3d7050">(1280 / 3470) × 軸距 1380 ≈ 509 mm</text>
+  <path d="M540 168 L 590 168" stroke="#666" stroke-width="1.3"/><path d="M590 168 l -7 -4 l 0 8 z" fill="#666"/>
+  <text x="600" y="172" font-size="11.5" fill="#444">車體剛體 prim</text>
+
+  <!-- row 3: traction -->
+  <rect x="20" y="200" width="216" height="44" rx="7" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.4"/>
+  <text x="30" y="218" font-size="11.5" font-weight="bold" fill="#33506b">5.5 / 5.8 牽引力</text>
+  <text x="226" y="218" text-anchor="end" font-size="11.5" fill="#33506b">~15 kN 峰值</text>
+  <text x="30" y="235" font-size="10" fill="#888">沒有 5.5 就用 5.8 爬坡能力回推</text>
+  <path d="M240 222 L 300 222" stroke="#e8853d" stroke-width="1.3"/><path d="M300 222 l -7 -4 l 0 8 z" fill="#e8853d"/>
+  <rect x="243" y="206" width="56" height="15" rx="7" fill="#fff3e6" stroke="#e8853d"/>
+  <text x="271" y="217" text-anchor="middle" font-size="9" fill="#b35c1e">×輪半徑</text>
+  <rect x="304" y="200" width="232" height="44" rx="7" fill="#eef6f0" stroke="#1f6b3a" stroke-width="1.4"/>
+  <text x="420" y="220" text-anchor="middle" font-size="11" font-family="ui-monospace,Menlo,Consolas,monospace" fill="#1f6b3a">drive:angular:physics:maxForce</text>
+  <text x="420" y="235" text-anchor="middle" font-size="9.5" fill="#b4341f">是力矩,不是力</text>
+  <path d="M540 222 L 590 222" stroke="#666" stroke-width="1.3"/><path d="M590 222 l -7 -4 l 0 8 z" fill="#666"/>
+  <text x="600" y="226" font-size="11.5" fill="#444">驅動輪 revolute joint</text>
+
+  <!-- row 4: lift speed -->
+  <rect x="20" y="254" width="216" height="44" rx="7" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.4"/>
+  <text x="30" y="272" font-size="11.5" font-weight="bold" fill="#33506b">5.2 舉升速度</text>
+  <text x="226" y="272" text-anchor="end" font-size="11.5" fill="#33506b">0.49 m/s</text>
+  <text x="30" y="289" font-size="10" fill="#888">5.1 行駛 14 km/h 要先除輪半徑</text>
+  <path d="M240 276 L 300 276" stroke="#666" stroke-width="1.3"/><path d="M300 276 l -7 -4 l 0 8 z" fill="#666"/>
+  <rect x="304" y="254" width="232" height="44" rx="7" fill="#eef6f0" stroke="#1f6b3a" stroke-width="1.4"/>
+  <text x="420" y="274" text-anchor="middle" font-size="11" font-family="ui-monospace,Menlo,Consolas,monospace" fill="#1f6b3a">physxJoint:maxJointVelocity</text>
+  <text x="420" y="289" text-anchor="middle" font-size="9.5" fill="#b4341f">5.x 預設 1e6,6.0 變 inf</text>
+  <path d="M540 276 L 590 276" stroke="#666" stroke-width="1.3"/><path d="M590 276 l -7 -4 l 0 8 z" fill="#666"/>
+  <text x="600" y="280" font-size="11.5" fill="#444">舉升 prismatic joint</text>
+
+  <!-- row 5: travel limits -->
+  <rect x="20" y="308" width="216" height="44" rx="7" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.4"/>
+  <text x="30" y="326" font-size="11.5" font-weight="bold" fill="#33506b">4.4 / 4.28 行程</text>
+  <text x="226" y="326" text-anchor="end" font-size="11.5" fill="#33506b">5710 / 634 mm</text>
+  <text x="30" y="343" font-size="10" fill="#888">舉升高度 / 前伸行程</text>
+  <path d="M240 330 L 300 330" stroke="#666" stroke-width="1.3"/><path d="M300 330 l -7 -4 l 0 8 z" fill="#666"/>
+  <rect x="304" y="308" width="232" height="44" rx="7" fill="#eef6f0" stroke="#1f6b3a" stroke-width="1.4"/>
+  <text x="420" y="328" text-anchor="middle" font-size="11" font-family="ui-monospace,Menlo,Consolas,monospace" fill="#1f6b3a">physics:lowerLimit / upperLimit</text>
+  <text x="420" y="343" text-anchor="middle" font-size="9.5" fill="#b4341f">吃場景單位 metersPerUnit</text>
+  <path d="M540 330 L 590 330" stroke="#666" stroke-width="1.3"/><path d="M590 330 l -7 -4 l 0 8 z" fill="#666"/>
+  <text x="600" y="334" font-size="11.5" fill="#444">舉升 / 前伸 prismatic</text>
+
+  <!-- row 6: tilt -->
+  <rect x="20" y="362" width="216" height="44" rx="7" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.4"/>
+  <text x="30" y="380" font-size="11.5" font-weight="bold" fill="#33506b">4.1 門架前傾 / 後傾</text>
+  <text x="226" y="380" text-anchor="end" font-size="11.5" fill="#33506b">2.0° / 4.0°</text>
+  <text x="30" y="397" font-size="10" fill="#888">revolute 角度限制用度</text>
+  <path d="M240 384 L 300 384" stroke="#666" stroke-width="1.3"/><path d="M300 384 l -7 -4 l 0 8 z" fill="#666"/>
+  <rect x="304" y="362" width="232" height="44" rx="7" fill="#eef6f0" stroke="#1f6b3a" stroke-width="1.4"/>
+  <text x="420" y="382" text-anchor="middle" font-size="11" font-family="ui-monospace,Menlo,Consolas,monospace" fill="#1f6b3a">physics:lowerLimit / upperLimit</text>
+  <text x="420" y="397" text-anchor="middle" font-size="9.5" fill="#3d7050">−2.0 / +4.0</text>
+  <path d="M540 384 L 590 384" stroke="#666" stroke-width="1.3"/><path d="M590 384 l -7 -4 l 0 8 z" fill="#666"/>
+  <text x="600" y="388" font-size="11.5" fill="#444">傾角 revolute joint</text>
+
+  <line x1="20" y1="422" x2="780" y2="422" stroke="#ddd"/>
+  <text x="400" y="443" text-anchor="middle" font-size="11" fill="#b35c1e">填進去只證明寫下來了。要證明它參與計算,只有「設極端值看行為有沒有差異」這一種辦法</text>
+  <text x="400" y="460" text-anchor="middle" font-size="10.5" fill="#888">質量貼在剛體層而不是碰撞子層;所有 joint 的 body0 是父、body1 是子,且都要在 ArticulationRootAPI 底下</text>
+</svg>
