@@ -1,39 +1,80 @@
 # Isaac Sim 實戰筆記:不碰 UI 的模擬工作流
 
-NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件。但真正把它用在工程上——跑在遠端 GPU 伺服器、由程式建立與控制物理世界、接進既有系統——需要的是另一套「不碰 UI」的工作方法。本 repo 把一段倉儲物流模擬專案(堆高機 AMR、貨架、派工系統整合)累積的實戰經驗整理成教學:每篇從「要解決什麼根本問題」出發,標明哪些是官方機制、哪些是實測踩坑後的結論。
+NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件。但真正把它用在工程上——跑在遠端 GPU 伺服器、由程式建立與控制物理世界、接進既有系統——需要的是另一套「不碰 UI」的工作方法。本 repo 把一段倉儲物流模擬專案(堆高機 AMR、貨架、派工系統整合)累積的實戰經驗整理成教學:每篇從「要解決什麼根本問題」出發,標明哪些是官方機制、哪些是實測踩坑後的結論、哪些還只是推測。
 
-## 閱讀動線
+線上版:**<https://wicanr2.github.io/isaac-sim-study/>**
+
+## 教學文件依版本分三區
+
+24 篇裡真正綁死版本的只有七篇,其餘的機制兩版共用,因此不複製成兩份。跨版本排查先看 **[5.1 ↔ 6.0.1 差異速查](docs/version-matrix.md)**。
+
+| 區 | 入口 | 篇數 | 收什麼 |
+|---|---|---|---|
+| 共通 | [`docs/common/`](docs/common/) | 17 | 機制與方法論,兩版通用 |
+| 5.1 | [`docs/5.1/`](docs/5.1/) | 2 | 綁 `isaacsim.core.*` 命名空間的程式碼 |
+| 6.0.1 | [`docs/6.0.1/`](docs/6.0.1/) | 5 | 6.0.x 專屬的架構、後端與調參 |
+
+
+### 共通:機制與方法論
+
+在 5.1 與 6.0.1 上都成立——講機制怎麼運作、參數為什麼那樣排序、實驗怎麼設計才算數。各篇內文標明實測所用的版本與環境。
 
 | # | 主題 | 一句話 |
 |---|---|---|
-| [01](docs/01-install-and-run-modes/README.md) | 安裝與執行模式 | GUI / headless / streaming 是同一核心的三種前端;版本×驅動相容性、Python 環境隔離 |
-| [02](docs/02-python-no-ui/README.md) | 不碰 UI:用 Python 操作 | `--exec` 啟動腳本、ScriptNode、UDP 遠端命令通道三層做法 |
-| [03](docs/03-model-import/README.md) | 模型格式與匯入 | 一切都先轉 USD:CAD/URDF 轉換流程、依賴解析、資產授權 |
-| [04](docs/04-physics-world/README.md) | 建立物理世界 | PLAYING 才有物理;虛擬世界關節建模法;teleport vs drive;互斥的控制路徑 |
-| [05](docs/05-ros2-bridge/README.md) | ROS2 橋接 | 官方 bridge 機制;headless 下 OmniGraph 不 tick 的實案與 UDP 解耦架構 |
-| [06](docs/06-webrtc-streaming/README.md) | WebRTC 串流 | 單 client 限制與 relay 分流架構;兩個「症狀騙人」的排錯實例 |
-| [07](docs/07-minimal-example/README.md) | 最小可跑範例 | 三個由小到大的 standalone 範例:方塊落地、開官方倉庫、機器人讀位姿 |
-| [08](docs/08-migration-5.1-to-6.0-oom-risk/README.md) | 5.1 → 6.0.1 遷移風險調查 | 5.1 USD 場景搬進 6.0.1 的 OOM/異常風險:官方變更點對照、記憶體機轉查證、本機兩版場景 schema 比對、遷移 SOP |
-| [09](docs/09-physics-simulation-fundamentals/README.md) | 物理模擬基礎 | timestep/substep、contact/rest offset、CCD、joint drive PD 公式、PGS/TGS solver、kinematic target vs teleport、reset 語意——接進穿模/暴走/reset 三個實戰案例 |
-| [10](docs/10-scene-physics-authoring/README.md) | 場景資產的物理結構 | 剛體與碰撞為什麼一定要分層、質量比是隱藏參數、物理材質綁定(`ComputeBoundMaterial` 幾乎不會回 None)、執行期補綁的三個邊界 |
-| [11](docs/11-live-pose-and-accuracy/README.md) | 即時位姿與放置精度 | 四種讀位姿的方法只有一種能用、唯讀的觀測 API 反而弄壞控制鏈、把「放得準不準」變成可驗收的量測管線 |
-| [12](docs/12-long-run-operations/README.md) | 長跑維運 | 重啟造成的兩份狀態分歧(表現形式是「成功」)、看門狗分層、串流靜默卡死偵測、三個殼層陷阱 |
-| [13](docs/13-contact-and-grasp-first-principles/README.md) | 接觸與抓握的第一性原理 | Signorini 互補條件 + 摩擦錐推出「μ 是乘在一個可能為零的量上」;碰撞近似是有損編碼、凸包填實凹特徵是定義的後果;調參順序為何必然是幾何→質量→offset→摩擦;開環致動的結構性漂移;為什麼模擬器永遠不報錯 |
-| [14](docs/14-ros2-bridge-6.0-architecture/README.md) | ROS 2 Bridge 在 6.0 的架構重組 | 一個 extension 拆成五個;設定鍵命名空間沒跟著搬家、extension 版本號與產品版號脫鉤、被 deprecate 但仍可用的 TF/JointState 接法——三個「看起來變了其實沒變」的判讀陷阱;rclpy 的 system→internal fallback 與「啟動前不要 source ROS」的機制 |
-| [15](docs/15-physics-backend-5.1-to-6.0/README.md) | 5.1 → 6.0 的物理層變動 | PhysX 換代(107→110)與 Newton 後端加入是**兩件獨立的事**;怎麼確定自己跑哪個後端(log 有 newton ≠ Newton 在跑);5.x 場景官方建議留在 PhysX;`MassAPI` 授權規則改變的無聲影響;跨版本排查順序 |
-| [16](docs/16-model-tuning-for-6.0/README.md) | **把 5.x 場景調到 6.0 能跑,東西不會亂飛** | 從零講起,不需先熟 Isaac Sim:一個「會被搬動的箱子」由哪些貼紙組成、為什麼 `.usd` 用 VS Code 打不開、怎麼把 crate 轉成文字改、什麼時候該改啟動腳本而不是改檔;四個「設定得進去但不生效」的結構問題(剛體/碰撞分層、質量掛錯層、材質綁定 fallback 回渲染材質、SDF 解析度不足以表達孔洞);東西亂飛的成因排序與診斷決策樹 |
-| [17](docs/17-physics-parameter-tuning-6.0/README.md) | **6.0 的物理調參:入口、生效條件、完整參數表** | 三個調參入口(USD 屬性 / 啟動參數 / runtime API);四個會讓設定**無聲失效**的條件(貼錯 prim 缺對應 API、後端不吃、被 runtime patch 覆蓋、combine mode 稀釋);`physxScene`/`RigidBody`/`Collision`/`SDF`/`Material`/`Articulation`/`Joint` 七類的完整預設值表(取自 6.0.1 實機 schema);穩定性問題的調參順序;為什麼只有「設極端值看行為差異」能證明參數生效 |
-| [18](docs/18-finding-physical-parameters/README.md) | **建場域時,物理參數要去哪裡找** | PhysX 對未授權質量的預設是「網格體積 × **1000 kg/m³**(水)」—— 鋼構件因此輕 7.9 倍,而且**不會有任何警告**;四種來源的優先順序與各自的盲點;⚠ 規格書公布的是**載重能力不是自重**(製造商不公布 tare weight);查不到時用「幾何 × 材料密度」估,含常用密度表與合理性檢核;⚠ NVIDIA Warehouse 資產包(24 GB)實測**完全沒有物理 API**,純幾何+材質;為什麼不能用 grep 判斷 usdc 有沒有某屬性;建場域的七項檢查清單 |
-| [19](docs/19-tuning-experiment-methodology/README.md) | **調參實驗的方法論** | 極端值正對照(旋鈕接上了嗎)、耦合參數等比例動、二元判準的統計陷阱與連續量出路(30% 對半砍要 121 輪/組)、逐輪交錯 A/B、每輪閘門(臂別/生效證據/輪數對帳)、低佔比模式的取樣經濟學、間歇性問題的宣告門檻;附開跑前檢查清單 |
-| [20](docs/20-claude-code-driven-tuning/README.md) | **用 Claude Code 跑調參的工作法** | agent 不是常駐進程 → 兩層監看(事件層+後備層,安靜≠順利);批次腳本自己守門;逐輪紀錄/失敗清單當跨 session 記憶;模型成本分工(貴的判斷、便宜的機械活);「固定參數重試 N 次不是實驗」;長時間工具要冪等;驗證用與執行不同的機制 |
-| [21](docs/21-cad-asset-reading-and-conversion/README.md) | **CAD 資產的判讀與轉換** | 同一個物件在資產庫裡常有三份(CAD 原始檔 / CAD 轉出的 USD / 美術資產),而哪一份能用不寫在檔名上;不開 CAD 軟體判讀 IGES(實體型別決定要不要 tessellation、Hollerith 單位陷阱、**blanked 佔八成是常態不是失敗原因**);🔴 **`stage.Traverse()` 對 instanced 資產回 0 mesh** —— CAD 轉換器預設就開 instancing,數 mesh 前先問 `GetPrototypes()`;Isaac Sim 6.0.1 內建轉換鏈的實際呼叫方式與三條死路;驗證三層與 world AABB／軸向／單位三個「看起來合理但錯誤」的陷阱 |
-| [22](docs/22-geometry-and-measurement-discipline/README.md) | **幾何的量測紀律** | 薄件插進窄縫,決定成敗的是**姿態掃過的垂直包絡**而不是件的厚度(25 mm 的板在 −2.6° 下佔 75 mm,可插入窗口只剩 5.8 mm,比掃描步距還小);對稱撐開一個開口時**邊界移 12 mm 而中心只移 0.02 mm** —— 配對高度該跟哪一個,取決於哪個接觸在管事;prim 原點不是功能面(兩台板車原點差 6 mm、承載面差 75 mm);七種不會報錯的錯誤查法(數頂點判空腔、單位/軸向寫死、world AABB 被傾角撐大、不同截面相減、authored 姿態≠runtime 姿態、正對照挑錯同類);驗證用行為不用回讀(剛體屬性回讀成功但 PhysX 不採用,連帶讓 40 輪實驗的變因從未被施加);離線讀 USD 的環境、`--user 0:0` 與「必須在原位改」 |
-| [23](docs/23-no-shortcuts-in-physics-sim/README.md) | **物理模擬不可以偷懶** | 為了「先讓它動起來」而繞過物理的每一個捷徑，症狀不會消失、只會搬到一個沒人會聯想到成因的地方（底盤用 3-DOF 自由關節取代輪系 → 偏航角加速度無上限 → 載貨轉彎棧板必滑，而中間隔了七層、每層都有自己的可調參數，於是排查停在第一個「調了有反應」的參數上）；**算數量級再決定要不要調參**——需要的 α_max = μ·g/r ≈ 3.3 rad/s² 而關節可達 1100，差 330 倍時把 μ 調到四倍真實值也只是杯水車薪；捷徑會生出捷徑（`restOffset` 繞過干涉 → 咬合鬆 → 用摩擦補 → 退出時同一個摩擦把貨拖走）；**捷徑的前提會過期而捷徑不會自己失效**（干涉早已消失，那個 offset 還每輪自動套用）；寫捷徑的人通常在註解裡預測過它會在哪壞——排查時先 grep 那些註解；「用參數模仿限制」vs「讓限制自己長出來」的判準與檢查清單 |
-| [24](docs/24-nonholonomic-vehicle-control/README.md) | **把「會瞬移的底盤」換成「真的有輪子的車」** | 位置控制底盤與輪系底盤是**兩個不同的系統**,中間有一條**順序不能顛倒的前提鏈**,而每一環沒滿足時的症狀**都不會指向那一環**;① 車重到不了輪子(地面無碰撞 / `disableGravity` **文件寫 3 個實查 8 個** / 底盤沒有垂直自由度 —— 三者是同一件事的三個半,**分開做都是 no-op 也分不出誰有效**;μ 掃 250 倍位移完全平坦;判別要看垂直自由度**會不會回彈**,靜態值同時相容於兩個世界;⚠ 量到「輪胎抵抗 15 kN」是**穿透回復力**不是輪重);② 算清楚馬達扭力 vs 抓地力誰是限制(5 kN vs 27 kN,餘裕 5.4 倍);③ 轉向符號用資料驗(**量級 0.94 對、符號 73% 反** = 只有符號錯;翻號後轉向中位 65.1°→2.3°),而且**符號會隨行進方向再翻一次**(正轉 9% vs 反轉 97% 相反);④ 追蹤參考點要是**不側滑的固定軸**(車體原點離它 0.85 m → 半徑大 16.7%、偏航差 31°,看起來像軸距錯;**後處理路徑的三種做法全錯**,正解是在固定軸座標裡規劃);⑤ pure pursuit 三前提(引導點按**弧長**取、保證在前方、`Ld` ≤ 曲率半徑)+ 規劃要留轉向餘裕 + **行進方向整段鎖定**(逐步重判會讓倒車路徑被自己切成前進);⑥ 到位判定用弧長不用歐氏距離(Brockett:**症狀隨控制器變好而惡化** —— 從繞圈變成追著後退的點跑出場景);工程紀律:幾何做成**離線可測的純函式**(五個 bug 全是純幾何錯)、自測釘住踩過的坑、**指標本身會騙人**(`cross` 對航向盲、log 少乘 `sign(v)`)、事後讀狀態讀不到真相(中止會歸零) |
+| [01](docs/common/01-install-and-run-modes/README.md) | 安裝與執行模式 | GUI / headless / streaming 是同一核心的三種前端;版本×驅動相容性、Python 環境隔離 |
+| [02](docs/common/02-python-no-ui/README.md) | 不碰 UI:用 Python 操作 | `--exec` 啟動腳本、ScriptNode、UDP 遠端命令通道三層做法 |
+| [03](docs/common/03-model-import/README.md) | 模型格式與匯入 | 一切都先轉 USD:CAD/URDF 轉換流程、依賴解析、資產授權 |
+| [04](docs/common/04-physics-world/README.md) | 建立物理世界 | PLAYING 才有物理;虛擬世界關節建模法;teleport vs drive;互斥的控制路徑 |
+| [05](docs/common/05-ros2-bridge/README.md) | ROS2 橋接 | 官方 bridge 機制;headless 下 OmniGraph 不 tick 的實案與 UDP 解耦架構 |
+| [06](docs/common/06-webrtc-streaming/README.md) | WebRTC 串流 | 單 client 限制與 relay 分流架構;兩個「症狀騙人」的排錯實例 |
+| [09](docs/common/09-physics-simulation-fundamentals/README.md) | 物理模擬基礎 | timestep/substep、contact/rest offset、CCD、joint drive PD 公式、PGS/TGS solver、kinematic target vs teleport、reset 語意——接進穿模/暴走/reset 三個實戰案例 |
+| [10](docs/common/10-scene-physics-authoring/README.md) | 場景資產的物理結構 | 剛體與碰撞為什麼一定要分層、質量比是隱藏參數、物理材質綁定(`ComputeBoundMaterial` 幾乎不會回 None)、執行期補綁的三個邊界 |
+| [12](docs/common/12-long-run-operations/README.md) | 長跑維運 | 重啟造成的兩份狀態分歧(表現形式是「成功」)、看門狗分層、串流靜默卡死偵測、三個殼層陷阱 |
+| [13](docs/common/13-contact-and-grasp-first-principles/README.md) | 接觸與抓握的第一性原理 | Signorini 互補條件 + 摩擦錐推出「μ 是乘在一個可能為零的量上」;碰撞近似是有損編碼、凸包填實凹特徵是定義的後果;調參順序為何必然是幾何→質量→offset→摩擦;開環致動的結構性漂移;為什麼模擬器永遠不報錯 |
+| [18](docs/common/18-finding-physical-parameters/README.md) | **建場域時,物理參數要去哪裡找** | PhysX 對未授權質量的預設是「網格體積 × **1000 kg/m³**(水)」—— 鋼構件因此輕 7.9 倍,而且**不會有任何警告**;四種來源的優先順序與各自的盲點;⚠ 規格書公布的是**載重能力不是自重**(製造商不公布 tare weight);查不到時用「幾何 × 材料密度」估,含常用密度表與合理性檢核;⚠ NVIDIA Warehouse 資產包(24 GB)實測**完全沒有物理 API**,純幾何+材質;為什麼不能用 grep 判斷 usdc 有沒有某屬性;建場域的七項檢查清單 |
+| [19](docs/common/19-tuning-experiment-methodology/README.md) | **調參實驗的方法論** | 極端值正對照(旋鈕接上了嗎)、耦合參數等比例動、二元判準的統計陷阱與連續量出路(30% 對半砍要 121 輪/組)、逐輪交錯 A/B、每輪閘門(臂別/生效證據/輪數對帳)、低佔比模式的取樣經濟學、間歇性問題的宣告門檻;附開跑前檢查清單 |
+| [20](docs/common/20-claude-code-driven-tuning/README.md) | **用 Claude Code 跑調參的工作法** | agent 不是常駐進程 → 兩層監看(事件層+後備層,安靜≠順利);批次腳本自己守門;逐輪紀錄/失敗清單當跨 session 記憶;模型成本分工(貴的判斷、便宜的機械活);「固定參數重試 N 次不是實驗」;長時間工具要冪等;驗證用與執行不同的機制 |
+| [21](docs/common/21-cad-asset-reading-and-conversion/README.md) | **CAD 資產的判讀與轉換** | 同一個物件在資產庫裡常有三份(CAD 原始檔 / CAD 轉出的 USD / 美術資產),而哪一份能用不寫在檔名上;不開 CAD 軟體判讀 IGES(實體型別決定要不要 tessellation、Hollerith 單位陷阱、**blanked 佔八成是常態不是失敗原因**);🔴 **`stage.Traverse()` 對 instanced 資產回 0 mesh** —— CAD 轉換器預設就開 instancing,數 mesh 前先問 `GetPrototypes()`;Isaac Sim 6.0.1 內建轉換鏈的實際呼叫方式與三條死路;驗證三層與 world AABB／軸向／單位三個「看起來合理但錯誤」的陷阱 |
+| [22](docs/common/22-geometry-and-measurement-discipline/README.md) | **幾何的量測紀律** | 薄件插進窄縫,決定成敗的是**姿態掃過的垂直包絡**而不是件的厚度(25 mm 的板在 −2.6° 下佔 75 mm,可插入窗口只剩 5.8 mm,比掃描步距還小);對稱撐開一個開口時**邊界移 12 mm 而中心只移 0.02 mm** —— 配對高度該跟哪一個,取決於哪個接觸在管事;prim 原點不是功能面(兩台板車原點差 6 mm、承載面差 75 mm);七種不會報錯的錯誤查法(數頂點判空腔、單位/軸向寫死、world AABB 被傾角撐大、不同截面相減、authored 姿態≠runtime 姿態、正對照挑錯同類);驗證用行為不用回讀(剛體屬性回讀成功但 PhysX 不採用,連帶讓 40 輪實驗的變因從未被施加);離線讀 USD 的環境、`--user 0:0` 與「必須在原位改」 |
+| [23](docs/common/23-no-shortcuts-in-physics-sim/README.md) | **物理模擬不可以偷懶** | 為了「先讓它動起來」而繞過物理的每一個捷徑，症狀不會消失、只會搬到一個沒人會聯想到成因的地方（底盤用 3-DOF 自由關節取代輪系 → 偏航角加速度無上限 → 載貨轉彎棧板必滑，而中間隔了七層、每層都有自己的可調參數，於是排查停在第一個「調了有反應」的參數上）；**算數量級再決定要不要調參**——需要的 α_max = μ·g/r ≈ 3.3 rad/s² 而關節可達 1100，差 330 倍時把 μ 調到四倍真實值也只是杯水車薪；捷徑會生出捷徑（`restOffset` 繞過干涉 → 咬合鬆 → 用摩擦補 → 退出時同一個摩擦把貨拖走）；**捷徑的前提會過期而捷徑不會自己失效**（干涉早已消失，那個 offset 還每輪自動套用）；寫捷徑的人通常在註解裡預測過它會在哪壞——排查時先 grep 那些註解；「用參數模仿限制」vs「讓限制自己長出來」的判準與檢查清單 |
+| [24](docs/common/24-nonholonomic-vehicle-control/README.md) | **把「會瞬移的底盤」換成「真的有輪子的車」** | 位置控制底盤與輪系底盤是**兩個不同的系統**,中間有一條**順序不能顛倒的前提鏈**,而每一環沒滿足時的症狀**都不會指向那一環**;① 車重到不了輪子(地面無碰撞 / `disableGravity` **文件寫 3 個實查 8 個** / 底盤沒有垂直自由度 —— 三者是同一件事的三個半,**分開做都是 no-op 也分不出誰有效**;μ 掃 250 倍位移完全平坦;判別要看垂直自由度**會不會回彈**,靜態值同時相容於兩個世界;⚠ 量到「輪胎抵抗 15 kN」是**穿透回復力**不是輪重);② 算清楚馬達扭力 vs 抓地力誰是限制(5 kN vs 27 kN,餘裕 5.4 倍);③ 轉向符號用資料驗(**量級 0.94 對、符號 73% 反** = 只有符號錯;翻號後轉向中位 65.1°→2.3°),而且**符號會隨行進方向再翻一次**(正轉 9% vs 反轉 97% 相反);④ 追蹤參考點要是**不側滑的固定軸**(車體原點離它 0.85 m → 半徑大 16.7%、偏航差 31°,看起來像軸距錯;**後處理路徑的三種做法全錯**,正解是在固定軸座標裡規劃);⑤ pure pursuit 三前提(引導點按**弧長**取、保證在前方、`Ld` ≤ 曲率半徑)+ 規劃要留轉向餘裕 + **行進方向整段鎖定**(逐步重判會讓倒車路徑被自己切成前進);⑥ 到位判定用弧長不用歐氏距離(Brockett:**症狀隨控制器變好而惡化** —— 從繞圈變成追著後退的點跑出場景);工程紀律:幾何做成**離線可測的純函式**(五個 bug 全是純幾何錯)、自測釘住踩過的坑、**指標本身會騙人**(`cross` 對航向盲、log 少乘 `sign(v)`)、事後讀狀態讀不到真相(中止會歸零) |
+| [25](docs/common/25-offline-assets-deployment/README.md) | **官方資產的預先下載與離線佈署** | 場域主機不能對外時,資產只是四條對外連線裡的一條(asset root / extension registry / 容器映像 / telemetry),把資產搬到本地卻仍連不上,通常是撞到另外三條;資產包分片數隨版本不同(5.1 三片、6.0.1 五片)且要**逐片**驗 MD5;⚠ **檔名帶修訂號而目錄名不帶**——6.0.1 的包要落在 `Isaac/6.0` 底下;asset root 四層優先序裡**環境變數 `ISAACSIM_ASSET_ROOT` 蓋過命令列**,「參數寫了卻還在往外連」先查它;⚠ 離線拿不到 extension 會表現成 `ModuleNotFoundError` 而不是網路錯誤;驗收唯一有效的方式是**把出口斷掉再跑一次**,而且看行為不看設定回讀 |
 
-**完全不熟 Isaac Sim、但手上有一個「物理跑不對」的場景要修** → 直接讀 **[16](docs/16-model-tuning-for-6.0/README.md)**,它從「一個會被搬動的箱子由什麼組成」講起,不預設前置知識。
 
-從零開始建議按順序讀 01 → 04 → 09 → **13**,然後跳 07 動手;要自己建一個能跑物理搬運的場景,接著讀 10 → 11 → 12。13 篇是「為什麼調摩擦常常是錯的第一步」的完整推導,遇到夾不住/插不進去先讀它。已有 Isaac Sim 經驗、只想解特定問題,直接跳對應篇,每篇可獨立閱讀。API 版本以 Isaac Sim 4.5–5.1.x 為準;**升到 6.0 的人先讀 15 篇**(物理後端)與 14 篇(ROS 2),兩篇都以官方 repo tag 快照為依據並標註實測來源,6.0 的其他 breaking change 見 01 篇 §3、08 篇。08 篇性質是調查報告而非教學,結論分「官方出處」與「推測」兩級,誠實標註尚未實機重現的部分。
+### Isaac Sim 5.1
+
+只在 5.x 命名空間下成立的內容,主要是程式碼:6.0 起 `isaacsim.core.api` / `isaacsim.core.prims` / `isaacsim.core.utils` 整組移到 `isaacsim.core.experimental.*`。
+
+| # | 主題 | 一句話 |
+|---|---|---|
+| [07](docs/5.1/07-minimal-example/README.md) | 最小可跑範例 | 三個由小到大的 standalone 範例:方塊落地、開官方倉庫、機器人讀位姿 |
+| [11](docs/5.1/11-live-pose-and-accuracy/README.md) | 即時位姿與放置精度 | 四種讀位姿的方法只有一種能用、唯讀的觀測 API 反而弄壞控制鏈、把「放得準不準」變成可驗收的量測管線 |
+
+
+### Isaac Sim 6.0.1
+
+extension 架構重組、PhysX 換代(107→110)與 Newton 後端、從 5.1 搬場景的風險、6.0 的物理調參。
+
+| # | 主題 | 一句話 |
+|---|---|---|
+| [08](docs/6.0.1/08-migration-5.1-to-6.0-oom-risk/README.md) | 5.1 → 6.0.1 遷移風險調查 | 5.1 USD 場景搬進 6.0.1 的 OOM/異常風險:官方變更點對照、記憶體機轉查證、本機兩版場景 schema 比對、遷移 SOP |
+| [14](docs/6.0.1/14-ros2-bridge-6.0-architecture/README.md) | ROS 2 Bridge 在 6.0 的架構重組 | 一個 extension 拆成五個;設定鍵命名空間沒跟著搬家、extension 版本號與產品版號脫鉤、被 deprecate 但仍可用的 TF/JointState 接法——三個「看起來變了其實沒變」的判讀陷阱;rclpy 的 system→internal fallback 與「啟動前不要 source ROS」的機制 |
+| [15](docs/6.0.1/15-physics-backend-5.1-to-6.0/README.md) | 5.1 → 6.0 的物理層變動 | PhysX 換代(107→110)與 Newton 後端加入是**兩件獨立的事**;怎麼確定自己跑哪個後端(log 有 newton ≠ Newton 在跑);5.x 場景官方建議留在 PhysX;`MassAPI` 授權規則改變的無聲影響;跨版本排查順序 |
+| [16](docs/6.0.1/16-model-tuning-for-6.0/README.md) | **把 5.x 場景調到 6.0 能跑,東西不會亂飛** | 從零講起,不需先熟 Isaac Sim:一個「會被搬動的箱子」由哪些貼紙組成、為什麼 `.usd` 用 VS Code 打不開、怎麼把 crate 轉成文字改、什麼時候該改啟動腳本而不是改檔;四個「設定得進去但不生效」的結構問題(剛體/碰撞分層、質量掛錯層、材質綁定 fallback 回渲染材質、SDF 解析度不足以表達孔洞);東西亂飛的成因排序與診斷決策樹 |
+| [17](docs/6.0.1/17-physics-parameter-tuning-6.0/README.md) | **6.0 的物理調參:入口、生效條件、完整參數表** | 三個調參入口(USD 屬性 / 啟動參數 / runtime API);四個會讓設定**無聲失效**的條件(貼錯 prim 缺對應 API、後端不吃、被 runtime patch 覆蓋、combine mode 稀釋);`physxScene`/`RigidBody`/`Collision`/`SDF`/`Material`/`Articulation`/`Joint` 七類的完整預設值表(取自 6.0.1 實機 schema);穩定性問題的調參順序;為什麼只有「設極端值看行為差異」能證明參數生效 |
+
+
+## 兩條常見的入場路徑
+
+**完全不熟 Isaac Sim、但手上有一個「物理跑不對」的場景要修** → 直接讀 **[16](docs/6.0.1/16-model-tuning-for-6.0/README.md)**,它從「一個會被搬動的箱子由什麼組成」講起,不預設前置知識。
+
+**從零開始** → 01 → 04 → 09 → **13**,然後照自己的版本跳 [5.1](docs/5.1/) 或 [6.0.1](docs/6.0.1/) 區動手;要自己建一個能跑物理搬運的場景,接著讀 10 → 11 → 12。13 篇是「為什麼調摩擦常常是錯的第一步」的完整推導,遇到夾不住/插不進去先讀它。已有經驗、只想解特定問題,直接跳對應篇,每篇可獨立閱讀。
+
+升到 6.0 的人先讀 [15](docs/6.0.1/15-physics-backend-5.1-to-6.0/README.md)(物理後端)與 [14](docs/6.0.1/14-ros2-bridge-6.0-architecture/README.md)(ROS 2),兩篇都以官方 repo tag 快照為依據並標註實測來源;其他 breaking change 見 [01 §3](docs/common/01-install-and-run-modes/README.md) 與 [08](docs/6.0.1/08-migration-5.1-to-6.0-oom-risk/README.md)。08 篇性質是調查報告而非教學,結論分「官方出處」與「推測」兩級,誠實標註尚未實機重現的部分。
+
+## 工具
+
+- [物理模擬健檢](https://wicanr2.github.io/isaac-sim-study/tools/physics-checkup/)(原始檔 [`docs/tools/physics-checkup/`](docs/tools/physics-checkup/))—— 把 [23](docs/common/23-no-shortcuts-in-physics-sim/README.md)、[22](docs/common/22-geometry-and-measurement-discipline/README.md)、[18](docs/common/18-finding-physical-parameters/README.md) 三篇的判準算成可以當場填數字的檢查:所需摩擦、姿態包絡、質量合理性。
 
 ## Claude Code skill
 
@@ -51,10 +92,11 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 
 - [`examples/scriptnode_udp_pose.py`](examples/scriptnode_udp_pose.py) — ScriptNode:UDP 收 pose 直接控制 prim 位姿(實戰使用過的完整版)
 - [`examples/scan_physics.py`](examples/scan_physics.py) — 掃描場景所有 **authored** 物理屬性(區分「刻意設定」與「吃預設」),並列出各 prim 的 `apiSchemas`。跨版本/跨主機比對場景時的主力工具
-- [`examples/usd_peek.py`](examples/usd_peek.py) — 唯讀檢視 crate 場景裡某個 prim 的物理結構(貼了哪些 API、質量、碰撞近似、bbox),並可把子樹匯出成 `.usda` 文字。搭配 [16 篇](docs/16-model-tuning-for-6.0/README.md)
+- [`examples/usd_peek.py`](examples/usd_peek.py) — 唯讀檢視 crate 場景裡某個 prim 的物理結構(貼了哪些 API、質量、碰撞近似、bbox),並可把子樹匯出成 `.usda` 文字。搭配 [16 篇](docs/6.0.1/16-model-tuning-for-6.0/README.md)
 
 ## 其他
 
 - [`CONTEXT.md`](CONTEXT.md) — 術語表
 - [`PLAN.md`](PLAN.md) — 主題規劃與進度
-- 本 repo 不含任何 USD 模型二進位檔:公司自製資產與 NVIDIA 官方資產都有授權限制,教學一律改用「官方管道下載」的方式描述(見 [03 篇](docs/03-model-import/README.md) §2)。
+- [`build_site.py`](build_site.py) — 把 `docs/` 的 markdown 轉成 GitHub Pages 的靜態 HTML(docker uv 環境,見檔頭說明)
+- 本 repo 不含任何 USD 模型二進位檔:公司自製資產與 NVIDIA 官方資產都有授權限制,教學一律改用「官方管道下載」的方式描述(見 [03 篇](docs/common/03-model-import/README.md) §2)。
