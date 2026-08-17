@@ -6,11 +6,13 @@
 
 ## 一句話結論
 
-沒有查到 NVIDIA 官方文件把「5.1 USD 場景 → 6.0.1 崩潰/OOM」寫成已知 issue 明確條列;但 5.1→6.0(Kit 106→110)之間有數個**已由官方文件證實**的破壞性變更(物理 schema 從 PhysX 系列轉往 Newton 系列、`omni.isaac.*` 相容殼完全移除、Nucleus 資產路徑改版本命名空間),這些變更本身不直接等於「洩漏記憶體」,但足以造成**場景載入時的行為異常**(schema 找不到對應 API、資產路徑解析失敗、OmniGraph 節點失效)——這類異常在使用者體感上,很容易被籠統描述成「壞掉」或和「卡住/爆記憶體」混在一起報告。真正查到的、官方認證的記憶體機轉,是 texture streaming 預算(GPU VRAM)與重複開關 stage 的 host RAM 累積成長,兩者都與「檔案是不是 5.1 存的」無關,是通用行為——如果實際觀察到問題的機器 VRAM 較小(本機常見配置為 8GB 等級工作站卡),疊加場景本身變大或變複雜,更容易先觸頂。
+沒有查到 NVIDIA 官方文件把「5.1 USD 場景 → 6.0.1 崩潰/OOM」寫成已知 issue 明確條列;但 5.1→6.0(Kit 107.3.3→110.1.1)之間有數個**已由官方文件證實**的破壞性變更(物理 schema 從 PhysX 系列轉往 Newton 系列、`omni.isaac.*` 相容殼完全移除、Nucleus 資產路徑改版本命名空間),這些變更本身不直接等於「洩漏記憶體」,但足以造成**場景載入時的行為異常**(schema 找不到對應 API、資產路徑解析失敗、OmniGraph 節點失效)——這類異常在使用者體感上,很容易被籠統描述成「壞掉」或和「卡住/爆記憶體」混在一起報告。真正查到的、官方認證的記憶體機轉,是 texture streaming 預算(GPU VRAM)與重複開關 stage 的 host RAM 累積成長,兩者都與「檔案是不是 5.1 存的」無關,是通用行為——如果實際觀察到問題的機器 VRAM 較小(本機常見配置為 8GB 等級工作站卡),疊加場景本身變大或變複雜,更容易先觸頂。
 
 ![5.1 USD 場景搬進 6.0.1 的三條風險路徑分岔圖:schema 破壞性變更(官方確認)→功能異常;Nucleus 路徑版本命名空間化(官方文件片段推論)→材質缺失;texture streaming 預算與 host RAM 累積(官方效能手冊確認)→VRAM/RAM 觸頂;三者體感上常被籠統描述成同一件事](../../img/oom-risk-map.svg)
 
-## 1. 官方查證:5.1 → 6.0(Kit 106 → 110)相關變更點
+## 1. 官方查證:5.1 → 6.0(Kit 107.3.3 → 110.1.1)相關變更點
+
+> Kit 版本對應的出處:5.1.0 的 release notes 逐字是「Updated to Kit 107.3.3」,6.0.0 GA 是「Updated to Kit 110.1.1」,6.0.1 為 110.1.2。見 [Isaac Sim 5.1.0 Release Notes](https://docs.isaacsim.omniverse.nvidia.com/5.1.0/overview/release_notes.html)、[最新版 Release Notes](https://docs.isaacsim.omniverse.nvidia.com/latest/overview/release_notes.html)。
 
 | 變更點 | 內容 | 對 OOM/異常的可能影響 | 出處 |
 |---|---|---|---|

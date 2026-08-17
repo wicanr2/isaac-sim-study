@@ -32,7 +32,7 @@ relay 取得 video track ──WHIP 推流──▶ mediamtx(媒體伺服器)
 
 ## 3. 解析度協商:server 遷就 client
 
-實測踩過的坑:Isaac Sim 預設渲染 1440×900,而當時 relay 所用、自 Isaac 5.1(Kit 106)抽出的 streaming library 協商上限固定 1280×720——不同 client 或版本的上限可能不同,以實際協商結果為準。Isaac Sim **拒絕送出超過 client max 的影格**——結果是只送出第一張 keyframe 就停,媒體伺服器等不到連續 track 而斷線重連,看起來像玄學故障。
+實測踩過的坑:Isaac Sim 預設渲染 1440×900,而當時 relay 所用、自 Isaac 5.1(Kit 107.3.3)抽出的 streaming library 協商上限固定 1280×720——不同 client 或版本的上限可能不同,以實際協商結果為準。Isaac Sim **拒絕送出超過 client max 的影格**——結果是只送出第一張 keyframe 就停,媒體伺服器等不到連續 track 而斷線重連,看起來像玄學故障。
 
 改 client 設定無效(library 忽略),正解是啟動參數把渲染解析度對齊 client:
 
