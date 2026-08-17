@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="400" viewBox="0 0 780 400" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="780" height="400" fill="#ffffff"/>
+  <text x="390" y="27" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">四條對外連線,各自的離線替代</text>
+  <text x="390" y="46" text-anchor="middle" font-size="11" fill="#888">把資產搬到本地只解掉第一條;剩下三條才是「設定都對了還是連不上」的來源</text>
+
+  <!-- column headers -->
+  <text x="112" y="76" text-anchor="middle" font-size="11" font-weight="bold" fill="#666">連線</text>
+  <text x="368" y="76" text-anchor="middle" font-size="11" font-weight="bold" fill="#666">對外端點(場域主機擋掉)</text>
+  <text x="632" y="76" text-anchor="middle" font-size="11" font-weight="bold" fill="#666">離線替代</text>
+  <line x1="24" y1="84" x2="756" y2="84" stroke="#ddd" stroke-width="1"/>
+
+  <!-- row 1: assets -->
+  <g>
+    <rect x="24" y="96" width="176" height="52" rx="8" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+    <text x="112" y="118" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">① 資產 asset root</text>
+    <text x="112" y="136" text-anchor="middle" font-size="10.5" fill="#666">場景載入時抓檔</text>
+
+    <line x1="204" y1="122" x2="272" y2="122" stroke="#b4341f" stroke-width="1.5" stroke-dasharray="5 3"/>
+    <text x="238" y="115" text-anchor="middle" font-size="13" font-weight="bold" fill="#b4341f">✕</text>
+
+    <rect x="280" y="96" width="176" height="52" rx="8" fill="#fdf0ee" stroke="#b4341f" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="368" y="118" text-anchor="middle" font-size="11" fill="#8a3020">downloads.isaacsim</text>
+    <text x="368" y="134" text-anchor="middle" font-size="11" fill="#8a3020">.nvidia.com</text>
+
+    <path d="M462 122 L 530 122" stroke="#1f6b3a" stroke-width="1.5"/>
+    <path d="M530 122 l -7 -4 l 0 8 z" fill="#1f6b3a"/>
+    <rect x="538" y="96" width="218" height="52" rx="8" fill="#eef6f0" stroke="#1f6b3a" stroke-width="1.5"/>
+    <text x="647" y="116" text-anchor="middle" font-size="12" font-weight="bold" fill="#1f6b3a">本地 Assets Pack</text>
+    <text x="647" y="134" text-anchor="middle" font-size="10.5" fill="#3d7050">5.1 三片 / 6.0.1 五片 + asset_root</text>
+  </g>
+
+  <!-- row 2: extension registry -->
+  <g>
+    <rect x="24" y="164" width="176" height="52" rx="8" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+    <text x="112" y="186" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">② extension registry</text>
+    <text x="112" y="204" text-anchor="middle" font-size="10.5" fill="#666">啟動解析相依時</text>
+
+    <line x1="204" y1="190" x2="272" y2="190" stroke="#b4341f" stroke-width="1.5" stroke-dasharray="5 3"/>
+    <text x="238" y="183" text-anchor="middle" font-size="13" font-weight="bold" fill="#b4341f">✕</text>
+
+    <rect x="280" y="164" width="176" height="52" rx="8" fill="#fdf0ee" stroke="#b4341f" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="368" y="186" text-anchor="middle" font-size="11" fill="#8a3020">ovextensionsprod</text>
+    <text x="368" y="202" text-anchor="middle" font-size="11" fill="#8a3020">.blob.core.windows.net</text>
+
+    <path d="M462 190 L 530 190" stroke="#1f6b3a" stroke-width="1.5"/>
+    <path d="M530 190 l -7 -4 l 0 8 z" fill="#1f6b3a"/>
+    <rect x="538" y="164" width="218" height="52" rx="8" fill="#eef6f0" stroke="#1f6b3a" stroke-width="1.5"/>
+    <text x="647" y="184" text-anchor="middle" font-size="12" font-weight="bold" fill="#1f6b3a">6.0 起 Kit SDK 自動管理</text>
+    <text x="647" y="202" text-anchor="middle" font-size="10.5" fill="#3d7050">更早的版本要自行關掉 registry</text>
+  </g>
+
+  <!-- row 3: container image -->
+  <g>
+    <rect x="24" y="232" width="176" height="52" rx="8" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+    <text x="112" y="254" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">③ 容器映像</text>
+    <text x="112" y="272" text-anchor="middle" font-size="10.5" fill="#666">docker pull 時(一次性)</text>
+
+    <line x1="204" y1="258" x2="272" y2="258" stroke="#b4341f" stroke-width="1.5" stroke-dasharray="5 3"/>
+    <text x="238" y="251" text-anchor="middle" font-size="13" font-weight="bold" fill="#b4341f">✕</text>
+
+    <rect x="280" y="232" width="176" height="52" rx="8" fill="#fdf0ee" stroke="#b4341f" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="368" y="262" text-anchor="middle" font-size="11" fill="#8a3020">nvcr.io</text>
+
+    <path d="M462 258 L 530 258" stroke="#1f6b3a" stroke-width="1.5"/>
+    <path d="M530 258 l -7 -4 l 0 8 z" fill="#1f6b3a"/>
+    <rect x="538" y="232" width="218" height="52" rx="8" fill="#eef6f0" stroke="#1f6b3a" stroke-width="1.5"/>
+    <text x="647" y="252" text-anchor="middle" font-size="12" font-weight="bold" fill="#1f6b3a">內部 registry 或 docker save</text>
+    <text x="647" y="270" text-anchor="middle" font-size="10.5" fill="#3d7050">做過一次就不再需要</text>
+  </g>
+
+  <!-- row 4: telemetry -->
+  <g>
+    <rect x="24" y="300" width="176" height="52" rx="8" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="1.5"/>
+    <text x="112" y="322" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">④ telemetry</text>
+    <text x="112" y="340" text-anchor="middle" font-size="10.5" fill="#666">啟動時</text>
+
+    <line x1="204" y1="326" x2="272" y2="326" stroke="#b4341f" stroke-width="1.5" stroke-dasharray="5 3"/>
+    <text x="238" y="319" text-anchor="middle" font-size="13" font-weight="bold" fill="#b4341f">✕</text>
+
+    <rect x="280" y="300" width="176" height="52" rx="8" fill="#fdf0ee" stroke="#b4341f" stroke-width="1.2" stroke-dasharray="4 3"/>
+    <text x="368" y="330" text-anchor="middle" font-size="11" fill="#8a3020">NVIDIA 資料回傳</text>
+
+    <path d="M462 326 L 530 326" stroke="#1f6b3a" stroke-width="1.5"/>
+    <path d="M530 326 l -7 -4 l 0 8 z" fill="#1f6b3a"/>
+    <rect x="538" y="300" width="218" height="52" rx="8" fill="#eef6f0" stroke="#1f6b3a" stroke-width="1.5"/>
+    <text x="647" y="330" text-anchor="middle" font-size="12" font-weight="bold" fill="#1f6b3a">PRIVACY_CONSENT=N</text>
+  </g>
+
+  <text x="390" y="380" text-anchor="middle" font-size="11" fill="#b35c1e">驗收唯一有效的方式是把出口斷掉再跑一次 —— 網路通的時候,「沒報錯」證明不了任何事</text>
+</svg>

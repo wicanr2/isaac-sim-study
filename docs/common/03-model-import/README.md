@@ -22,8 +22,8 @@ Isaac Sim 不「支援很多格式」,它只真正認得一種:**USD**(Universal
 機構設計輸出的 CAD 檔要經 Omniverse CAD Converter 轉換。實戰驗證過的流程:
 
 1. **CAD 清理**:先在 CAD 軟體移除細小特徵(螺絲牙、倒角細節)。CAD 的精度對模擬是負擔——面數影響渲染與碰撞計算,而模擬不需要製造級細節。
-2. **轉 USD**:用 Omniverse Converter 轉出幾何。Isaac Sim 6.0.1 已內建整條轉換鏈(HOOPS Exchange),不必另裝桌面版——**實際呼叫方式、IGES 檔的判讀、以及「轉出來看起來是空的」這個最常見的誤判,見 [21 CAD 資產的判讀與轉換](../21-cad-asset-reading-and-conversion/README.md)**。
-3. **加 collision / physics**:轉出來的只有視覺幾何,碰撞體與物理屬性(質量、關節)要在 Isaac Sim 內另外加上(見 [04-physics-world](../04-physics-world/README.md))。
+2. **轉 USD**:用 Omniverse Converter 轉出幾何。Isaac Sim 6.0.1 已內建整條轉換鏈(HOOPS Exchange),不必另裝桌面版——**實際呼叫方式、IGES 檔的判讀、以及「轉出來看起來是空的」這個最常見的誤判,見 [21 CAD 資產的判讀與轉換](../../common/21-cad-asset-reading-and-conversion/README.md)**。
+3. **加 collision / physics**:轉出來的只有視覺幾何,碰撞體與物理屬性(質量、關節)要在 Isaac Sim 內另外加上(見 [04-physics-world](../../common/04-physics-world/README.md))。
 4. **分層**:拆成多個 sublayer/reference 子檔組合(即 §1 表中的 Layer/SubLayer 機制),把一台車、一個貨架拆成多個子 USD 再組合,方便替換與重用。
 
 ### URDF → USD
@@ -40,7 +40,7 @@ NVIDIA 提供整套官方資產(範例機器人如 Carter、Nova Carter、倉庫
 --/persistent/isaac/asset_root/default=https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/<版本>
 ```
 
-場景引用官方資產時,執行期會從這個位址抓取——所以 **headless 主機也需要對外網路**(或預先架本地資產快取)。兩個授權面的提醒:
+場景引用官方資產時,執行期會從這個位址抓取——所以 **headless 主機也需要對外網路**。場域主機不能對外的話,要預先下載官方資產包並把 asset root 指到本地,完整做法(含另外三條會被忽略的對外連線)見 [25 官方資產的預先下載與離線佈署](../../common/25-offline-assets-deployment/README.md)。兩個授權面的提醒:
 
 - 官方資產受 NVIDIA Omniverse 授權條款約束,**教學/專案 repo 不應把官方資產二進位檔複製進去轉散布**;正確做法是文件寫明「從 Isaac Sim asset browser / 官方 asset root 取得」。
 - 同理,公司自製 CAD 轉出的 USD 屬公司資產,公開 repo 只描述結構與做法,不放原始檔。
@@ -84,4 +84,4 @@ usd_model/
 ## 5. 延伸閱讀
 
 - 官方文件:USD 入門(Pixar OpenUSD)、Omniverse CAD Converter、URDF Importer
-- 下一篇:[04 建立物理世界](../04-physics-world/README.md)
+- 下一篇:[04 建立物理世界](../../common/04-physics-world/README.md)

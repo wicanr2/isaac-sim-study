@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>25 · 官方資產的預先下載與離線佈署:讓場域主機不必對外 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/" class="on"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-四條對外連線">1. 四條對外連線</a></li><li class="l2"><a href="#2-資產包下載與驗證">2. 資產包:下載與驗證</a></li><li class="l2"><a href="#3-目錄長相檔名與路徑不一致">3. 目錄長相:檔名與路徑不一致</a></li><li class="l2"><a href="#4-把-asset-root-指到本地">4. 把 asset root 指到本地</a></li><li class="l2"><a href="#5-extension-registry第二條連線">5. Extension registry:第二條連線</a></li><li class="l2"><a href="#6-怎麼證明它真的離線了">6. 怎麼證明它真的離線了</a></li><li class="l2"><a href="#7-資產在本地不等於資產能用">7. 資產在本地,不等於資產能用</a></li><li class="l2"><a href="#8-佈署檢查清單">8. 佈署檢查清單</a></li><li class="l2"><a href="#版本對照">版本對照</a></li></ul></aside>
+  <main class="doc">
+<h1 id="25-官方資產的預先下載與離線佈署讓場域主機不必對外">25 · 官方資產的預先下載與離線佈署:讓場域主機不必對外</h1>
+<p>一個引用了官方資產的場景,在執行期會去 asset root 抓檔。這件事在開發機上看不出來——網路是通的,慢一點而已;搬到場域主機才會暴露:防火牆擋掉出口之後,場景載到一半停住,或是 <code>get_assets_root_path()</code> 回 <code>None</code>,而錯誤訊息不會告訴你缺的是網路。</p>
+<p>把資產搬到本地不難,難的是<strong>資產只是對外連線裡的一條</strong>。把資產包放好、發現還是連不上,通常是撞到另外三條。這篇先把四條列清楚,再逐條給離線替代方案。</p>
+<p align="center"><img src="../../img/offline-asset-deployment.svg" width="780" alt="Isaac Sim 的四條對外連線與各自的離線替代"></p>
+
+<blockquote>
+<p><strong>驗證狀態</strong>:本篇每一條都標出處,來源是 NVIDIA 官方文件(Isaac Sim 5.1.0 / 6.0.1)與一則公開論壇回報。<strong>本 repo 尚未在實際 air-gapped 環境驗證整套流程</strong>;凡是「官方文件這樣寫」與「我們實測過」的區別,文中逐條標明。§6 給的是自己驗證的方法。</p>
+</blockquote>
+<h2 id="1-四條對外連線">1. 四條對外連線</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>連線</th>
+<th>什麼時候發生</th>
+<th>離線替代</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>資產</strong> asset root</td>
+<td>場景載入、<code>get_assets_root_path()</code> 被呼叫時</td>
+<td>下載 Local Assets Pack,設 asset root 指到本地(§2–§4)</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Kit extension registry</strong></td>
+<td>啟動解析 extension 相依時</td>
+<td>6.0 起由 Kit SDK 自動管理;更早的版本要關 registry(§5)</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>容器映像</strong> <code>nvcr.io</code></td>
+<td><code>docker pull</code> 時</td>
+<td>一次性:在有網路的機器 pull 後 <code>docker save</code> / 推進內部 registry</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>telemetry</strong></td>
+<td>啟動時</td>
+<td>容器環境變數 <code>PRIVACY_CONSENT</code> 設 <code>N</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>第 3 條是一次性的,做過就沒事;第 4 條一個環境變數解決。真正會反覆卡人的是 1 和 2,底下分開講。</p>
+<h2 id="2-資產包下載與驗證">2. 資產包:下載與驗證</h2>
+<p>官方把整包資產切成多個 zip 分片放在 <code>downloads.isaacsim.nvidia.com</code>。<strong>分片數量隨版本不同</strong>:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>版本</th>
+<th>分片數</th>
+<th>檔名</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>5.1.0</td>
+<td>3</td>
+<td><code>isaac-sim-assets-complete-5.1.0.001.zip</code> … <code>.003.zip</code></td>
+</tr>
+<tr>
+<td>6.0.1</td>
+<td>5</td>
+<td><code>isaac-sim-assets-complete-6.0.1.001.zip</code> … <code>.005.zip</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>官方文件對這兩版都明寫 Local Assets Packs「are available to be used locally and in an air-gapped environment」。</p>
+<p>下載動輒數十 GB,而<strong>斷線重下一次的代價遠高於一開始就用支援續傳的工具</strong>。官方文件給的例子是 aria2,順便驗 MD5:</p>
+<pre><code class="language-bash">aria2c -c --checksum=md5=92149a1f50a21c0f04cca6507ab00653 \
+  &quot;https://downloads.isaacsim.nvidia.com/isaac-sim-assets-complete-6.0.1.001.zip&quot;
+</code></pre>
+<p><code>-c</code> 是續傳,<code>--checksum</code> 在下載完成後比對。<strong>每一片的 MD5 不同,列在官方下載頁上</strong>,要逐片對;跳過這一步的話,壞掉的分片會在解壓時才發作,而那時已經花掉整個下載時間。</p>
+<p>分片必須<strong>全部到齊才能合併</strong>——它們不是各自獨立的 zip,是一個 zip 被切開,少一片就解不出來。</p>
+<h2 id="3-目錄長相檔名與路徑不一致">3. 目錄長相:檔名與路徑不一致</h2>
+<p>這裡有一個會讓人白花時間的陷阱:<strong>資產包的檔名帶修訂號,解出來的目錄名不帶</strong>。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>版本</th>
+<th>下載檔名裡的版本</th>
+<th>解壓後的目標路徑</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>5.1.0</td>
+<td><code>5.1.0</code></td>
+<td><code>~/isaacsim_assets/Assets/Isaac/**5.1**</code></td>
+</tr>
+<tr>
+<td>6.0.1</td>
+<td><code>6.0.1</code></td>
+<td><code>~/isaacsim_assets/Assets/Isaac/**6.0**</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>也就是說,6.0.1 的資產包要落在 <code>Isaac/6.0</code> 底下,不是 <code>Isaac/6.0.1</code>。照著檔名建目錄的話,路徑設對了、資產也在那台機器上,場景還是找不到東西。</p>
+<p>官方文件另外明寫一條驗收條件:<strong>這個根目錄底下必須同時有 <code>NVIDIA</code> 與 <code>Isaac</code> 兩個子目錄</strong>。解壓完先 <code>ls</code> 一次確認這兩個都在,比之後在 Isaac Sim 裡追「為什麼材質是紫色的」便宜得多。</p>
+<pre><code class="language-bash">$ ls ~/isaacsim_assets/Assets/Isaac/6.0
+Isaac  NVIDIA
+</code></pre>
+<h2 id="4-把-asset-root-指到本地">4. 把 asset root 指到本地</h2>
+<p>設定名是 <code>persistent.isaac.asset_root.default</code>,有四個入口,而<strong>優先序不是直覺的順序</strong>:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>優先</th>
+<th>入口</th>
+<th>形式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1(最高)</td>
+<td>環境變數</td>
+<td><code>ISAACSIM_ASSET_ROOT</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>命令列參數</td>
+<td><code>--/persistent/isaac/asset_root/default=&lt;路徑&gt;</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>experience(<code>.kit</code>)檔</td>
+<td><code>[settings]</code> 段的 <code>persistent.isaac.asset_root.default = "&lt;路徑&gt;"</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td>extension 預設</td>
+<td>官方雲端位址</td>
+</tr>
+</tbody>
+</table></div>
+<p>官方文件對第一條的敘述是:啟動時 <code>isaacsim.storage.native</code> extension 讀 <code>ISAACSIM_ASSET_ROOT</code>,<strong>若有設就覆寫該設定,不管 <code>.kit</code> 檔或命令列給了什麼值</strong>。</p>
+<p>⚠ <strong>環境變數蓋過命令列,這一條要記住</strong>。排查「我明明在啟動參數寫了本地路徑,它還是往外連」的時候,第一個該看的是 <code>env | grep ISAACSIM_ASSET_ROOT</code>,而不是去改啟動腳本。這是本 repo <a href="../../6.0.1/17-physics-parameter-tuning-6.0/">17 篇</a>講的同一類問題:設定得進去不等於生效,而覆寫者不會通知你。</p>
+<p>命令列的寫法:</p>
+<pre><code class="language-bash">./isaac-sim.sh --/persistent/isaac/asset_root/default=&quot;/home/&lt;user&gt;/isaacsim_assets/Assets/Isaac/6.0&quot;
+</code></pre>
+<p>要固定下來,寫進 experience 檔(官方例子用 <code>isaacsim.exp.base.kit</code>):</p>
+<pre><code>[settings]
+persistent.isaac.asset_root.default = &quot;/home/&lt;user&gt;/isaacsim_assets/Assets/Isaac/6.0&quot;
+</code></pre>
+<p><strong>三種入口該選哪一個</strong>,取決於這台機器有幾種跑法:單一用途的場域主機用 <code>.kit</code> 檔最省事(每次啟動都對,不依賴呼叫端記得帶參數);同一台要跑多個場景或多個版本的,用命令列參數,讓啟動腳本自己帶;容器化部署用環境變數最直接,因為它本來就是 <code>docker run -e</code> 的形狀,而且優先序最高、不會被映像內建的 <code>.kit</code> 檔蓋掉。</p>
+<h2 id="5-extension-registry第二條連線">5. Extension registry:第二條連線</h2>
+<p>資產設對之後仍然連不上外面的話,下一個嫌疑是 Kit 的 extension registry。</p>
+<p>官方文件對 6.0 的說法是:<strong>「As of Isaac Sim 6.0, Kit extension registries are now managed automatically by the Kit SDK.」</strong> ——照這個敘述,6.0 的離線環境不需要另外設定 registry。<strong>這一條本 repo 未實測</strong>,而它剛好是「照文件做應該沒事」與「實際跑起來沒事」差距最容易出現的地方,佈署前值得自己驗一次(§6)。</p>
+<p>更早的版本沒有這個保證。一則 4.5.0 的公開回報記錄了完整的失敗形狀:在離線叢集裡把 registry 相關設定全部關掉——</p>
+<pre><code>registryEnabled  = false
+syncRegistry     = false
+skipSyncOutdated = true
+registries       = []
+</code></pre>
+<p>——它仍然去連 <code>https://ovextensionsprod.blob.core.windows.net/exts/kit/prod/106/shared/v2</code>,失敗後噴的是相依解析錯誤而不是網路錯誤:</p>
+<pre><code>Failed to resolve extension dependencies. Failure hints:
+  [omnigibson_4_5_0-1.5.0] dependency: 'omni.flowusd' = { version='^' } can't be satisfied
+ModuleNotFoundError: No module named 'omni.kit.usd'
+</code></pre>
+<p>⚠ 這個案例值得記住的不是那幾個設定鍵,是<strong>症狀的形狀</strong>:離線環境下拿不到 extension,表現成「某個模組找不到」,而那個模組名跟網路一點關係都沒有。看到 <code>ModuleNotFoundError</code> 就往 Python 環境去查,會查很久。</p>
+<p>該串由 NVIDIA 版主建議在設定檔加 <code>[settings.exts] registryEnabled = false</code>,<strong>但原提問者沒有回報結果,串在兩週後關閉</strong>——所以這是一則未確認的處置,不是解法。列在這裡是為了讓你認得症狀,不是照抄設定。</p>
+<h2 id="6-怎麼證明它真的離線了">6. 怎麼證明它真的離線了</h2>
+<p>「跑起來沒報錯」證明不了離線成立——資產可能還在從外面抓,只是網路通所以你看不見。這是本 repo <a href="../../common/12-long-run-operations/">12 篇</a>與 <a href="../../common/19-tuning-experiment-methodology/">19 篇</a>反覆講的同一件事:<strong>沉默相容於太多個世界,其中一半是壞的</strong>。</p>
+<p>唯一的正對照是<strong>把出口斷掉再跑一次</strong>:</p>
+<pre><code class="language-bash"># 容器層:起一個沒有對外路由的網路
+docker network create --internal isaac-offline
+docker run --rm --network isaac-offline ... nvcr.io/nvidia/isaac-sim:6.0.1 ...
+</code></pre>
+<p>驗收要看的是<strong>行為</strong>,不是設定值回讀:</p>
+<ol>
+<li>場景載得完,而且<strong>材質正常</strong>——紫色/白色的面代表材質沒抓到,那是資產缺失最直接的訊號。</li>
+<li><code>get_assets_root_path()</code> 回傳的是本地路徑,不是 <code>https://...</code>。回 <code>None</code> 代表 asset root 整個沒解析成功(見 <a href="../../5.1/07-minimal-example/">07 篇</a> §2 的檢查寫法)。</li>
+<li>啟動 log 裡沒有連線逾時的重試。</li>
+</ol>
+<p>第 1 條比第 2 條強:設定回讀成功而實際行為不對,是這個系統反覆出現的模式。</p>
+<h2 id="7-資產在本地不等於資產能用">7. 資產在本地,不等於資產能用</h2>
+<p>把官方資產搬到本地解決的是<strong>取得</strong>,不是<strong>可用性</strong>。本 repo 實測過 NVIDIA Warehouse 資產包(24 GB):<code>WingPallet_A01</code>、<code>HeavyDutyPalletTruck_A01</code>、<code>Rack_E02</code> 這些場景元件,<strong>RigidBody、authored mass、Collision 全部是 0</strong>——純幾何加材質的視覺資產,不帶任何物理。詳見 <a href="../../common/18-finding-physical-parameters/">18 篇</a> §2。</p>
+<p>所以離線佈署做完之後,物理參數還是要自己補,而「去哪裡找」是另一個問題。機器人類資產(<code>Isaac/Robots/…</code>)通常有完整物理,場景佈置類的沒有——<strong>資產包的用途決定它有沒有物理</strong>。</p>
+<h2 id="8-佈署檢查清單">8. 佈署檢查清單</h2>
+<ul>
+<li>[ ] 分片全部下載完,<strong>逐片</strong>比對官方頁上的 MD5</li>
+<li>[ ] 解壓後的根目錄底下有 <code>NVIDIA</code> 與 <code>Isaac</code> 兩個子目錄</li>
+<li>[ ] 目錄名用的是 <code>Isaac/6.0</code>(或 <code>Isaac/5.1</code>),不是照著檔名建的 <code>6.0.1</code></li>
+<li>[ ] <code>env | grep ISAACSIM_ASSET_ROOT</code> 確認沒有殘留的環境變數蓋掉你的設定</li>
+<li>[ ] 容器環境變數:<code>ACCEPT_EULA=Y</code>,<code>PRIVACY_CONSENT=N</code>(不回傳 telemetry)</li>
+<li>[ ] 容器映像已在內部 registry 或以 <code>docker save</code> 的形式備妥,不依賴 <code>nvcr.io</code></li>
+<li>[ ] <strong>斷網跑過一次</strong>,場景載得完、材質不是紫色、<code>get_assets_root_path()</code> 回本地路徑</li>
+<li>[ ] 場景實際用到的資產有沒有物理,已另外確認(見 <a href="../../common/18-finding-physical-parameters/">18 篇</a>)</li>
+</ul>
+<h2 id="版本對照">版本對照</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>5.1</th>
+<th>6.0.1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>資產包分片數</td>
+<td>3</td>
+<td>5</td>
+</tr>
+<tr>
+<td>解壓後路徑</td>
+<td><code>Assets/Isaac/5.1</code></td>
+<td><code>Assets/Isaac/6.0</code></td>
+</tr>
+<tr>
+<td>extension registry</td>
+<td>需自行處理</td>
+<td>官方文件稱由 Kit SDK 自動管理</td>
+</tr>
+</tbody>
+</table></div>
+<p>設定名 <code>persistent.isaac.asset_root.default</code>、環境變數 <code>ISAACSIM_ASSET_ROOT</code>、以及四層優先序,兩版相同。</p>
+<hr />
+<p>延伸閱讀:<a href="../../common/01-install-and-run-modes/">01 安裝與執行模式</a>(啟動參數與 Python 環境隔離)、<a href="../../common/03-model-import/">03 模型格式與匯入</a> §2(官方資產的授權面)、<a href="../../common/18-finding-physical-parameters/">18 建場域時物理參數要去哪裡找</a>。</p>
+<p>出處:<a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.1/installation/install_faq.html">Isaac Sim 6.0.1 Setup Tips</a>、<a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.1/installation/download.html">6.0.1 Download</a>、<a href="https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html">5.1.0 Setup Tips</a>、<a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.1/installation/install_container.html">6.0.1 Container Installation</a>、<a href="https://forums.developer.nvidia.com/t/air-gapped-deployment-app-exits-due-to-dependency-solver-failure-omni-flowusd-despite-disabling-registry-sync-in-offline-l20-cluster/365085">air-gapped 佈署的公開回報(4.5.0,未結案)</a>。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>
