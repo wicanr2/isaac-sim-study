@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>關節命令送不到:把驅動鏈路切成四段來查 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#為什麼要切段">為什麼要切段</a></li><li class="l2"><a href="#第一性原理開環控制器的-current-不是量測值">第一性原理:開環控制器的 current 不是量測值</a></li><li class="l2"><a href="#四段的查法">四段的查法</a></li><li class="l3"><a href="#④-關節本身繞過所有上游直接戳">④ 關節本身:繞過所有上游,直接戳</a></li><li class="l3"><a href="#③-actiongraph節點在不在接沒接收到幾個關節">③ ActionGraph:節點在不在、接沒接、收到幾個關節</a></li><li class="l3"><a href="#②-topic攔截實際送出的內容">② topic:攔截實際送出的內容</a></li><li class="l3"><a href="#①-控制器只剩它了">① 控制器:只剩它了</a></li><li class="l2"><a href="#兩個會讓你查錯方向的陷阱">兩個會讓你查錯方向的陷阱</a></li><li class="l2"><a href="#一句話">一句話</a></li></ul></aside>
+  <main class="doc">
+<h1 id="關節命令送不到把驅動鏈路切成四段來查">關節命令送不到:把驅動鏈路切成四段來查</h1>
+<blockquote>
+<p>症狀:ROS2 節點一路印「命令已送出」,Isaac 裡的關節卻文風不動,而且<strong>沒有任何錯誤訊息</strong>。
+這篇講怎麼在四段之間定位斷點,不靠猜。</p>
+</blockquote>
+<h2 id="為什麼要切段">為什麼要切段</h2>
+<p>從「程式決定要抬升」到「關節真的動了」,中間有四段獨立的機制,任何一段斷掉都是同一個外觀 ——
+命令看起來發了、關節沒反應、沒有錯誤:</p>
+<pre><code>①  控制器內部狀態          ②  ROS2 topic            ③  ActionGraph              ④  關節
+   (它以為現在幾公分)   →   /joint_command      →   Subscribe → Controller  →   PhysX drive
+</code></pre>
+<p>單看任一端都會誤判。控制器印的「current=0.732」可能只是它自己記的數字;
+關節停著也可能是命令根本沒出門。<strong>必須兩端都量,而且要能單獨戳中間。</strong></p>
+<h2 id="第一性原理開環控制器的-current-不是量測值">第一性原理:開環控制器的 <code>current</code> 不是量測值</h2>
+<p>先分清一件事,否則後面全錯。控制器 log 印的</p>
+<pre><code>FORK_COMMAND current=(z2=0.732) target=(z2=1.147) feedback=disabled published=16.00s
+</code></pre>
+<p>裡的 <code>current</code>,在 <code>feedback=disabled</code> 時<strong>是它自己維護的內部狀態</strong>,不是從 <code>/joint_states</code>
+讀回來的真值。開環控制器的職責只到「把命令發出去」,它沒有義務、也沒有能力知道關節有沒有動。</p>
+<p>所以 <code>published=16.00s</code> 只證明「發了 16 秒」,不證明「關節收到」,更不證明「關節動了」。
+<strong>要判斷物理有沒有發生,唯一可信的是 <code>/joint_states</code> 或 PhysX 剛體位姿。</strong></p>
+<h2 id="四段的查法">四段的查法</h2>
+<h3 id="④-關節本身繞過所有上游直接戳">④ 關節本身:繞過所有上游,直接戳</h3>
+<p>最有價值的一步,而且最快。自己發一則只帶目標關節的 <code>JointState</code>,看它動不動:</p>
+<pre><code class="language-python">import rclpy, time
+from sensor_msgs.msg import JointState
+
+rclpy.init()
+n = rclpy.create_node(&quot;poke&quot;)
+pub = n.create_publisher(JointState, &quot;/joint_command&quot;, 10)
+st = {&quot;pos&quot;: None}
+
+def cb(m):
+    d = dict(zip(m.name, m.position))
+    if &quot;z2&quot; in d:
+        st[&quot;pos&quot;] = d[&quot;z2&quot;]
+
+n.create_subscription(JointState, &quot;/joint_states&quot;, cb, 10)
+for _ in range(20):
+    rclpy.spin_once(n, timeout_sec=0.1)
+print(&quot;起始 =&quot;, st[&quot;pos&quot;])
+
+msg = JointState()
+msg.name = [&quot;z2&quot;]
+msg.position = [1.0]
+t0 = time.time()
+while time.time() - t0 &lt; 20:
+    msg.header.stamp = n.get_clock().now().to_msg()
+    pub.publish(msg)
+    rclpy.spin_once(n, timeout_sec=0.05)
+    time.sleep(0.03)
+print(&quot;20 秒後 =&quot;, st[&quot;pos&quot;])
+</code></pre>
+<p><strong>要持續發</strong>,不是發一次 —— <code>ROS2SubscribeJointState</code> 是每 tick 取最新值,單則訊息容易錯過 tick。</p>
+<p>動了 → ③④ 都正常,斷點在 ①②,往上查。
+不動 → 往下查 ③ 與關節的 drive 設定。</p>
+<h3 id="③-actiongraph節點在不在接沒接收到幾個關節">③ ActionGraph:節點在不在、接沒接、收到幾個關節</h3>
+<p>Isaac 端要有這條鏈:<code>ROS2SubscribeJointState</code> → <code>IsaacArticulationController</code>。
+dump 出來確認三件事:</p>
+<pre><code>NODE .../SubscriberJointState [isaacsim.ros2.bridge.ROS2SubscribeJointState] disabled=False
+  outputs:jointNames     = len=4      ← 最近一則命令帶了幾個關節
+  outputs:positionCommand = len=4
+NODE .../ArticulationController [isaacsim.core.nodes.IsaacArticulationController] disabled=False
+  inputs:jointNames      &lt;- [...SubscriberJointState.outputs:jointNames]
+  inputs:positionCommand &lt;- [...SubscriberJointState.outputs:positionCommand]
+  inputs:execIn          &lt;- [...OnPlaybackTick.outputs:tick]
+</code></pre>
+<ul>
+<li><code>disabled=False</code> —— 節點沒被關掉</li>
+<li><code>inputs:xxx &lt;- [...]</code> —— 連線真的接上了(沒接的話這裡是空的)</li>
+<li><code>len=N</code> —— 最近收到的命令帶幾個關節。<strong>這個數字會透露上游發了什麼</strong></li>
+</ul>
+<p><code>execIn</code> 接 <code>OnPlaybackTick</code> 而不是 subscriber 的 <code>execOut</code>,代表 controller 每 tick 都跑、
+用 subscriber 的最新值 —— 所以 <code>execOut = 0</code> 不代表壞掉。</p>
+<h3 id="②-topic攔截實際送出的內容">② topic:攔截實際送出的內容</h3>
+<p>同時訂閱 <code>/joint_command</code>(上游發什麼)與 <code>/joint_states</code>(關節怎麼回應),印出來對照:</p>
+<pre><code class="language-python">def ccb(m):
+    print(&quot;CMD&quot;, {k: round(v, 3) for k, v in zip(m.name, m.position)})
+</code></pre>
+<p>比對控制器 log 宣稱的 target 與這裡實際看到的值。<strong>兩者不一致就是 ① 的 bug。</strong></p>
+<p>常見的錯位寫法:</p>
+<pre><code class="language-python">msg.name = controlled_joints
+msg.position = [
+    float(target_positions[self.joint_names.index(name)])   # ← 索引取自另一個清單
+    for name in controlled_joints
+]
+</code></pre>
+<p><code>target_positions</code> 與 <code>joint_names</code> 的長度或順序一旦不一致,值就悄悄錯位到別的關節上 ——
+name 對、值錯,而且完全不報錯。</p>
+<h3 id="①-控制器只剩它了">① 控制器:只剩它了</h3>
+<p>前三段都正常就往這裡查。重點不是它印了什麼,是它<strong>實際塞進 message 的值</strong>。</p>
+<h2 id="兩個會讓你查錯方向的陷阱">兩個會讓你查錯方向的陷阱</h2>
+<p><strong><code>ros2</code> CLI 可能整組壞掉。</strong> 這台環境 <code>ros2 topic echo</code> / <code>ros2 topic info</code> 會噴
+xmlrpc daemon 的 traceback,但 python 直接訂閱完全正常。CLI 不通不代表 topic 不通 ——
+<strong>別用 CLI 的失敗當證據</strong>,換 python 再判斷。</p>
+<p><strong>確認任務真的下發了,再解讀「零則命令」。</strong> 監聽期間一則命令都沒有,可能是上游根本沒被觸發。
+我就因為上游任務被業務邏輯擋掉(而且回傳的是描述性訊息、不是錯誤),
+把「零則命令」誤讀成「控制器不發命令」,白繞一圈。
+<strong>先確認觸發成功,再讀監聽結果。</strong></p>
+<h2 id="一句話">一句話</h2>
+<p>四段獨立,外觀相同。<strong>先戳最下游那段</strong>(直接發 topic 給關節)——
+一次測試就能把嫌疑範圍砍半,比從上游逐行讀程式快得多。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

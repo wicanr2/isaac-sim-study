@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>長跑維運:狀態分歧、看門狗分層與靜默失敗 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/" class="on"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-根本問題狀態不只存在於模擬器裡">1. 根本問題:狀態不只存在於模擬器裡</a></li><li class="l3"><a href="#附帶效應模擬時鐘歸零">附帶效應:模擬時鐘歸零</a></li><li class="l2"><a href="#2-看門狗分層而且職責邊界要寫在檔頭">2. 看門狗:分層,而且職責邊界要寫在檔頭</a></li><li class="l2"><a href="#3-靜默失敗串流凍在最後一幀">3. 靜默失敗:串流凍在最後一幀</a></li><li class="l2"><a href="#4-三個重複踩到的環境陷阱">4. 三個重複踩到的環境陷阱</a></li><li class="l3"><a href="#對著舊-log-下判斷踩了五次">對著舊 log 下判斷(踩了五次)</a></li><li class="l3"><a href="#pkill--f-匹配到自己踩了六次每次都斷線">pkill -f 匹配到自己(踩了六次,每次都斷線)</a></li><li class="l3"><a href="#zsh-不對未加引號的變數斷詞">zsh 不對未加引號的變數斷詞</a></li><li class="l2"><a href="#5-一條方法論教訓">5. 一條方法論教訓</a></li><li class="l2"><a href="#6-長跑檢查清單">6. 長跑檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="長跑維運狀態分歧看門狗分層與靜默失敗">長跑維運:狀態分歧、看門狗分層與靜默失敗</h1>
+<p>把模擬跑起來,和讓它連續跑一整天不出事,是兩件不同的工程。前者的失敗是明顯的(崩潰、錯誤訊息、畫面全黑),後者的失敗多半是<strong>靜默的</strong>——系統看起來一切正常,只是做的事情不對。</p>
+<p>本篇記錄的都是「第二次遇到才發現自己第一次就該記下來」的東西:重啟造成的兩份狀態分歧、看門狗互相打架、串流凍在最後一幀,以及三個吃掉最多時間的環境陷阱。</p>
+<p>官方規格:<a href="https://www.w3.org/TR/webrtc-stats/">Identifiers for WebRTC's Statistics API(W3C)</a>。</p>
+<p>本篇延伸閱讀:<a href="../../common/06-webrtc-streaming/">06 篇</a>(WebRTC 單 client 限制與 relay 分流)、<a href="../../common/09-physics-simulation-fundamentals/">09 篇 §7</a>(reset 到底重置了什麼)、<a href="../../5.1/11-live-pose-and-accuracy/">11 篇</a>(漂移量測)。</p>
+<h2 id="1-根本問題狀態不只存在於模擬器裡">1. 根本問題:狀態不只存在於模擬器裡</h2>
+<p>一個接進外部系統的模擬,至少有兩份狀態:</p>
+<ul>
+<li><strong>模擬器持有的物理狀態</strong> —— 東西實際在哪;</li>
+<li><strong>外部系統持有的帳面狀態</strong> —— 資料庫認為東西在哪。</li>
+</ul>
+<p>正常運轉時兩者靠事件同步。但<strong>重啟只會重置其中一份</strong>。</p>
+<p>模擬器重啟後,場景回到 authored 初始狀態:所有被搬物回原位。外部系統的帳面沒有跟著回去——它還記著「這個位置是空的、那個位置有貨」。</p>
+<p align="center"><img src="../../img/state-divergence-on-restart.svg" width="820" alt="重啟只重置物理狀態,帳面狀態不變,導致後續流程合法空轉"></p>
+
+<p><strong>症狀非常有欺騙性</strong>:下一輪任務兩三分鐘就「完成」了,機具幾乎沒動。因為外部系統認為要搬的東西已經在目的地,整條流程合法地空轉一遍,狀態全綠、沒有任何錯誤。</p>
+<blockquote>
+<p>這種失敗難抓的原因是:<strong>分歧的表現形式是「成功」,不是「失敗」。</strong> 監控、告警、狀態碼全都指不到它,只有實際看畫面或量物理位置才會發現。</p>
+</blockquote>
+<p><strong>規則:任何模擬器重啟之後、跑正式流程之前,先做一次完整狀態重置(把兩邊都拉回同一個基準)。</strong> 不要只重啟模擬器就接著跑。</p>
+<h3 id="附帶效應模擬時鐘歸零">附帶效應:模擬時鐘歸零</h3>
+<p>重啟模擬器後,模擬時鐘從 0 開始。下游任何依賴時間戳的元件(TF 快取、里程計、狀態機)都會看到時間倒退,典型症狀是 <code>TF_OLD_DATA</code> 洗版,而下游節點本身沒有崩潰、看起來還活著。</p>
+<p><strong>所以「重啟模擬器」在操作上必須定義成「連同下游節點鏈一起重啟」</strong>,不能只重啟模擬器本身。把這件事寫進重啟腳本,而不是寫進 SOP 文件——寫進文件的步驟遲早會被跳過。</p>
+<h2 id="2-看門狗分層而且職責邊界要寫在檔頭">2. 看門狗:分層,而且職責邊界要寫在檔頭</h2>
+<p>系統跑久了會不知不覺長出好幾隻看門狗:一隻盯模擬器、一隻盯串流、一隻盯資料。它們互相打架的方式很難查——A 判定服務死了要重啟,B 在同一秒判定它活著且正在啟動中,於是兩個實例同時搶 GPU 和同一組 ROS topic。</p>
+<p>可行的做法是分層,<strong>每層的執行器不重疊</strong>:</p>
+<p align="center"><img src="../../img/watchdog-layers.svg" width="800" alt="三層看門狗,各層執行器互不重疊"></p>
+
+<div class="tw"><table>
+<thead>
+<tr>
+<th>層</th>
+<th>監看對象</th>
+<th>執行動作</th>
+<th><strong>不做</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>模擬器程序存活</td>
+<td>重啟模擬器 + 下游節點鏈</td>
+<td>不碰串流</td>
+</tr>
+<tr>
+<td>2</td>
+<td>影像串流中繼</td>
+<td>只重啟中繼</td>
+<td>不碰模擬器</td>
+</tr>
+<tr>
+<td>3</td>
+<td>狀態漂移(見 <a href="../../5.1/11-live-pose-and-accuracy/">11 篇 §9</a>)</td>
+<td>只跑狀態重置</td>
+<td>不碰任何程序</td>
+</tr>
+</tbody>
+</table></div>
+<p>四個必備設計,每一個都對應一次實際踩過的坑:</p>
+<ol>
+<li><strong>判死用連續 N 次抓不到,不是單次</strong> —— 單次抓不到多半是負載尖峰,不是死亡。</li>
+<li><strong>重啟次數設時間窗上限</strong>,達上限停手要求人工介入。無限重啟會把「一次可修的故障」變成「整夜的 GPU 空轉」。</li>
+<li><strong>提供暫停開關</strong>(一個檔案就夠),手動維護前先按 —— 否則你在手動重啟時,看門狗也在重啟,兩個實例搶資源。</li>
+<li><strong>職責邊界寫在腳本檔頭</strong> —— 三個月後回來看的人包括你自己。</li>
+</ol>
+<p>上限值要留餘裕。我們一開始設「每小時 3 次」,結果做 A/B 測試時被自己的看門狗鎖住,還誤以為是別的問題。<strong>調試期的重啟頻率本來就會高於正常運轉</strong>,把上限訂在正常運轉的經驗值會反過來妨礙你除錯。</p>
+<h2 id="3-靜默失敗串流凍在最後一幀">3. 靜默失敗:串流凍在最後一幀</h2>
+<p>WebRTC 連線中斷後,瀏覽器端的畫面會<strong>凍在最後一幀</strong>,而連線狀態可能還顯示正常。觀眾看到的是一張靜止的圖,不是錯誤訊息——展示現場最糟的失敗模式,因為沒有人會發現。</p>
+<p>不能等它報錯,要主動偵測。可用的活性訊號是 <code>getStats()</code> 裡的 <code>framesDecoded</code>,W3C 的定義(逐字)是:</p>
+<blockquote>
+<p>It represents the total number of frames <strong>correctly decoded</strong> for this RTP stream, i.e., frames that would be displayed if no frames are dropped.</p>
+</blockquote>
+<p>「correctly decoded」正是我們要的語意——它不是收到多少封包,而是真的解出了多少可顯示的畫面。<strong>連續 N 次沒有增長就判定卡住</strong>,主動重建連線。</p>
+<p>(同一份規格裡的 <code>framesPerSecond</code>、<code>framesRendered</code>、<code>framesDropped</code> 也可用;<code>framesDecoded</code> 的好處是單調遞增,做差分最單純。以上欄位規格明訂 audio 不得存在,取值時要先過濾 <code>kind === 'video'</code>。)</p>
+<pre><code class="language-js">// 3 秒輪詢一次,連續 3 次 framesDecoded 沒增長 → 重建連線
+// 實測:12 秒偵測 + 40 秒恢復
+const stats = await conn.getStats()
+let frames = 0
+stats.forEach(r =&gt; { if (r.type === 'inbound-rtp' &amp;&amp; r.kind === 'video') frames = r.framesDecoded })
+if (frames === lastFrames) { stalled += 1 } else { stalled = 0; lastFrames = frames }
+if (stalled &gt;= 3) restart()
+</code></pre>
+<blockquote>
+<p><strong>通則:凡是「靜默降級」比「明確失敗」更常見的元件,都要自己造一個活性訊號。</strong>
+連線狀態正常、程序還活著、日誌沒有 ERROR —— 這三個都不足以證明它在工作。</p>
+</blockquote>
+<p>同一個原則適用於串流品質退化:長跑幾小時後畫面幀率可能悄悄從 60 fps 掉到個位數,而所有狀態指標仍然正常。定期重啟中繼比事後排查便宜得多。</p>
+<h2 id="4-三個重複踩到的環境陷阱">4. 三個重複踩到的環境陷阱</h2>
+<p>這一節不談模擬,談的是圍繞它的殼層腳本。這些錯誤的共同點是<strong>錯誤訊息完全指不到真正的原因</strong>。</p>
+<h3 id="對著舊-log-下判斷踩了五次">對著舊 log 下判斷(踩了五次)</h3>
+<p>同一個服務可能由手動、看門狗、自癒腳本三個來源啟動,各自寫不同檔名的 log。你啟動時指定的那個檔案,常常早就被別人取代,內容停在幾分鐘前——而你正對著它推理當下的行為。</p>
+<p><strong>解法是不要猜檔名,從程序反查它的 stdout 實際寫到哪:</strong></p>
+<pre><code class="language-bash">pid=$(pgrep -f '&lt;pattern&gt;' | head -1)
+readlink -f /proc/$pid/fd/1      # 這個程序的 stdout 真正指向哪個檔案
+</code></pre>
+<p>把它包成一支 <code>logs.sh</code>,規定所有人(包括自動化腳本)只透過它看 log。這比「記得檢查檔案時間戳」可靠,因為前者是機制,後者是紀律。</p>
+<h3 id="pkill--f-匹配到自己踩了六次每次都斷線"><code>pkill -f</code> 匹配到自己(踩了六次,每次都斷線)</h3>
+<p><code>pkill -f isaac</code> 會匹配到<strong>你自己這行 ssh 指令</strong>,於是把自己殺掉(exit 255)。</p>
+<p>常見的規避寫法是括號 <code>pkill -f '[i]saac'</code>——但它只在<strong>指令列裡沒有出現該字串</strong>時才有效。如果同一行還寫了 <code>/path/to/isaac_watchdog.sh</code>,照樣自匹配,而且看起來像是「括號寫法失效了」。</p>
+<p><strong>解法:把 kill 動作和含有該路徑的動作拆到不同次執行。</strong> 這比想一個更聰明的正規表示式可靠——你對抗的是「指令列本身也是被搜尋的文本」這個事實,不是某個特定字串。</p>
+<h3 id="zsh-不對未加引號的變數斷詞">zsh 不對未加引號的變數斷詞</h3>
+<p>這是 zsh 與 bash 最容易踩到的核心差異:</p>
+<pre><code class="language-bash">ARGS=&quot;--param-a 1 --param-b 2&quot;
+some_command $ARGS          # bash:展開成四個參數
+                            # zsh :整串當成「一個」參數
+</code></pre>
+<p>在 zsh 下,下游程式會收到一個內含空白的巨大參數值,以型別錯誤啟動失敗——而錯誤訊息指向參數解析,完全指不到這裡。</p>
+<p>需要斷詞就用 <code>eval</code>,或改用陣列 <code>ARGS=(--param-a 1)</code> 搭配 <code>"${ARGS[@]}"</code>(後者更安全)。若專案裡的啟動腳本混用 bash 與 zsh,這個差異遲早會咬人。</p>
+<h2 id="5-一條方法論教訓">5. 一條方法論教訓</h2>
+<p><strong>做 A/B 測試之前,先確認自己沒有在同一時間改動別的東西。</strong></p>
+<p>我們曾在「自己的診斷腳本已經把模擬弄壞了」的狀態下(就是 <a href="../../5.1/11-live-pose-and-accuracy/">11 篇 §3</a> 那個 simulation view 失效事故),去測兩個啟動旗標對機構動作的影響。結論是「這兩個旗標會讓機構失效」——冤枉了寫那段程式的同事。重測四種組合才平反:四種組合全部正常。</p>
+<blockquote>
+<p><strong>症狀相同不代表原因相同。</strong> 尤其當你手上同時有好幾個變因,而其中一個是你自己剛加上去的。</p>
+</blockquote>
+<p>單變因、可重跑、有對照組——這三件事在模擬環境裡比在一般軟體裡更重要,因為模擬器的失敗大多是靜默的:沒有 stack trace 指給你看,你只能靠實驗設計把可能性一個一個排掉。而只要實驗設計裡混進了未知變因,排掉的就不是可能性,是你自己的時間。</p>
+<h2 id="6-長跑檢查清單">6. 長跑檢查清單</h2>
+<p><strong>重啟</strong></p>
+<ul>
+<li>[ ] 重啟模擬器 = 連同下游節點鏈一起重啟(寫進腳本,不是寫進文件)</li>
+<li>[ ] 重啟後、跑正式流程前,先做一次完整狀態重置</li>
+<li>[ ] 重置流程結尾重新套用執行期物理設定(見 <a href="../../common/10-scene-physics-authoring/">10 篇 §4</a>)</li>
+</ul>
+<p><strong>看門狗</strong></p>
+<ul>
+<li>[ ] 判死用連續 N 次</li>
+<li>[ ] 重啟次數有時間窗上限,達標停手</li>
+<li>[ ] 有暫停開關,手動維護前先按</li>
+<li>[ ] 同一個資源只由一層負責重啟,邊界寫在檔頭</li>
+<li>[ ] 上限值對調試期也夠用</li>
+</ul>
+<p><strong>靜默失敗</strong></p>
+<ul>
+<li>[ ] 串流有基於 <code>framesDecoded</code> 的卡死偵測</li>
+<li>[ ] 每個關鍵元件都有一個「真的在工作」的活性訊號,而不只是「還活著」</li>
+<li>[ ] 診斷指令找不到目標時明確印出,不安靜跳過</li>
+</ul>
+<p><strong>殼層</strong></p>
+<ul>
+<li>[ ] 看 log 一律從 <code>/proc/&lt;pid&gt;/fd/1</code> 反查,不猜檔名</li>
+<li>[ ] kill 動作與含目標路徑的動作分開執行</li>
+<li>[ ] 確認腳本實際由哪個 shell 執行,變數斷詞行為已驗證</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

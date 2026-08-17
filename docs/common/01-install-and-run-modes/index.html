@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>安裝與執行模式:GUI、Headless、Streaming — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/" class="on"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-三種執行模式">1. 三種執行模式</a></li><li class="l2"><a href="#2-兩種安裝方式workstation-安裝包-vs-官方容器">2. 兩種安裝方式:workstation 安裝包 vs 官方容器</a></li><li class="l2"><a href="#3-版本與-gpu-驅動的相依性選版本前先看">3. 版本與 GPU 驅動的相依性(選版本前先看)</a></li><li class="l2"><a href="#4-python-環境隔離為什麼啟動前要-unset">4. Python 環境隔離:為什麼啟動前要 unset</a></li><li class="l2"><a href="#5-延伸閱讀">5. 延伸閱讀</a></li></ul></aside>
+  <main class="doc">
+<h1 id="安裝與執行模式guiheadlessstreaming">安裝與執行模式:GUI、Headless、Streaming</h1>
+<p>Isaac Sim 常被當成「一個要開視窗操作的 3D 軟體」,這個印象只對了三分之一。它的本體是 Omniverse Kit 應用程式——Kit 是 NVIDIA 的應用框架(一套引擎加上 extension 系統),Isaac Sim 是搭建在它上面的其中一個應用;視窗(GUI)只是其中一種前端;同一套模擬核心可以完全不開視窗跑在遠端伺服器上,畫面經串流送出、指令經腳本送入。要走到「純 Python 遠端操作」,第一步是弄清楚它有哪幾種執行模式、各自解決什麼問題。</p>
+<p align="center"><img src="../../img/run-modes.svg" width="720" alt="Isaac Sim 三種執行模式對比"></p>
+
+<h2 id="1-三種執行模式">1. 三種執行模式</h2>
+<p>Isaac Sim 安裝目錄內附三支啟動腳本,對應三種模式:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>啟動腳本</th>
+<th>畫面</th>
+<th>適用情境</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>本機 GUI</td>
+<td><code>isaac-sim.sh</code></td>
+<td>本機視窗</td>
+<td>接螢幕直接操作、建場景</td>
+</tr>
+<tr>
+<td>GUI + 串流</td>
+<td><code>isaac-sim.streaming.sh</code></td>
+<td>本機視窗 + WebRTC 推流</td>
+<td>本機操作、遠端同步觀看</td>
+</tr>
+<tr>
+<td>Headless</td>
+<td><code>isaac-sim.headless.webrtc.sh</code></td>
+<td>無視窗,只有 WebRTC 推流</td>
+<td>遠端伺服器、自動化、省顯示資源</td>
+</tr>
+</tbody>
+</table></div>
+<p>啟動腳本名稱隨版本與安裝方式而異——上表以 workstation 安裝包為準;官方容器內對應的 headless 腳本是 <code>./runheadless.sh</code>(見官方 Container Installation 文件)。實際檔名以安裝目錄下 <code>ls</code> 出來的為準,不要照抄文件。</p>
+<p>三種模式跑的是同一個模擬核心,差別只在「要不要建本機視窗」與「要不要開串流伺服器」。因此同一份場景、同一套 Python 腳本,在三種模式下行為一致——這是「開發時用 GUI、部署時換 headless」得以成立的原因。</p>
+<p>常用的共通啟動參數(<code>--/</code> 開頭是 Kit 的設定覆寫語法,把任意設定值從命令列帶入):</p>
+<pre><code class="language-bash">--/persistent/isaac/asset_root/default=&lt;資產根目錄 URL&gt;   # 官方雲端資產的來源
+--/isaac/startup/ros_bridge_extension=isaacsim.ros2.bridge  # 啟動時載入 ROS2 橋接
+--/isaac/startup/ros_sim_control_extension=True             # 啟用模擬狀態控制服務
+</code></pre>
+<h2 id="2-兩種安裝方式workstation-安裝包-vs-官方容器">2. 兩種安裝方式:workstation 安裝包 vs 官方容器</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>方式</th>
+<th>取得</th>
+<th>適合</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Workstation 安裝包</td>
+<td>NVIDIA 官網下載(約 17–25 GB)</td>
+<td>有實體 GPU 工作站、要用 GUI 建場景</td>
+</tr>
+<tr>
+<td>NGC 容器</td>
+<td><code>nvcr.io/nvidia/isaac-sim:&lt;版本&gt;</code></td>
+<td>雲端 GPU 機、headless 部署、環境可重建</td>
+</tr>
+</tbody>
+</table></div>
+<p>容器方式的啟動範例(headless streaming):</p>
+<pre><code class="language-bash">docker run --name isaac-sim -d --runtime=nvidia --gpus all \
+  --network host --ipc host \
+  -e ACCEPT_EULA=Y -e NVIDIA_DRIVER_CAPABILITIES=all \
+  -v /path/to/assets:/assets:ro \
+  -v isaac-kit-cache:/isaac-sim/kit/cache \
+  nvcr.io/nvidia/isaac-sim:6.0.1 \
+  ./isaac-sim.streaming.sh --no-window \
+  --exec /open_scene.py
+</code></pre>
+<p>兩個實務重點:</p>
+<ul>
+<li><strong>Shader cache 要放進 named volume</strong>。首次啟動要冷編譯 shader(數分鐘),cache 掛 volume 之後暖啟動可以縮短到約一半。上面的範例只掛了最關鍵的 kit cache;官方文件另建議把 <code>ov</code>、<code>glcache</code>、<code>computecache</code>、pip cache 等多個目錄都各自掛成 volume,細節見官方 Container Installation 頁。</li>
+<li><strong>容器內以非 root 使用者執行</strong>(官方 image 用固定 uid)。掛進去的資產目錄若沒有 world 可讀權限,會出現 <code>Permission denied</code> → <code>open_stage</code> 回傳 <code>False</code>。host 端先 <code>chmod -R a+rX &lt;資產目錄&gt;</code>。</li>
+</ul>
+<h2 id="3-版本與-gpu-驅動的相依性選版本前先看">3. 版本與 GPU 驅動的相依性(選版本前先看)</h2>
+<p>Isaac Sim 的 RTX 渲染層(OptiX,NVIDIA 的 RTX 光線追蹤引擎,外掛)是針對特定範圍的驅動 ABI 編譯的。<strong>至少在下列實測組合中,版本與驅動不匹配的結果不是效能下降,而是直接 segfault</strong>:</p>
+<ul>
+<li>Isaac Sim 5.1 + 較舊驅動(555 世代):穩定。</li>
+<li>Isaac Sim 5.1 + 新驅動(595 世代 / CUDA 13):場景 DB 外掛啟動時 segfault,約 65 秒必掛。</li>
+<li>Isaac Sim 6.0.1 + 新驅動 595:正常。</li>
+</ul>
+<p>因此選版本的順序應該是:<strong>先確認機器的驅動版本(尤其雲端 GPU instance 的 AMI 往往預裝最新驅動),再選相容的 Isaac Sim 版本</strong>。降驅動(DKMS 重編 kernel module)風險高於換 Isaac Sim 版本(只是換 container tag),遇到不相容優先升 Isaac Sim。</p>
+<p><strong>版本適用範圍</strong>:本系列教學的 Python API 以 Isaac Sim 4.5–5.1.x 為準;6.0 起 <code>isaacsim.core.api</code> / <code>isaacsim.core.prims</code> / <code>isaacsim.core.utils</code> 整組移至 <code>isaacsim.core.experimental.*</code>(breaking change)。遇到 import 失敗,先確認手上的版本落在哪一側,再照對應 API 改。</p>
+<p>另外兩個硬體層設定:</p>
+<ul>
+<li><strong>資料中心卡(L40S、A100 等)預設開 ECC(Error-Correcting Code,記憶體糾錯),是 RTX 渲染間歇 crash 的實戰觀察到的因子</strong>。<code>sudo nvidia-smi -e 0</code> 關閉後重開機。</li>
+<li><strong>CPU / RAM 不能省</strong>:首次 shader 編譯會吃滿所有核心,8 vCPU 的機器可能連 SSH 都餓死。實戰結論是 Isaac Sim 主機至少 16 vCPU / 64 GB RAM(以百 MB 級倉儲場景實測;需求隨場景複雜度上升)。</li>
+</ul>
+<h2 id="4-python-環境隔離為什麼啟動前要-unset">4. Python 環境隔離:為什麼啟動前要 unset</h2>
+<p>Isaac Sim 自帶一份 Python 直譯器(例如 5.1 帶 3.11),而系統上的 ROS 2(例如 Humble)用另一個版本(3.10)。Python 的 C 擴充模組(<code>.so</code>)ABI 綁定直譯器版本——py3.10 編譯的 <code>rclpy</code> 被 py3.11 載入,輕則 <code>ImportError</code>,重則行為不可預期。</p>
+<p>問題出在環境變數:<code>source</code> 過 ROS 2 workspace 的 shell,<code>PYTHONPATH</code>、<code>AMENT_PREFIX_PATH</code>、<code>COLCON_PREFIX_PATH</code> 都指向 py3.10 的套件路徑,直接在這個 shell 啟動 Isaac Sim 就會把兩個世界混在一起。所以啟動腳本的標準前置動作是:</p>
+<pre><code class="language-bash">unset PYTHONPATH
+unset AMENT_PREFIX_PATH
+unset COLCON_PREFIX_PATH
+</code></pre>
+<p>同理,Isaac Sim 的 ROS 2 橋接 extension 內附一份針對 Humble 編譯的橋接函式庫,需要把它加進動態連結路徑:</p>
+<pre><code class="language-bash">export LD_LIBRARY_PATH=&quot;${LD_LIBRARY_PATH}:&lt;isaac-sim&gt;/exts/isaacsim.ros2.bridge/humble/lib&quot;
+</code></pre>
+<p>原則:<strong>Isaac Sim 進程用它自帶的 Python 與函式庫;ROS 2 節點跑在自己的環境;兩邊靠 topic / 網路協定溝通,不共享直譯器</strong>。這條原則在 <a href="../../common/05-ros2-bridge/">05-ros2-bridge</a> 會再次出現——違反它的每一種嘗試,實戰上都失敗了。</p>
+<h2 id="5-延伸閱讀">5. 延伸閱讀</h2>
+<ul>
+<li>官方文件:Isaac Sim Installation(Workstation / Container)、Livestream Clients</li>
+<li>下一篇:<a href="../../common/02-python-no-ui/">02 不碰 UI:用 Python 操作 Isaac Sim</a></li>
+<li>想直接動手:<a href="../../5.1/07-minimal-example/">07 最小可跑範例</a></li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

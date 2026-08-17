@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>20 · 用 Claude Code 跑模擬調參:把 agent 變成實驗員的工作法 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/" class="on"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-核心約束agent-不是常駐進程">1. 核心約束:agent 不是常駐進程</a></li><li class="l2"><a href="#2-兩層監看事件層-後備層">2. 兩層監看:事件層 + 後備層</a></li><li class="l2"><a href="#3-批次腳本自己要會守門">3. 批次腳本自己要會守門</a></li><li class="l2"><a href="#4-每輪結論當場寫進-repo不要等做完">4. 每輪結論當場寫進 repo,不要等做完</a></li><li class="l2"><a href="#5-模型成本分工貴的做判斷便宜的做機械活">5. 模型成本分工:貴的做判斷,便宜的做機械活</a></li><li class="l2"><a href="#6-實驗迴圈的紀律固定參數重試-n-次不是實驗是抽樣">6. 實驗迴圈的紀律:固定參數重試 N 次不是實驗,是抽樣</a></li><li class="l2"><a href="#7-長時間工具必須自己冪等">7. 長時間工具必須自己冪等</a></li><li class="l2"><a href="#8-驗證用與執行不同的機制">8. 驗證用與執行不同的機制</a></li><li class="l2"><a href="#9-檢查清單">9. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="20-用-claude-code-跑模擬調參把-agent-變成實驗員的工作法">20 · 用 Claude Code 跑模擬調參:把 agent 變成實驗員的工作法</h1>
+<p><a href="../../common/19-tuning-experiment-methodology/">19 篇</a>講實驗怎麼設計;這一篇講<strong>執行層</strong>:當實際操作者是一個 AI coding agent(Claude Code),要怎麼組織工作,讓「單輪十幾分鐘、要跑幾十輪、隨機失敗」的調參工作有效率地推進,而不是燒 token 空轉。</p>
+<p>素材同樣來自 6.0 場景調校專案。這裡的每一條都有對應的失敗實例——多數是 agent(也就是筆者自己)先犯過一次,才變成規則。</p>
+<hr />
+<h2 id="1-核心約束agent-不是常駐進程">1. 核心約束:agent 不是常駐進程</h2>
+<p>Claude Code 回答完一輪就結束,<strong>要有人說話或有通知進來才會再醒</strong>。把實驗 <code>nohup</code> 丟到遠端主機之後,它跑完不會通知任何人——「跑完」到「有人發現跑完」之間的時間全是空轉。實測案例:單輪驗證 15:00 跑完,16:27 才因使用者問「are you alive?」去查,<strong>模擬器空轉近 90 分鐘,而那是週末唯一的機時</strong>。</p>
+<p>所以第一條規則:<strong>丟到遠端的長工作,一定要掛「會回叫 agent」的機制,不可 fire-and-forget。</strong></p>
+<h2 id="2-兩層監看事件層-後備層">2. 兩層監看:事件層 + 後備層</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>層</th>
+<th>機制</th>
+<th>頻率</th>
+<th>負責</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>事件層</td>
+<td>Monitor 型工具:輪詢遠端 log,新事件行變成通知</td>
+<td>1~2 分鐘</td>
+<td>逐輪進度、閘門異常、批次死亡、DONE、主機失聯</td>
+</tr>
+<tr>
+<td>後備層</td>
+<td>背景 shell 迴圈,結束時喚醒 agent</td>
+<td>10~15 分鐘</td>
+<td>事件層本身死掉時兜底;附總時長保險上限</td>
+</tr>
+</tbody>
+</table></div>
+<p>設計要點(每一條都踩過):</p>
+<ul>
+<li><strong>安靜 ≠ 順利。</strong> 監看必須讓每一種終態都有訊號:正常結束(批次 driver 最後印一行
+  可辨識的 <code>DONE</code>)、進程死掉(<code>ps -p &lt;pid&gt;</code> 消失且無 DONE)、主機失聯(連續 N 次
+  ssh 失敗要出聲,不能無限安靜重試)。只 grep 成功標記的監看,在崩潰、卡死、被殺時
+  跟「還在跑」長得一模一樣。</li>
+<li><strong>啟動先記基線行號,不重播舊事件</strong>——否則掛監看的瞬間會把跑到一半的歷史整批噴成通知。</li>
+<li><strong>掛好之後做一次正對照</strong>:手動跑同一條查詢,確認抓得到已存在的事件。實測抓過一次
+  真 bug:事件 pattern 用了 ERE 不支援的負向預查 <code>(?!ok)</code>,整類異常事件無聲消失。</li>
+<li>監看只做唯讀查詢(<code>grep</code> + <code>ps -p</code>),不碰批次本身;pid 反查用
+  <code>ps -eo pid,etime,cmd</code>,<strong>不要 <code>pgrep -f</code></strong>(會自匹配到自己的指令字串)。</li>
+</ul>
+<h2 id="3-批次腳本自己要會守門">3. 批次腳本自己要會守門</h2>
+<p>agent 醒來只看得到 log,所以<strong>驗證邏輯要寫進批次腳本,不能靠 agent 記得檢查</strong>:</p>
+<ul>
+<li>每輪自動閘門(臂別確認、生效證據、輪數對帳——見 <a href="../../common/19-tuning-experiment-methodology/">19 篇 §6</a>)</li>
+<li>每輪結束把生效組態印進 log 開頭(事後才問「那輪到底什麼組態」是查不到的)</li>
+<li>失敗要長得像失敗:不要 <code>| tail</code> 吞結束碼、不要無條件印「✅ 完成」、
+  字串替換要 <code>assert</code> 有匹配到</li>
+<li>飛行守衛一類的<strong>中止條件</strong>內建在迴圈裡(偵測到就記下當時步驟並停),
+  不要「跑完整批回頭看」——殘局上疊殘局之後,分不清哪一步先壞</li>
+</ul>
+<h2 id="4-每輪結論當場寫進-repo不要等做完">4. 每輪結論當場寫進 repo,不要等做完</h2>
+<p>逐輪紀錄(<code>ROUNDS.md</code> 形式:改了什麼 → 結果如何)+ 編號文件(結論、證據、
+已證偽清單)+ <strong>失敗清單</strong>(<code>FAILURES.md</code>:已證偽假設與方法論的坑,不讀就會重試)。</p>
+<p>為什麼對 agent 特別重要:agent 的 session 會被壓縮、會重開,<strong>「我記得」不保證下一輪還在</strong>。寫進 repo 的才是跨 session 的記憶;而且 compact 之後接手的(可能是另一個 session 的自己)第一件事就是讀這三份。</p>
+<p>配套:</p>
+<ul>
+<li>腳本與參數一律進 repo commit 管理,主機與容器只是部署目標(<code>/tmp</code> 會被清、容器層重建就消失)</li>
+<li>讀到過期、錯誤、互相衝突的斷言,<strong>當下改對或刪掉</strong>,不要加註、不要刪除線——
+  沒作用的內容每次載入都吃 token,還會讓下一輪照著錯的前提動手</li>
+<li>編號只增不改(別的文件在引用);保留編號、改正內容</li>
+</ul>
+<h2 id="5-模型成本分工貴的做判斷便宜的做機械活">5. 模型成本分工:貴的做判斷,便宜的做機械活</h2>
+<p>agent 派 sub-agent 時,預設會繼承主迴圈的模型——在旗艦模型的 session 裡 fan-out 四個 review agent 等於燒四倍。分工原則:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>工作性質</th>
+<th>給誰</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>架構判斷、實驗設計、結論定案、寫作</td>
+<td>主迴圈(旗艦)</td>
+</tr>
+<tr>
+<td>對碼盤點、逐斷言核實、引文抽取、批次驗證、盯 CI</td>
+<td>便宜模型 sub-agent(明確指定 model)</td>
+</tr>
+<tr>
+<td>拿不準</td>
+<td>先用 inline 的少量 grep 抽驗,不 fan-out</td>
+</tr>
+</tbody>
+</table></div>
+<p>派工 prompt 的要素:完整的工具呼叫範例、已知錨點(檔案/行號/先讀清單)、明確產出格式、<strong>「只動哪些檔」的邊界</strong>、「不 commit、回報 X」的收尾協定。<strong>沒寫的等於允許</strong>——agent 會為了「做得完整」自行加碼。</p>
+<h2 id="6-實驗迴圈的紀律固定參數重試-n-次不是實驗是抽樣">6. 實驗迴圈的紀律:固定參數重試 N 次不是實驗,是抽樣</h2>
+<p>每一輪失敗之後、開下一輪之前,回答三個問題:</p>
+<ol>
+<li>這次跟上一次<strong>哪裡不同</strong>?(拿數據逐步比對,不是印象)</li>
+<li>根據這次觀察,<strong>假設要怎麼改</strong>?</li>
+<li>下一輪<strong>改哪一個變因</strong>?若答案是「什麼都不改」,就不該再跑一輪。</li>
+</ol>
+<p>agent 特別容易在<strong>長跑巡檢</strong>裡違反這條:cron 喚醒的每一輪看起來都像「延續上一輪」,不像「新任務開始」,於是檢討步驟一次都不會觸發。實測踩過:一整天把長跑寫成固定參數重試 12 次。解法是把「連續兩輪同類失敗」明文定義為新任務的開始。</p>
+<p>連帶的兩條:</p>
+<ul>
+<li><strong>「再差一點」卡很久、特例越補越多</strong> → 停下來重想整條路線是不是錯的
+  (實測:連續三輪為一個佔比 9% 的失敗模式設計實驗,才發現該追的是佔 31% 的主導模式)</li>
+<li>高成本動作<strong>事前報數字</strong>:「N 輪 × 每輪 M 分 ≈ 總時長,期間佔用模擬器」,
+  在開跑前講,不是等使用者問「是不是把機器吃掉了」</li>
+</ul>
+<h2 id="7-長時間工具必須自己冪等">7. 長時間工具必須自己冪等</h2>
+<p>呼叫端(LLM)在工具還在跑的期間,<strong>會用完全相同的參數再打進來</strong>——實測一筆搬運命令被打了 4 次。第二次呼叫看到半途的世界就回失敗,於是同一件事同時有成功與失敗兩個回報,LLM 挑了那個失敗的,把已經成功的搬運敘述成失敗。</p>
+<p>三條可複用:①呼叫端會重試是常態,「重複呼叫無害」是工具的責任;②能用程式收斂的不要寫進 prompt(「EXACTLY ONCE」試過,完全沒用);③補早退路徑會漏,要找「一次擋掉整類」的位置(入口 per-key lock)。</p>
+<h2 id="8-驗證用與執行不同的機制">8. 驗證用與執行不同的機制</h2>
+<p>agent 印了「✅ 已修正」不代表修正發生了。一天之內的四個實例:字串替換沒 assert(全形/半形不匹配,原文原封不動)、拿 grep log 判斷修復有沒有套用(工具根本不涵蓋那類屬性)、看門狗殺實驗(殺了父進程、子進程活著)、印成功訊息但檔案沒寫入。</p>
+<p><strong>共同形狀:失敗長得像成功。</strong> 每一項工作都要有獨立的驗證動作,而且驗證要用跟執行不同的機制:改檔案 → 讀回來確認;殺進程 → <code>ps</code> 數一次;設參數 → 極端值看行為(<a href="../../common/19-tuning-experiment-methodology/">19 篇 §1</a>)。</p>
+<h2 id="9-檢查清單">9. 檢查清單</h2>
+<p>開一個「Claude Code 跑調參」的工作階段之前:</p>
+<ul>
+<li>[ ] 遠端批次有兩層監看(事件層 + 後備層),所有終態都有訊號</li>
+<li>[ ] 批次腳本內建每輪閘門與中止條件,失敗長得像失敗</li>
+<li>[ ] <code>ROUNDS.md</code> / <code>FAILURES.md</code> / 編號文件的骨架存在,每輪當場寫</li>
+<li>[ ] 腳本與參數在 repo,不在 <code>/tmp</code> 或容器層</li>
+<li>[ ] sub-agent 派工有模型分工、檔案邊界、收尾協定</li>
+<li>[ ] 連續同類失敗有明文的「停下檢討」觸發條件</li>
+<li>[ ] 高成本批次開跑前報過數字</li>
+<li>[ ] 每個「做完了」都有獨立機制的驗證</li>
+</ul>
+<hr />
+<p><em>來源:<a href="https://github.com/wicanr2/isaac-sim-60-tuning">isaac-sim-60-tuning</a> 的 ROUNDS.md 與 FAILURES.md(方法論條目)、以及同專案的批次腳本(<code>run_*_interleaved.sh</code> 的閘門結構)。本篇不含任何特定主機或憑證資訊。</em></p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

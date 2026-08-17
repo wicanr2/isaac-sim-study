@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="" class="on">總覽</a><a href="common/">共通</a><a href="5.1/">5.1</a><a href="6.0.1/">6.0.1</a><a href="version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#三個入口">三個入口</a></li><li class="l2"><a href="#怎麼開始">怎麼開始</a></li><li class="l2"><a href="#工具">工具</a></li><li class="l2"><a href="#claude-code-skill">Claude Code skill</a></li><li class="l2"><a href="#範例程式">範例程式</a></li><li class="l2"><a href="#其他">其他</a></li></ul></aside>
+  <main class="doc">
+<h1 id="isaac-sim-實戰筆記不碰-ui-的模擬工作流">Isaac Sim 實戰筆記:不碰 UI 的模擬工作流</h1>
+<p>NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件。但真正把它用在工程上——跑在遠端 GPU 伺服器、由程式建立與控制物理世界、接進既有系統——需要的是另一套「不碰 UI」的工作方法。</p>
+<p>這裡整理的是一段倉儲物流模擬專案(堆高機 AMR、貨架、派工系統整合)累積下來的東西:每篇從「要解決什麼根本問題」出發,標明哪些是官方機制、哪些是實測踩坑後的結論、哪些還只是推測。</p>
+<h2 id="三個入口">三個入口</h2>
+<p><strong><a href="common">共通:機制與方法論</a></strong> · 17 篇
+引擎怎麼算一步、碰撞近似損掉什麼、質量該掛在哪一層、實驗怎麼設計才算數。這些在 5.1 與 6.0.1 上是同一套,因此不按版本分。</p>
+<p><strong><a href="5.1">Isaac Sim 5.1</a></strong> · 2 篇
+只在 5.x 命名空間下成立的內容,主要是程式碼——6.0 起 <code>isaacsim.core.*</code> 整組搬到 <code>isaacsim.core.experimental.*</code>。</p>
+<p><strong><a href="6.0.1">Isaac Sim 6.0.1</a></strong> · 5 篇
+extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風險、6.0 的物理調參。</p>
+<p><strong><a href="version-matrix.html">5.1 ↔ 6.0.1 差異速查</a></strong>
+跨版本排查時最花時間的不是「哪裡不一樣」,而是「這個症狀該不該歸給版本」。每一列都標出處篇章。</p>
+<h2 id="怎麼開始">怎麼開始</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>你的處境</th>
+<th>從這裡進</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>完全不熟 Isaac Sim,手上有一個物理跑不對的場景</td>
+<td><a href="6.0.1/16-model-tuning-for-6.0/">16 把 5.x 場景調到 6.0 能跑</a> —— 從「一個會被搬動的箱子由哪些東西組成」講起</td>
+</tr>
+<tr>
+<td>從零開始學,想建一個能跑物理的場景</td>
+<td><a href="common/01-install-and-run-modes/">01 安裝與執行模式</a> → 04 → 09 → 13</td>
+</tr>
+<tr>
+<td>正要從 5.1 升到 6.0</td>
+<td><a href="6.0.1/15-physics-backend-5.1-to-6.0/">15 物理層變動</a> → <a href="6.0.1/14-ros2-bridge-6.0-architecture/">14 ROS 2 架構重組</a></td>
+</tr>
+<tr>
+<td>夾不住、叉不起來、轉彎會滑</td>
+<td><a href="common/13-contact-and-grasp-first-principles/">13 接觸與抓握的第一性原理</a></td>
+</tr>
+<tr>
+<td>尺寸都對但件插不進去</td>
+<td><a href="common/22-geometry-and-measurement-discipline/">22 幾何的量測紀律</a></td>
+</tr>
+<tr>
+<td>要跑幾十輪調參</td>
+<td><a href="common/19-tuning-experiment-methodology/">19 調參實驗的方法論</a></td>
+</tr>
+<tr>
+<td>場域主機不能對外,資產抓不到</td>
+<td><a href="common/25-offline-assets-deployment/">25 官方資產的預先下載與離線佈署</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="工具">工具</h2>
+<ul>
+<li><a href="tools/physics-checkup">物理模擬健檢</a> —— 把 <a href="common/23-no-shortcuts-in-physics-sim/">23</a>、<a href="common/22-geometry-and-measurement-discipline/">22</a>、<a href="common/18-finding-physical-parameters/">18</a> 三篇的判準算成幾個可以當場填數字的檢查:所需摩擦、姿態包絡、質量合理性。</li>
+</ul>
+<h2 id="claude-code-skill">Claude Code skill</h2>
+<p>兩支,分工互補。複製整個目錄到 <code>~/.claude/skills/</code> 即可使用;正文有完整推導與圖,skill 是濃縮版。</p>
+<ul>
+<li><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/skills/isaac-sim-physical-ai/SKILL.md"><code>skills/isaac-sim-physical-ai/</code></a> —— 版本無關的第一性原理:接觸力學決定調參順序、碰撞近似是有損編碼、為什麼模擬器不報錯、三層真值、版本差異矩陣。</li>
+<li><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/skills/isaac-sim-60/SKILL.md"><code>skills/isaac-sim-60/</code></a> —— 6.0.x 特有的行為與陷阱:物理後端判定、<code>maxJointVelocity</code> 從 1e6 變 inf、參數的五個無聲失效條件、關鍵預設值速查。</li>
+</ul>
+<h2 id="範例程式">範例程式</h2>
+<ul>
+<li><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/scriptnode_udp_pose.py"><code>examples/scriptnode_udp_pose.py</code></a> —— ScriptNode:UDP 收 pose 直接控制 prim 位姿</li>
+<li><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/scan_physics.py"><code>examples/scan_physics.py</code></a> —— 掃描場景所有 <strong>authored</strong> 物理屬性(區分「刻意設定」與「吃預設」),跨版本/跨主機比對場景時的主力工具</li>
+<li><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/usd_peek.py"><code>examples/usd_peek.py</code></a> —— 唯讀檢視 crate 場景裡某個 prim 的物理結構,並可把子樹匯出成 <code>.usda</code> 文字</li>
+</ul>
+<h2 id="其他">其他</h2>
+<ul>
+<li><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/CONTEXT.md"><code>CONTEXT.md</code></a> —— 術語表</li>
+<li><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/PLAN.md"><code>PLAN.md</code></a> —— 主題規劃與進度</li>
+<li>本 repo 不含任何 USD 模型二進位檔:公司自製資產與 NVIDIA 官方資產都有授權限制,教學一律改用「官方管道下載」的方式描述(見 <a href="common/03-model-import/">03 篇</a> §2)。</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="">總覽</a> · <a href="version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

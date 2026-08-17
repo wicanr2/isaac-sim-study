@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Isaac Sim 5.1 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/" class="on">5.1</a><a href="../6.0.1/">6.0.1</a><a href="../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">5.1</div><ul class="side-l"><li><a href="../5.1/07-minimal-example/"><span class="n">07</span>最小可跑範例:從零到第一個會動的模擬</a></li><li><a href="../5.1/11-live-pose-and-accuracy/"><span class="n">11</span>讀取即時位姿與放置精度驗收</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#這一區只有兩篇的原因">這一區只有兩篇的原因</a></li><li class="l2"><a href="#篇章">篇章</a></li><li class="l2"><a href="#從零開始的閱讀動線">從零開始的閱讀動線</a></li><li class="l2"><a href="#準備升到-60">準備升到 6.0</a></li></ul></aside>
+  <main class="doc">
+<h1 id="isaac-sim-51">Isaac Sim 5.1</h1>
+<p>本 repo 的實測環境以 Isaac Sim 5.1.x 為主(部分 API 對照回溯到 4.5),這一區收「只在 5.x 命名空間下成立」的內容——主要是程式碼。兩版通用的機制與方法論在<a href="../common">共通區</a>,與 6.0.1 的差異見<a href="../version-matrix.html">版本速查表</a>。</p>
+<h2 id="這一區只有兩篇的原因">這一區只有兩篇的原因</h2>
+<p>5.1 與 6.0 之間,絕大多數機制沒有改變:物理引擎怎麼算一步、碰撞近似損掉什麼、質量該掛在哪一層、材質綁定何時 fallback,這些在兩版是同一套,因此留在共通區而不是複製兩份。真正綁死版本的是 <strong>Python 模組路徑</strong>——6.0 起 <code>isaacsim.core.api</code> / <code>isaacsim.core.prims</code> / <code>isaacsim.core.utils</code> 整組移到 <code>isaacsim.core.experimental.*</code>,凡是貼了可執行程式碼的篇章都會因此失效。這一區收的就是那兩篇。</p>
+<h2 id="篇章">篇章</h2>
+<ul>
+<li><strong><a href="../5.1/07-minimal-example/">07 · 最小可跑範例</a></strong> —— 三個由小到大的 standalone 範例:方塊落地、載入官方倉庫場景、在官方場景裡讀機器人位姿。全部不開 GUI 也能跑。程式碼依官方文件與 <code>standalone_examples</code> 組合,<strong>尚未在本 repo 環境實機驗證</strong>,資產路徑在不同文件版本間基準點不一,執行時用文中的 <code>is_file()</code> 檢查確認。</li>
+<li><strong><a href="../5.1/11-live-pose-and-accuracy/">11 · 讀取即時位姿與放置精度驗收</a></strong> —— 四種讀位姿的方法只有一種讀得到模擬當下的值,另外三種各有各的騙法;唯讀的觀測 API 反而會弄壞控制鏈;後半把「放得準不準」變成可量測、可驗收的管線。四元數順序在 <code>omni.physx</code>(x,y,z,w)與 <code>isaacsim.core.prims</code>(w,x,y,z)之間分裂,這一條在 6.0 改了模組路徑之後仍要留意。</li>
+</ul>
+<h2 id="從零開始的閱讀動線">從零開始的閱讀動線</h2>
+<p>前面幾篇在共通區,順序是:</p>
+<ol>
+<li><a href="../common/01-install-and-run-modes/">01 安裝與執行模式</a> —— GUI / headless / streaming 是同一核心的三種前端。<strong>選版本前先看 §3</strong>:5.1 配 595 世代驅動會在啟動約 65 秒必 segfault。</li>
+<li><a href="../common/02-python-no-ui/">02 不碰 UI:用 Python 操作</a> —— <code>--exec</code> 啟動腳本、ScriptNode、UDP 遠端命令通道三層做法。</li>
+<li><a href="../common/03-model-import/">03 模型格式與匯入</a> → <a href="../common/04-physics-world/">04 建立物理世界</a> —— 一切先轉 USD;PLAYING 才有物理。</li>
+<li><a href="../common/09-physics-simulation-fundamentals/">09 物理模擬基礎</a> → <a href="../common/13-contact-and-grasp-first-principles/">13 接觸與抓握的第一性原理</a> —— 引擎內部怎麼算,以及為什麼調摩擦常常是錯的第一步。</li>
+<li>動手跑 <a href="../5.1/07-minimal-example/">07</a>。</li>
+<li>要建一個能跑物理搬運的場景,接著讀 <a href="../common/10-scene-physics-authoring/">10 場景資產的物理結構</a> → <a href="../5.1/11-live-pose-and-accuracy/">11</a> → <a href="../common/12-long-run-operations/">12 長跑維運</a>。</li>
+</ol>
+<p>接 ROS 2 或要遠端看畫面,另外讀 <a href="../common/05-ros2-bridge/">05 ROS2 橋接</a> 與 <a href="../common/06-webrtc-streaming/">06 WebRTC 串流</a>,兩篇的實測都在 5.1 上做的。</p>
+<h2 id="準備升到-60">準備升到 6.0</h2>
+<p>先讀 <a href="../6.0.1/15-physics-backend-5.1-to-6.0/">15 物理層變動</a> 與 <a href="../6.0.1/14-ros2-bridge-6.0-architecture/">14 ROS 2 Bridge 架構重組</a>,再看 <a href="../6.0.1/08-migration-5.1-to-6.0-oom-risk/">08 遷移風險調查</a>。整區入口在 <a href="../6.0.1">6.0.1</a>。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../">總覽</a> · <a href="../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

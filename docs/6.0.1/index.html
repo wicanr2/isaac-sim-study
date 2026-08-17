@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Isaac Sim 6.0.1 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/">5.1</a><a href="../6.0.1/" class="on">6.0.1</a><a href="../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">6.0.1</div><ul class="side-l"><li><a href="../6.0.1/08-migration-5.1-to-6.0-oom-risk/"><span class="n">08</span>5.1 USD 場景搬進 6.0.1</a></li><li><a href="../6.0.1/14-ros2-bridge-6.0-architecture/"><span class="n">14</span>ROS 2 Bridge 在 6.0 的架構重組</a></li><li><a href="../6.0.1/15-physics-backend-5.1-to-6.0/"><span class="n">15</span>5.1 到 6.0 的物理層變動</a></li><li><a href="../6.0.1/16-model-tuning-for-6.0/"><span class="n">16</span>把 5.x 的搬運場景調到 6.0 能跑,而且東西不會亂飛</a></li><li><a href="../6.0.1/17-physics-parameter-tuning-6.0/"><span class="n">17</span>Isaac Sim 6.0 的物理調參</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#從-51-升上來">從 5.1 升上來</a></li><li class="l2"><a href="#場景在-60-跑不對">場景在 6.0 跑不對</a></li><li class="l2"><a href="#接著往共通區走">接著往共通區走</a></li><li class="l2"><a href="#這一區沒有的東西">這一區沒有的東西</a></li><li class="l2"><a href="#搭配的-claude-code-skill">搭配的 Claude Code skill</a></li></ul></aside>
+  <main class="doc">
+<h1 id="isaac-sim-601">Isaac Sim 6.0.1</h1>
+<p>這一區收「只在 6.0.x 成立」的內容:extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風險,以及 6.0 的物理調參。兩版通用的機制與方法論在<a href="../common">共通區</a>,差異對照見<a href="../version-matrix.html">版本速查表</a>。</p>
+<h2 id="從-51-升上來">從 5.1 升上來</h2>
+<p>升級這件事本身有一條建議順序,因為前兩篇會決定後面所有排查的方向:</p>
+<ol>
+<li><strong><a href="../6.0.1/15-physics-backend-5.1-to-6.0/">15 · 5.1 → 6.0 的物理層變動</a></strong> —— PhysX 換代(107→110)與 Newton 後端加入是<strong>兩件獨立的事</strong>,常被混談成「6.0 改用 Newton 了」。先確定自己這台跑的是哪一個後端(log 裡有 newton ≠ Newton 在跑),否則整個排查方向會偏掉。含兩版 schema 逐項比對的結果。</li>
+<li><strong><a href="../6.0.1/14-ros2-bridge-6.0-architecture/">14 · ROS 2 Bridge 的架構重組</a></strong> —— 一個 extension 拆成五個,而外部介面沒變。三個「看起來變了其實沒變」的判讀陷阱,加上 rclpy 的 system→internal fallback 與「啟動前不要 source ROS」的機制。</li>
+<li><strong><a href="../6.0.1/08-migration-5.1-to-6.0-oom-risk/">08 · 5.1 場景搬進 6.0.1 的 OOM / 異常風險</a></strong> —— 調查報告,不是教學。結論分「官方出處」與「推測」兩級,尚未實機重現的部分有明確標註。附遷移 SOP。</li>
+</ol>
+<h2 id="場景在-60-跑不對">場景在 6.0 跑不對</h2>
+<p>手上有一個物理行為不對的場景要修,而且不熟 Isaac Sim,從 16 篇開始——它從「一個會被搬動的箱子由哪些東西組成」講起,不預設前置知識。</p>
+<ul>
+<li><strong><a href="../6.0.1/16-model-tuning-for-6.0/">16 · 把 5.x 場景調到 6.0 能跑,東西不會亂飛</a></strong> —— 先處理<strong>結構</strong>:剛體與碰撞怎麼分層、質量掛在哪一層、材質綁定為什麼會 fallback 回渲染材質、SDF 解析度不足以表達孔洞。四個問題的共同特徵是設得進去但不生效,而且不報錯。含東西亂飛的成因排序與診斷決策樹。</li>
+<li><strong><a href="../6.0.1/17-physics-parameter-tuning-6.0/">17 · 6.0 的物理調參:入口、生效條件、完整參數表</a></strong> —— 再處理<strong>數值</strong>:三個調參入口、四個讓設定無聲失效的條件,以及取自 6.0.1 實機 schema 的七類完整預設值表。核心問題是「我設了這個值,它到底有沒有作用」,而只有設極端值看行為差異能回答它。</li>
+</ul>
+<h2 id="接著往共通區走">接著往共通區走</h2>
+<p>6.0 專屬的部分講完之後,真正決定成敗的多半是版本無關的東西:</p>
+<ul>
+<li>夾不住、叉不起來、轉彎會滑 → <a href="../common/13-contact-and-grasp-first-principles/">13 接觸與抓握的第一性原理</a>(為什麼調摩擦常常是錯的第一步)</li>
+<li>尺寸都對但件插不進去 → <a href="../common/22-geometry-and-measurement-discipline/">22 幾何的量測紀律</a></li>
+<li>要跑幾十輪調參 → <a href="../common/19-tuning-experiment-methodology/">19 調參實驗的方法論</a> 與 <a href="../common/20-claude-code-driven-tuning/">20 用 Claude Code 跑調參</a></li>
+<li>症狀怎麼都追不到源頭 → <a href="../common/23-no-shortcuts-in-physics-sim/">23 物理模擬不可以偷懶</a></li>
+</ul>
+<h2 id="這一區沒有的東西">這一區沒有的東西</h2>
+<p>6.0.1 環境下實機驗證過的<strong>最小可跑範例</strong>目前沒有。<a href="../5.1/07-minimal-example/">07 篇</a>的程式碼以 4.5–5.1.x API 寫成,搬到 6.0 需要把 <code>isaacsim.core.*</code> 改成 <code>isaacsim.core.experimental.*</code>,但改完的版本尚未在本 repo 的環境跑過,因此不另立一篇冒充驗證過。</p>
+<h2 id="搭配的-claude-code-skill">搭配的 Claude Code skill</h2>
+<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/skills/isaac-sim-60/SKILL.md"><code>skills/isaac-sim-60/SKILL.md</code></a> 是這一區的濃縮版,收 6.0.x 特有的行為與陷阱:物理後端判定、<code>maxJointVelocity</code> 從 1e6 變 inf、參數的五個無聲失效條件、關節名≠世界軸、容器內沒有 usdcat 時怎麼讀寫 USD、關鍵預設值速查。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../">總覽</a> · <a href="../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

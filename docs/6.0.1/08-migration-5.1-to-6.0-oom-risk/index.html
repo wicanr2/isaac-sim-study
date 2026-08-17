@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5.1 USD 場景搬進 6.0.1:OOM / 異常風險調查 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/" class="on">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">6.0.1</div><ul class="side-l"><li><a href="../../6.0.1/08-migration-5.1-to-6.0-oom-risk/" class="on"><span class="n">08</span>5.1 USD 場景搬進 6.0.1</a></li><li><a href="../../6.0.1/14-ros2-bridge-6.0-architecture/"><span class="n">14</span>ROS 2 Bridge 在 6.0 的架構重組</a></li><li><a href="../../6.0.1/15-physics-backend-5.1-to-6.0/"><span class="n">15</span>5.1 到 6.0 的物理層變動</a></li><li><a href="../../6.0.1/16-model-tuning-for-6.0/"><span class="n">16</span>把 5.x 的搬運場景調到 6.0 能跑,而且東西不會亂飛</a></li><li><a href="../../6.0.1/17-physics-parameter-tuning-6.0/"><span class="n">17</span>Isaac Sim 6.0 的物理調參</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#一句話結論">一句話結論</a></li><li class="l2"><a href="#1-官方查證51-60kit-106-110相關變更點">1. 官方查證:5.1 → 6.0(Kit 106 → 110)相關變更點</a></li><li class="l2"><a href="#2-oom-具體-pattern官方文件裡查得到的記憶體機轉">2. OOM 具體 pattern:官方文件裡查得到的記憶體機轉</a></li><li class="l2"><a href="#3-我們自己的證據本地一手資料">3. 我們自己的證據(本地一手資料)</a></li><li class="l3"><a href="#31-aws-遷移紀錄70-aws-tokyo-isaac-601-runbookmd真實發生的不相容是功能性斷裂不是-oom">3.1 AWS 遷移紀錄(70-aws-tokyo-isaac-601-runbook.md):真實發生的「不相容」是功能性斷裂,不是 OOM</a></li><li class="l3"><a href="#32-本機資產庫兩版場景比對showcaseusd51-時代vs-showcase_600usd60-用今日更新">3.2 本機資產庫兩版場景比對:SHOWCASE.usd(5.1 時代)vs SHOWCASE_600.usd(6.0 用,今日更新)</a></li><li class="l3"><a href="#33-本機-rtx-工作站的硬體基線01-system-isaactxt-盤點vram-是本地機器上最吃緊的資源">3.3 本機 RTX 工作站的硬體基線(01-system-isaac.txt 盤點):VRAM 是本地機器上最吃緊的資源</a></li><li class="l2"><a href="#4-結論風險清單分兩級">4. 結論:風險清單(分兩級)</a></li><li class="l2"><a href="#5-可執行建議">5. 可執行建議</a></li><li class="l3"><a href="#51-遷移-sop把一份-51-usd-場景搬進-601-之前">5.1 遷移 SOP(把一份 5.1 USD 場景搬進 6.0.1 之前)</a></li><li class="l3"><a href="#52-驗證-checklist載入後檢查什麼">5.2 驗證 checklist(載入後檢查什麼)</a></li><li class="l2"><a href="#相關">相關</a></li></ul></aside>
+  <main class="doc">
+<h1 id="51-usd-場景搬進-601oom-異常風險調查">5.1 USD 場景搬進 6.0.1:OOM / 異常風險調查</h1>
+<blockquote>
+<p>起因:同事實測觀察到「Isaac Sim 5.1 建的 USD 場景,拿到 Isaac Sim 6.0.1 執行會 out-of-memory 或出現異常」。本篇是針對這個觀察的調查報告,不是教學——目的是找出<strong>有官方出處的機轉</strong>與<strong>推測但尚未證實的機轉</strong>,並用手上能拿到的一手證據(AWS 遷移紀錄、本機兩版場景比對)交叉檢查。</p>
+<p><strong>誠實定位</strong>:同事的 OOM 觀察本次<strong>尚未直接重現</strong>(沒有拿到會重現問題的機器與確切 repro 步驟)。本篇是文獻查證 + 旁證分析,不是根因確認報告。「已確認」與「推測」在每一條都會標出來。</p>
+</blockquote>
+<h2 id="一句話結論">一句話結論</h2>
+<p>沒有查到 NVIDIA 官方文件把「5.1 USD 場景 → 6.0.1 崩潰/OOM」寫成已知 issue 明確條列;但 5.1→6.0(Kit 106→110)之間有數個<strong>已由官方文件證實</strong>的破壞性變更(物理 schema 從 PhysX 系列轉往 Newton 系列、<code>omni.isaac.*</code> 相容殼完全移除、Nucleus 資產路徑改版本命名空間),這些變更本身不直接等於「洩漏記憶體」,但足以造成<strong>場景載入時的行為異常</strong>(schema 找不到對應 API、資產路徑解析失敗、OmniGraph 節點失效)——這類異常在使用者體感上,很容易被籠統描述成「壞掉」或和「卡住/爆記憶體」混在一起報告。真正查到的、官方認證的記憶體機轉,是 texture streaming 預算(GPU VRAM)與重複開關 stage 的 host RAM 累積成長,兩者都與「檔案是不是 5.1 存的」無關,是通用行為——如果實際觀察到問題的機器 VRAM 較小(本機常見配置為 8GB 等級工作站卡),疊加場景本身變大或變複雜,更容易先觸頂。</p>
+<p><img alt="5.1 USD 場景搬進 6.0.1 的三條風險路徑分岔圖:schema 破壞性變更(官方確認)→功能異常;Nucleus 路徑版本命名空間化(官方文件片段推論)→材質缺失;texture streaming 預算與 host RAM 累積(官方效能手冊確認)→VRAM/RAM 觸頂;三者體感上常被籠統描述成同一件事" src="../../img/oom-risk-map.svg" /></p>
+<h2 id="1-官方查證51-60kit-106-110相關變更點">1. 官方查證:5.1 → 6.0(Kit 106 → 110)相關變更點</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>變更點</th>
+<th>內容</th>
+<th>對 OOM/異常的可能影響</th>
+<th>出處</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>物理 schema 從 PhysX 系列轉往 Newton 系列</td>
+<td>URDF 匯入的 articulation root <strong>不再帶 <code>PhysxArticulationAPI</code></strong>,改用 <code>NewtonArticulationRootAPI</code> 表達 self-collision;mimic joint 全面改用 <code>NewtonMimicAPI</code>(不再用 <code>PhysxMimicJointAPI</code>)</td>
+<td>若場景/腳本仍依賴舊 schema 讀寫關節屬性,6.0.1 下讀不到對應 attribute → 邏輯錯誤,非記憶體問題,但體感是「行為異常」</td>
+<td><a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.0/overview/release_notes.html">Isaac Sim 6.0.0 Release Notes</a>、<a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.1/overview/release_notes.html">6.0.1 Release Notes</a></td>
+</tr>
+<tr>
+<td><code>PhysicsScene</code> 自動套用 <code>NewtonSceneAPI</code></td>
+<td>6.0 的 Python <code>PhysicsScene</code> 類別建立時,自動把 <code>NewtonSceneAPI</code> 套到底層 physics scene prim,以支援 Newton 後端設定(gravity/dt/solver iteration)</td>
+<td>場景一旦被 6.0 工具存過,token 表會多出 <code>NewtonSceneAPI</code>(見第 3 節本機比對)——這是「檔案被 6.0 動過」的技術指紋,不代表記憶體異常</td>
+<td><a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.0/physics/newton_physics.html">Newton Physics Backend 文件</a></td>
+</tr>
+<tr>
+<td><code>omni.isaac.*</code> 相容殼<strong>完全移除</strong></td>
+<td>舊版靠 <code>omni.isaac.*</code> 命名空間相容殼撐過渡期,6.0 正式拿掉,必須全面改用 <code>isaacsim.*</code></td>
+<td>若場景內 OmniGraph 節點或延伸模組型別字串還是舊命名空間,節點載入失敗/靜默不生效</td>
+<td>6.0.0 Release Notes</td>
+</tr>
+<tr>
+<td><code>isaacsim.core.*</code> 移至 <code>isaacsim.core.experimental.*</code></td>
+<td>Core API(PyTorch 底)整組移到新的 Warp 底 Experimental API</td>
+<td>影響 Python 控制腳本相容性,非場景 USD 本身,但常與「場景 6.0 打不開」的報告混在一起</td>
+<td>同上;本 repo <a href="../../common/01-install-and-run-modes/">01 篇</a> §3 已記錄</td>
+</tr>
+<tr>
+<td>Sensor API 遷移</td>
+<td><code>isaacsim.sensors.camera</code>、<code>isaacsim.sensors.rtx</code> 皆標記 deprecated,遷往 <code>isaacsim.sensors.experimental.rtx</code></td>
+<td>場景內相機/感測器 prim 若掛舊擴充的 schema 屬性,行為可能不一致</td>
+<td>6.0.0 Release Notes</td>
+</tr>
+<tr>
+<td>Nucleus 預設資產根目錄版本命名空間化</td>
+<td>6.0 預設 Nucleus 路徑是 <code>omniverse://localhost/NVIDIA/Assets/Isaac/6.0</code>(6.0 之前是對應各版本的路徑,如 <code>.../Isaac/5.1</code>);同時 <strong>Nucleus Cache 被 Hub Workstation Cache 取代</strong></td>
+<td>5.1 場景內若有絕對路徑引用舊版本資產根目錄,6.0 環境找不到對應資產 → 材質/幾何載入失敗或回退預設,<strong>不是 OOM,但是「異常」的一種常見機轉</strong></td>
+<td><a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.0/installation/download.html">Download Isaac Sim(6.0.0)</a>;GitHub Discussion <a href="https://github.com/isaac-sim/IsaacSim/discussions/576">#576</a></td>
+</tr>
+<tr>
+<td>RTX Real-Time 2.0 成為新預設渲染模式</td>
+<td>6.0 預設渲染器換代</td>
+<td>官方文件未具體描述對舊場景材質/光源的相容性細節,<strong>查無官方紀錄</strong>,暫列推測</td>
+<td><a href="https://docs.isaacsim.omniverse.nvidia.com/6.0.0/reference_material/sim_performance_optimization_handbook.html">Performance Optimization Handbook</a></td>
+</tr>
+<tr>
+<td>文件版本汰除時程</td>
+<td>4.5 文件在 6.1 釋出時會下架;5.1、6.0 文件目前並存</td>
+<td>說明 NVIDIA 並未把「5.1 場景在 6.0 打不開」當成獨立公告的已知 issue——至少截至查證時間點沒有找到</td>
+<td><a href="https://github.com/isaac-sim/IsaacSim/discussions/655">Isaac Sim 6.0 GA Discussion #655</a></td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p>沒查到的:NVIDIA 官方沒有發布單一的「5.1 → 6.0 USD 場景轉換工具」或明確標題為「5.1 場景在 6.0 上的已知 OOM/crash issue」的公告或文件段落。查證方法是官方 release notes(6.0.0/6.0.1)、GitHub <code>isaac-sim/IsaacSim</code> discussions、NVIDIA Developer Forums 關鍵字搜尋,均未命中——記「查無官方紀錄」,不腦補存在性。</p>
+</blockquote>
+<h2 id="2-oom-具體-pattern官方文件裡查得到的記憶體機轉">2. OOM 具體 pattern:官方文件裡查得到的記憶體機轉</h2>
+<p>這些機轉都是<strong>通用行為</strong>,官方文件沒有把它們特別框成「5.1 場景的問題」,但和「換了新版本後這個場景就爆記憶體」的體感描述吻合,值得列入風險清單:</p>
+<ol>
+<li><strong>GPU VRAM——texture streaming 預算</strong>:Performance Optimization Handbook 明載預設值 <code>Texture Streaming Budget = 0.6</code>(GPU 記憶體容量的 60%),可調路徑 <code>/rtx-transient/resourcemanager/texturestreaming/memoryBudget</code>。手冊也明說「關掉 texture streaming 雖然可能有效能好處,但會增加 GPU 記憶體用量,記憶體吃緊時可能造成當機」。<strong>如果場景材質量隨版本演進變大(見第 3 節,SHOWCASE_600.usd 比舊版 SHOWCASE.usd 大近一倍),在小 VRAM 卡上更容易先撞到這個預算上限。</strong></li>
+<li><strong>Host RAM——重複開關 stage 的累積成長</strong>:同一份手冊建議在「stage 反覆載入/卸載」的場景下,用 <code>GLIBC_TUNABLES=glibc.malloc.arena_max=1:glibc.malloc.mmap_max=0:glibc.malloc.mmap_threshold=2147483647</code> 調整 glibc 配置器行為——暗示官方已知反覆開關場景會有記憶體不會完全歸還作業系統的現象。若實際操作流程是在同一個 6.0.1 process 裡反覆開關/重載 5.1 場景做比對測試,這條路徑值得優先排查。</li>
+<li><strong>大型/複雜 USD 匯入本身就有已知的規模上限</strong>(與 5.1→6.0 無關,是 USD 匯入管線的既有限制):GitHub issue <a href="https://github.com/isaac-sim/IsaacSim/issues/491"><code>isaac-sim/IsaacSim#491</code></a> 回報 Isaac Sim 5.1 載入超大 USD(Disney <em>Moana Island</em> 場景)時,32 核心全滿、卡 10–20 分鐘後 segfault,即使當下還有 20GB+ VRAM、50GB+ RAM 可用——顯示匯入路徑本身在極端規模下有非記憶體不足導致的 crash 模式(CPU-bound 處理 + 某種資源上限),版本迭代之間都可能重現,不是 6.0 特有。</li>
+<li><strong>SDF collision 重新 cook 的成本</strong>:官方論壇與文件確認 SDF mesh collider 比 convex hull <strong>慢約 20 倍</strong>,且 convex decomposition 對高長寬比 mesh 可能觸發 GPU 不相容 → CPU fallback。若 5.1 場景的 collision 是用 5.1 當時的 cook 結果快取,搬到 6.0.1 若判定快取失效需要重新 cook,短時間 CPU/記憶體尖峰是合理推測(<strong>推測,未找到官方文字明確描述「6.0 一定會重 cook 舊快取」</strong>)。</li>
+<li><strong>社群已知的 RAM 過度消耗 bug(非 5.1→6.0 遷移案例,但顯示 Isaac 生態圈本身有未解的記憶體問題)</strong>:IsaacLab issue <a href="https://github.com/isaac-sim/IsaacLab/issues/5350"><code>#5350</code></a> 回報複雜場景 RAM:VRAM 比例達 16:1,46% 的已配置 RAM 事後被判定「冷」(配置但未實際使用),官方目標是壓到 4:1,截至查證時仍是 open、未定根因。這條說明「Isaac 生態圈記憶體使用效率本身就不穩定」,增加了「換版本後感覺更肥」這類體感報告出現的機率,即使跟場景是否為 5.1 格式無關。</li>
+</ol>
+<h2 id="3-我們自己的證據本地一手資料">3. 我們自己的證據(本地一手資料)</h2>
+<h3 id="31-aws-遷移紀錄70-aws-tokyo-isaac-601-runbookmd真實發生的不相容是功能性斷裂不是-oom">3.1 AWS 遷移紀錄(<code>70-aws-tokyo-isaac-601-runbook.md</code>):真實發生的「不相容」是功能性斷裂,不是 OOM</h3>
+<p>這份 runbook 記錄了 2026-07-18/19 把 本機 on-prem 環境的 5.1 場景資產搬到 AWS Tokyo、用 Isaac Sim 6.0.1 跑通的全程。兩個關鍵發現:</p>
+<ul>
+<li><strong>改用 6.0.1 的原因跟 OOM 無關,是 driver ABI 不相容</strong>:本機 on-prem 環境(driver 555,舊)上 Isaac 5.1 穩定;AWS g6e 預裝 driver 595(新)配 5.1 會讓 RTX OptiX 外掛在啟動場景 DB 時 <strong>segfault</strong>(每次約 65 秒必掛,<code>make_fcontext</code> backtrace)。換成 6.0.1(相容新 driver 595)後同機測試 216 秒無 crash。<strong>這是「Isaac Sim 執行檔版本 × GPU driver 版本」的相容性問題,不是「5.1 存的 USD 檔案在 6.0.1 裡讀出問題」——容易被混為一談,值得向觀察者追問時明確區分:實際看到的是啟動就崩潰(疑似 driver/ABI),還是場景載入到一半記憶體飆升(疑似本篇談的 VRAM/RAM 議題)。</strong></li>
+<li><strong>即使場景檔已經是「6.0 調整版」(<code>SHOWCASE_600.usd</code>),場景內建的 ROS2 OmniGraph 節點仍是 5.1 時代格式</strong>,在 6.0.1 下出現兩層問題(§7.1):<code>ROS2PublishTransformTree</code> 用 deprecated 的 <code>targetPrims</code>(6.0 應改用 <code>IsaacComputeTransformTree</code> 的 <code>parentFrames</code>/<code>childFrames</code>)導致 <code>[PoseTree] getObjectType eInvalid</code> 洪水式報錯;更關鍵的是 <strong>headless streaming/<code>--exec</code> 模式下,OmniGraph action graph 完全不會被主更新迴圈 tick</strong>,訂閱節點註冊了但 compute 從不執行,<code>/joint_states</code> 永遠空。這是實測到的、確鑿的「5.1 格式內容在 6.0.1 執行環境下失效」案例——但症狀是<strong>功能斷裂(拿不到資料、任務中止)</strong>,run 過程中沒有記錄到 OOM 或記憶體異常。最終繞過方式是完全放棄場景內建 OmniGraph、改走 UDP bridge(§7.2)。</li>
+<li><strong>AWS 這次的硬體是 L40S 48GB VRAM / 16 vCPU / 124GB RAM</strong>,遠高於一般工作站等級的 GPU。整份 runbook 沒有任何一行記到 VRAM/host RAM 用量數字或 OOM 錯誤——但這代表的是「在資源寬裕的機器上沒撞到」,不能反推「5.1 場景在 6.0.1 上不會 OOM」;VRAM 較小的機器風險仍未被這份紀錄排除。</li>
+</ul>
+<blockquote>
+<p><strong>註記</strong>:調查前流傳的一則說法是「AWS 那次 runbook 有記到 HUD 讀數:GPU 2.1GiB used / Process Memory 7.9GiB,可當 6.0-native 場景的記憶體 baseline」。實際查證後<strong>在 <code>70-aws-tokyo-isaac-601-runbook.md</code> 與 <code>86-topdown-noise-ceiling-rootcause.md</code> 全文、以及同目錄其他內部 isaac-ros 文件都沒有找到這組數字</strong>(已用 <code>grep -i</code> 對 "GiB"/"memory"/"HUD"/"OOM" 全文搜尋確認)。這組數據可能來自其他未留存的 session 輸出,或是誤記——本報告不採用,如需要應向提供者確認出處後再補。</p>
+</blockquote>
+<h3 id="32-本機資產庫兩版場景比對showcaseusd51-時代vs-showcase_600usd60-用今日更新">3.2 本機資產庫兩版場景比對:<code>SHOWCASE.usd</code>(5.1 時代)vs <code>SHOWCASE_600.usd</code>(6.0 用,今日更新)</h3>
+<p>路徑:本機資產備份目錄下 <code>.../isaac-assets-backup/usd_model/MR1533/</code>(內部路徑,詳細位置略)。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th><code>SHOWCASE.usd</code></th>
+<th><code>SHOWCASE_600.usd</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>檔案大小</td>
+<td>84 MB(2026-07-01 存檔)</td>
+<td>158 MB(2026-07-20 存檔,約 1.9 倍)</td>
+</tr>
+<tr>
+<td>USD crate 版本(<code>file</code> 指令判讀)</td>
+<td><code>USD crate, version 0.9.0</code></td>
+<td><code>USD crate, version 0.9.0</code>(<strong>相同</strong>,binary crate 格式本身沒有升版)</td>
+</tr>
+<tr>
+<td>Token 表含 <code>PhysxJointAxisAPI</code></td>
+<td>否</td>
+<td><strong>是</strong></td>
+</tr>
+<tr>
+<td>Token 表含 <code>NewtonSceneAPI</code></td>
+<td>否</td>
+<td><strong>是</strong>(與第 1 節「<code>PhysicsScene</code> 建立時自動套用 <code>NewtonSceneAPI</code>」的官方說明吻合,是「這檔案曾被 6.0 工具開過/存過」的技術指紋)</td>
+</tr>
+<tr>
+<td>資產絕對路徑引用</td>
+<td>場景內硬編碼內部主機的絕對路徑(略,非官方 Nucleus 路徑)</td>
+<td>同左,兩檔一致</td>
+</tr>
+</tbody>
+</table></div>
+<p>比對方法:<code>file</code> 判讀 crate 版本、<code>strings -n 6</code> 對兩檔輸出做 <code>sort -u</code> 後 <code>comm</code> 差集,鎖定 physics/schema 相關 token。<strong>限制</strong>:USD crate 是壓縮二進位格式,<code>strings</code> 只能撈到欄位名/token 字串表,撈不到幾何/材質實際內容,所以無法從這個方法判斷「1.9 倍檔案增量」具體是新增了多少張貼圖或多少三角面——只能確認「檔案變大了、schema token 表多了 Newton 相關項目」,<strong>不能</strong>直接證明「因為升級到 6.0 所以肥大」;7/1 到 7/20 之間場景內容本身也可能有其他迭代(新增棧板、新增細節)。這點在報告內誠實列為方法限制。</p>
+<h3 id="33-本機-rtx-工作站的硬體基線01-system-isaactxt-盤點vram-是本地機器上最吃緊的資源">3.3 本機 RTX 工作站的硬體基線(<code>01-system-isaac.txt</code> 盤點):VRAM 是本地機器上最吃緊的資源</h3>
+<ul>
+<li>GPU:<strong>Quadro RTX 4000,8192 MiB VRAM</strong>,driver 555.42.06;RAM 62 GiB。</li>
+<li>該機器同時裝了 <code>isaac-sim-5.1.0</code>(17G)與 <code>isaac-sim-6.0.0</code>,<code>usd_model</code> 資產目錄 5.4G。</li>
+<li>對照第 2 節「texture streaming 預算預設吃 GPU 記憶體 60%」:8GB 卡的 60% 預算約 4.8GB,再加上場景本身的 mesh/physics buffer、RTX 渲染管線常駐用量,<strong>VRAM 餘裕本來就薄</strong>——這是本次調查中最貼近「resource-constrained 環境更容易先觸頂」假說的具體數字,但<strong>沒有實測數據佐證原始 OOM 觀察當下用的就是這台機器</strong>,仍是推測。</li>
+</ul>
+<h2 id="4-結論風險清單分兩級">4. 結論:風險清單(分兩級)</h2>
+<p><strong>有官方出處(已確認機轉,但沒有明確指名是 5.1→6.0 場景遷移專屬問題)</strong>
+- Texture streaming 預算固定吃 60% GPU VRAM,場景材質量越大、GPU VRAM 越小,越容易撞頂。
+- 反覆在同一 process 開關/重載 stage,host RAM 有已知的累積不歸還現象(官方給出 glibc 調參建議)。
+- 5.1→6.0 有多項物理 schema(Physx<em>→Newton</em>)、擴充命名空間(<code>omni.isaac.*</code> 移除)、Nucleus 資產路徑(版本命名空間化)的破壞性變更,會造成<strong>功能異常</strong>(schema 讀不到、資產解析失敗、OmniGraph 節點失效),體感上容易被籠統歸類成「壞掉」。
+- 大型/複雜 USD 場景的匯入流程本身有既有的 CPU-bound 崩潰模式(與版本無關的既有限制)。</p>
+<p><strong>推測(尚未找到官方文字或本次一手證據直接證實)</strong>
+- 5.1 場景的 collision cook 快取在 6.0.1 下失效需要重新 cook,造成短暫記憶體/CPU 尖峰。
+- RTX Real-Time 2.0 新預設渲染器對舊場景材質/光源設定的相容性細節。
+- 原始 OOM 觀察是否與本篇第 3.3 節「本機 8GB VRAM 工作站 + 場景變大」的假說直接對應——<strong>這條需要向觀察者追問「在哪台機器、多大的場景、OOM 發生在載入哪個階段」才能收斂</strong>。</p>
+<h2 id="5-可執行建議">5. 可執行建議</h2>
+<h3 id="51-遷移-sop把一份-51-usd-場景搬進-601-之前">5.1 遷移 SOP(把一份 5.1 USD 場景搬進 6.0.1 之前)</h3>
+<ol>
+<li><strong>先確認硬體 VRAM 餘裕</strong>:<code>nvidia-smi --query-gpu=memory.total,memory.used --format=csv</code>,估算場景材質總量是否逼近 60% 預設 texture streaming 預算;VRAM 8GB 級的機器建議先手動調低 <code>/rtx-transient/resourcemanager/texturestreaming/memoryBudget</code>。</li>
+<li><strong>用 6.0.1 開一次場景並存成新檔(不覆蓋原檔)</strong>,再用本篇 3.2 節的方法(<code>file</code> + <code>strings</code> 差集比對 physics/schema token)確認 6.0 工具鏈是否動過 schema(如新增 <code>NewtonSceneAPI</code>),藉此判斷這份場景是「原生 5.1」還是「已被 6.0 存過的過渡版」。</li>
+<li><strong>檢查場景內是否有 OmniGraph ROS2 節點</strong>,若有,對照本篇 3.1 節案例,優先確認是 <code>ROS2PublishTransformTree</code> 等節點是否用了 deprecated 的 <code>targetPrims</code>;headless/<code>--exec</code> 模式下額外驗證 OmniGraph 是否真的被 tick(觀察 <code>/tf</code>、<code>/joint_states</code> 是否有資料,而非只看 topic 存在)。</li>
+<li><strong>檢查資產絕對路徑引用</strong>:<code>strings &lt;file&gt;.usd | grep -oE "omniverse://[^\"]+"</code> 或 grep 檔案系統絕對路徑,確認是否指向版本命名空間化的 Nucleus 路徑(如 <code>.../Isaac/5.1/...</code>);若 6.0 環境的 Nucleus 只掛了 <code>.../Isaac/6.0</code>,這些引用會解析失敗。</li>
+<li><strong>反覆開關測試前先量測 baseline</strong>:若工作流程需要在同一 process 內多次載入/卸載場景,先套用官方建議的 <code>GLIBC_TUNABLES</code>,並在載入前後量測 RSS 是否隨次數線性成長。</li>
+</ol>
+<h3 id="52-驗證-checklist載入後檢查什麼">5.2 驗證 checklist(載入後檢查什麼)</h3>
+<ul>
+<li>[ ] <code>nvidia-smi --query-gpu=memory.used --format=csv -l 1</code> 連續觀察載入過程,記錄 VRAM 曲線是否單調爬升不回落(streaming budget 逼近上限的訊號)。</li>
+<li>[ ] host 端 <code>ps -o rss</code> 或 <code>/proc/&lt;pid&gt;/status</code> 的 <code>VmRSS</code>,同樣連續觀察,對照官方「重複載入累積不歸還」的已知模式。</li>
+<li>[ ] Isaac log 過濾 <code>getObjectType eInvalid</code>、<code>Failed to open</code>、<code>deprecated</code> 等關鍵字(對照本篇 3.1 節 doc 70 §7.1 的實際案例字串)。</li>
+<li>[ ] <code>omni.hydra</code> warning(尤其 mesh/primvar buffer 大小不符,doc 86 §「順帶發現」已記錄過一例,USD 資料本身有缺陷但非阻斷)。</li>
+<li>[ ] physics 相關 warning:collision cook 是否在載入時觸發重新計算(log 中找 <code>cooking</code>/<code>SDF</code>/<code>convex</code> 字樣)。</li>
+<li>[ ] <code>/rtx-transient/resourcemanager/texturestreaming</code> 相關 log 是否出現預算超限訊息。</li>
+<li>[ ] 若場景含 OmniGraph ROS2 節點:用 <code>ros2 topic echo</code> 實測資料是否真的持續進來,而非只看 <code>ros2 topic list</code> 存在就判定正常(doc 70 §7.1 的教訓)。</li>
+</ul>
+<h2 id="相關">相關</h2>
+<ul>
+<li>本 repo <a href="../../common/01-install-and-run-modes/">01 篇</a> §3 — 版本與 GPU 驅動相依性(driver ABI 不相容 segfault 案例,與本篇 3.1 節同源但角度不同)。</li>
+<li>內部 runbook <code>70-aws-tokyo-isaac-601-runbook.md</code> §0、§7 — AWS 遷移實戰(本篇 3.1 節引用)。</li>
+<li>內部 runbook <code>86-topdown-noise-ceiling-rootcause.md</code> — 6.0.1 場景渲染排錯案例,方法論(唯讀排查、證據鏈)可參考,但與 OOM 主題無直接關聯。</li>
+</ul>
+<blockquote>
+<p>建立 2026-07-20。查證方法:官方 Isaac Sim release notes(6.0.0/6.0.1)+ NVIDIA 官方文件(Performance Optimization Handbook、Newton Physics Backend)+ <code>isaac-sim/IsaacSim</code>、<code>isaac-sim/IsaacLab</code> GitHub issues/discussions + 本機 USD 檔案二進位比對 + 內部 AWS 遷移 runbook。同事的 OOM 觀察本次未直接重現。</p>
+</blockquote>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

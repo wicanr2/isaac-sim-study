@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebRTC 串流與多 client 觀看 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/" class="on"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-單一-client-限制的本質">1. 單一 client 限制的本質</a></li><li class="l2"><a href="#2-分流架構relay-mediamtx">2. 分流架構:relay + mediamtx</a></li><li class="l2"><a href="#3-解析度協商server-遷就-client">3. 解析度協商:server 遷就 client</a></li><li class="l2"><a href="#4-一次教科書等級的排錯586-秒週期掉線">4. 一次教科書等級的排錯:~58.6 秒週期掉線</a></li><li class="l2"><a href="#5-附另一個症狀騙人案例俯視圖的雜訊">5. 附:另一個「症狀騙人」案例——俯視圖的「雜訊」</a></li><li class="l2"><a href="#6-延伸閱讀">6. 延伸閱讀</a></li></ul></aside>
+  <main class="doc">
+<h1 id="webrtc-串流與多-client-觀看">WebRTC 串流與多 client 觀看</h1>
+<p>Headless Isaac Sim 的畫面要給人看,官方機制是 WebRTC livestream:Kit 內建串流伺服器,client(官方 AppImage、瀏覽器 web viewer)連上取得視訊。這條路單人用很順,但有一個結構性限制:<strong>Isaac Sim 同時只服務一個 video client</strong>。本篇講清楚這個限制的本質,以及用媒體伺服器分流突破它的架構。</p>
+<h2 id="1-單一-client-限制的本質">1. 單一 client 限制的本質</h2>
+<p>Kit livestream 的訊令端(<code>:49100</code>)一次只把 video track 交給一個 peer;第二個連上的 client 只拿得到 audio。此外控制(滑鼠/鍵盤事件、高階命令)走的是 WebRTC data channel,綁在那個唯一的 peer 上。</p>
+<p>所以「多人同時看」不能靠多開瀏覽器,要改變拓撲:<strong>讓一個固定的中繼(relay)當 Isaac Sim 的唯一 client,再由媒體伺服器把畫面分發給任意多的觀看者</strong>。</p>
+<h2 id="2-分流架構relay-mediamtx">2. 分流架構:relay + mediamtx</h2>
+<p align="center"><img src="../../img/webrtc-fanout.svg" width="760" alt="WebRTC relay 分流架構"></p>
+
+<pre><code>Isaac Sim livestream(:49100,單一 peer)
+   │  唯一 client = headless Chromium(relay,跑官方 streaming library)
+   ▼
+relay 取得 video track ──WHIP 推流──▶ mediamtx(媒體伺服器)
+                                        │  WHEP 拉流(:8889)
+                                        ▼
+                              瀏覽器 A / B / C …(任意多個觀看者)
+</code></pre>
+<ul>
+<li><strong>relay</strong>:無頭瀏覽器(puppeteer + headless Chromium)載入一頁 HTML,用 NVIDIA 官方 streaming library 連 Isaac Sim 拿 video track,再以 WHIP(WebRTC 推流的標準 HTTP 協定)推給 mediamtx。軟體解碼即可,不占 GPU。</li>
+<li><strong>mediamtx</strong>:開源媒體伺服器,收一路 WHIP、發任意多路 WHEP(WebRTC 拉流標準)。多 client 觀看在這一層解決。</li>
+<li>觀看端只需要一個 <code>&lt;video&gt;</code> + WHEP 連線,或直接用 mediamtx 內建播放頁。</li>
+</ul>
+<p>代價與限制要誠實列出:relay 是單點(掛了全體斷線);觀看是單向的,<strong>控制權仍只有一份</strong>——要做「多人看、一人控」,得在 relay 旁再加一層 WebSocket 仲裁(request/grant/release token),把控制事件轉譯後由 relay 代打給 Isaac Sim。</p>
+<p>雲端部署還有一個網路細節:雲主機多半是 1:1 NAT(instance 看不到自己的公網 IP),mediamtx 要設定 <code>webrtcAdditionalHosts</code> 把公網 IP 廣告成 ICE candidate(ICE 是 WebRTC 挑選可用網路路徑的機制,candidate 即候選位址),否則外部瀏覽器建不起連線;防火牆要放行 WHEP 的 TCP port 與 media 的 UDP port。</p>
+<h2 id="3-解析度協商server-遷就-client">3. 解析度協商:server 遷就 client</h2>
+<p>實測踩過的坑:Isaac Sim 預設渲染 1440×900,而當時 relay 所用、自 Isaac 5.1(Kit 106)抽出的 streaming library 協商上限固定 1280×720——不同 client 或版本的上限可能不同,以實際協商結果為準。Isaac Sim <strong>拒絕送出超過 client max 的影格</strong>——結果是只送出第一張 keyframe 就停,媒體伺服器等不到連續 track 而斷線重連,看起來像玄學故障。</p>
+<p>改 client 設定無效(library 忽略),正解是啟動參數把渲染解析度對齊 client:</p>
+<pre><code>--/app/window/width=1280 --/app/window/height=720
+--/app/renderer/resolution/width=1280 --/app/renderer/resolution/height=720
+--/app/livestream/width=1280 --/app/livestream/height=720
+</code></pre>
+<h2 id="4-一次教科書等級的排錯586-秒週期掉線">4. 一次教科書等級的排錯:~58.6 秒週期掉線</h2>
+<p>這條值得完整記錄,因為它示範了「症狀指向哪裡」與「根因在哪裡」可以差多遠。</p>
+<p><strong>症狀</strong>:所有 client(自製 relay、真瀏覽器、官方 viewer)都在連線約 60 秒後掉線重連,永遠復現。</p>
+<p><strong>看起來像</strong>:server 端 idle timeout、client library 版本與 server 協議不匹配、甚至 Isaac Sim 端週期性報 <code>NVST_R_BUSY</code> 錯誤——三個方向都「合理」。</p>
+<p><strong>逐一證偽</strong>:</p>
+<ol>
+<li>換新版 client library → 掉線照舊。假設「版本不匹配」出局。</li>
+<li>查官方 CHANGELOG,<code>NVST_R_BUSY</code> 明載是「client 斷線過程的正常噪音」——它是掉線的<strong>下游症狀</strong>,不是原因。</li>
+<li>精確量測時間戳:每次連線建立到掉線<strong>精確 58.6 秒,毫秒級一致</strong>。固定得如此精準的間隔不會是網路或負載問題,只會是<strong>某個計時器</strong>。</li>
+<li>同時刻 server log 濾掉噪音後,沒有任何主動斷線事件 → server 沒關 session,是 client 自己走的。</li>
+</ol>
+<p><strong>根因</strong>:relay 的看門狗(watchdog)寫成了有限迴圈——<code>for (i &lt; 40) { sleep(1500) }</code>,40 × 1.5 s = 60 秒上限。健康的串流從不觸發 dead 判定,迴圈自然跑完,程式接著重載頁面。所有「掉線」都是 watchdog 自己拆的。修法一行:改 <code>while(true)</code>,只在真正 dead(影格停滯逾 16 秒)才重載。修完連續觀察 2 小時零重連。</p>
+<p><strong>教訓</strong>:</p>
+<ul>
+<li><strong>毫秒級一致的週期 = 計時器,先找自己程式裡的計時器</strong>,再懷疑對端。</li>
+<li>錯誤訊息要查語意再定罪:<code>NVST_R_BUSY</code> 這種「聽起來像根因」的噪音最會誤導。</li>
+<li>watchdog 的活性判定要用<strong>真實訊號</strong>(實際收到的影格數 <code>requestVideoFrameCallback</code>),不能用間接屬性(<code>videoWidth</code> 之類)——前一版 watchdog 就是用間接屬性誤判,每 12 秒重連,把「relay 不支援多 client」的假象都製造出來了。</li>
+</ul>
+<h2 id="5-附另一個症狀騙人案例俯視圖的雜訊">5. 附:另一個「症狀騙人」案例——俯視圖的「雜訊」</h2>
+<p>俯視視角畫面整片灰色條紋「雜訊」,直覺全指向渲染/編碼:GPU 異常?denoiser?NVENC?瀏覽器縮放?逐層檢查全部正常,最後抓原生影格一看——<strong>相機飛到了倉庫屋頂上方,拍到的是天花板浪板</strong>(灰底 + 兩條日光燈)。場景含完整天花板模組,相機 Z 超過屋頂高度就只拍得到屋頂。</p>
+<p>修法也有取捨:把相機壓低會拍不全整個倉庫;正解是<strong>隱藏天花板 prim</strong>(遍歷場景、對屋頂結構 <code>MakeInvisible()</code>)。逐個猜 prim 名稱會漏,更穩的策略是反向的「保留清單」:除了地板與牆,上部結構全部隱藏。</p>
+<p>教訓與 §4 同構:<strong>先用最便宜的手段確認「看到的到底是什麼」</strong>(這裡是抓一張原生影格),再開始懷疑複雜子系統。渲染管線很複雜,但「相機擺錯位置」永遠是更常見的原因。</p>
+<h2 id="6-延伸閱讀">6. 延伸閱讀</h2>
+<ul>
+<li>官方文件:Isaac Sim Livestream、WebRTC Browser Client</li>
+<li>mediamtx(開源媒體伺服器)、WHIP/WHEP 規格</li>
+<li>回到索引:<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/README.md">README</a></li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

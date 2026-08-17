@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>場景資產的物理結構:剛體分層、質量配置與材質綁定 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/" class="on"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-根本問題剛體不是一個物件是一組碰撞體的剛性集合">1. 根本問題:剛體不是「一個物件」,是「一組碰撞體的剛性集合」</a></li><li class="l3"><a href="#這對查證的直接含意">這對「查證」的直接含意</a></li><li class="l3"><a href="#同一場景可能兩種寫法並存">同一場景可能兩種寫法並存</a></li><li class="l2"><a href="#2-質量比叉取穩定性的隱藏參數">2. 質量比:叉取穩定性的隱藏參數</a></li><li class="l2"><a href="#3-物理材質usd-的-purpose-機制以及它為什麼會騙你">3. 物理材質:USD 的 purpose 機制,以及它為什麼會騙你</a></li><li class="l3"><a href="#根本問題一個-prim-上會綁不只一種材質">根本問題:一個 prim 上會綁不只一種材質</a></li><li class="l3"><a href="#陷阱它幾乎不會回-none">陷阱:它幾乎不會回 None</a></li><li class="l3"><a href="#第二個陷阱綁在-xform-上完全無效且不報錯">第二個陷阱:綁在 Xform 上完全無效,且不報錯</a></li><li class="l2"><a href="#4-執行期補綁是診斷工具不是交付方式">4. 執行期補綁是診斷工具,不是交付方式</a></li><li class="l2"><a href="#5-素材版本與跨機搬運">5. 素材、版本與跨機搬運</a></li><li class="l2"><a href="#6-一個路徑陷阱與一個診斷紀律">6. 一個路徑陷阱與一個診斷紀律</a></li><li class="l2"><a href="#7-檢查清單">7. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="場景資產的物理結構剛體分層質量配置與材質綁定">場景資產的物理結構:剛體分層、質量配置與材質綁定</h1>
+<p><a href="../../common/04-physics-world/">04 篇</a>講怎麼把場景變成能跑物理的世界,<a href="../../common/09-physics-simulation-fundamentals/">09 篇</a>講物理引擎內部怎麼算。本篇處理兩者之間那一層:<strong>同樣是「加了 RigidBody 和 Collider」的場景,為什麼有的能穩定夾持搬運,有的一轉彎就滑掉、一叉就散架</strong>。</p>
+<p>差別幾乎全在 prim 階層怎麼切、質量怎麼配、以及物理材質有沒有真的綁上去。這三件事的共同特徵是:<strong>設錯不會報錯</strong>,只會在動力學行為上表現成一堆看似無關的症狀。</p>
+<p>官方文件:<a href="https://openusd.org/dev/api/class_usd_shade_material_binding_a_p_i.html">OpenUSD UsdShadeMaterialBindingAPI</a>、<a href="https://openusd.org/release/wp_usdshade.html">UsdShade Material Assignment 白皮書</a>、<a href="https://openusd.org/dev/api/usd_physics_page_front.html">UsdPhysics schema</a>、<a href="https://openusd.org/release/wp_rigid_body_physics.html">Rigid Body Physics in USD 提案</a>。API 版本以 Isaac Sim 4.5–5.1.x 為準。</p>
+<h2 id="1-根本問題剛體不是一個物件是一組碰撞體的剛性集合">1. 根本問題:剛體不是「一個物件」,是「一組碰撞體的剛性集合」</h2>
+<p>新手直覺是「一個物件 = 一個 prim = 加 RigidBody + Collider」。這個直覺在單一方塊上成立,一旦物件由多個網格組成就立刻崩潰。</p>
+<p>從第一性原理看:PhysX 求解的對象是<strong>剛體</strong>——一個有質量、質心、慣性張量、單一速度與角速度的動力學單位。碰撞偵測的對象是<strong>碰撞形狀</strong>(convex hull、SDF mesh…),而一個剛體允許掛多個碰撞形狀。這兩件事在數學上就是分開的:速度積分作用在剛體上,接觸約束作用在形狀上。</p>
+<p>USD 於是把它表達成階層:<strong>RigidBodyAPI 掛在父節點,CollisionAPI 掛在子網格</strong>。父子關係在這裡不是組織上的方便,而是<strong>「這些形狀共用同一組動力學狀態」的宣告</strong>。</p>
+<p>由此可以直接推出兩個錯誤各自會怎麼壞:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>錯法</th>
+<th>為什麼壞</th>
+<th>症狀</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>RigidBodyAPI 掛在<strong>每個葉網格</strong>上</td>
+<td>每個網格變成獨立剛體,彼此沒有剛性約束</td>
+<td>一被外力作用就<strong>散架</strong>,零件各自飛走</td>
+</tr>
+<tr>
+<td>CollisionAPI <strong>只</strong>掛在剛體那層</td>
+<td>PhysX 得自行決定要不要合成子樹幾何,行為隨版本而異</td>
+<td>有時能碰、有時穿透,換版本後行為改變</td>
+</tr>
+</tbody>
+</table></div>
+<p>所以可搬運物件的標準結構是三層:</p>
+<p align="center"><img src="../../img/rigidbody-collision-layering.svg" width="820" alt="剛體與碰撞的三層結構,以及兩種錯法各自的後果"></p>
+
+<pre><code>/pallet_A                          Rigid=False Coll=False   ← 純 Xform,只放位姿
+└── /pallet_A/body                 Rigid=True  Coll=False   ← RigidBodyAPI 在這層
+    ├── pallet_mesh                Rigid=False Coll=True  mass=20.0
+    ├── cargo_box                  Rigid=False Coll=True  mass=20.0
+    └── Looks                      Rigid=False Coll=False   ← 外觀材質
+</code></pre>
+<p>三層各自的職責:</p>
+<ol>
+<li><strong>最外層 Xform</strong> —— 場景組裝用的容器,只有 transform。外部程式(重置、擺位腳本)動的是這層。</li>
+<li><strong>中間層 RigidBodyAPI</strong> —— PhysX 眼中的一個剛體。動力學積分、質心、速度掛在這層。</li>
+<li><strong>葉層 CollisionAPI + MassAPI</strong> —— 實際參與碰撞偵測的幾何,各自帶質量,PhysX 合成出總質量與慣性張量。</li>
+</ol>
+<h3 id="這對查證的直接含意">這對「查證」的直接含意</h3>
+<p>查一個物件「有沒有物理」時,<strong>只看你在 Stage 樹上點到的那一個 prim 一定會誤判</strong>。上面範例的 <code>/pallet_A</code> 是 <code>Rigid=False Coll=False</code>,看起來像完全沒設物理,真正的設定在下面兩層。</p>
+<p><strong>至少往下鑽兩層</strong>,而且最好寫成一支 dump 指令,一次印出整棵子樹的 <code>Rigid</code> / <code>Coll</code> / <code>mass</code>。這件事值得自動化的原因不是省時間,是<strong>人工逐層點選時很容易在第一層就下結論</strong>。</p>
+<h3 id="同一場景可能兩種寫法並存">同一場景可能兩種寫法並存</h3>
+<pre><code>/World/forklift                    Rigid=False Coll=False
+└── main/
+    ├── fork_lift                  Rigid=True  Coll=True  mass=50.0   ← 剛體與碰撞同層
+    └── fork_tilt                  Rigid=True  Coll=False mass=100.0  ← 分層
+        ├── fork_tilt_geom         Rigid=False Coll=True
+        └── camera_link            Rigid=False Coll=False             ← 無物理
+</code></pre>
+<p>承重的叉齒是剛體與碰撞同層(單一網格,合法),傾斜架則是分層。同一台機構上兩種寫法並存,通常是模型從 CAD 分批轉檔留下的差異。這不是錯誤,但<strong>查設定時不能假設整個場景風格一致</strong>。</p>
+<p>至於感測器掛載點沒有任何物理 API——這是正確的。感測器 frame 是座標參考,不該參與碰撞。</p>
+<h2 id="2-質量比叉取穩定性的隱藏參數">2. 質量比:叉取穩定性的隱藏參數</h2>
+<p>實測值:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>Prim</th>
+<th>mass</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>叉齒</td>
+<td>50.0 kg</td>
+</tr>
+<tr>
+<td>傾斜架</td>
+<td>100.0 kg</td>
+</tr>
+<tr>
+<td>被搬物本體</td>
+<td>20.0 kg</td>
+</tr>
+<tr>
+<td>被搬物上方貨物</td>
+<td>20.0 kg</td>
+</tr>
+</tbody>
+</table></div>
+<p>為什麼質量比重要,可以從接觸求解的角度看:solver 是疊代的(見 <a href="../../common/09-physics-simulation-fundamentals/">09 篇 §5</a>),每次疊代都在修正約束違反量。當兩個接觸物體的質量同量級時,一方的修正會顯著推動另一方,下一次疊代又要反過來修正——<strong>在有限疊代次數內收斂得慢,表現為互推震盪</strong>。質量差距拉開後,重的一方近似不動,輕的一方單向收斂,穩定得多。</p>
+<p>實測配置是叉齒 50 kg 對被搬物 20 kg(2.5:1),配合高摩擦材質可穩定夾持。</p>
+<p><strong>症狀對照</strong>:被搬物質量調到與機構同量級以上、摩擦又沒跟著提高,典型表現是「叉起來了,但一轉彎就滑掉」。這時候去調 solver 疊代次數通常只能緩解,調質量比與摩擦才是治本。</p>
+<h2 id="3-物理材質usd-的-purpose-機制以及它為什麼會騙你">3. 物理材質:USD 的 purpose 機制,以及它為什麼會騙你</h2>
+<h3 id="根本問題一個-prim-上會綁不只一種材質">根本問題:一個 prim 上會綁不只一種材質</h3>
+<p>USD 的材質綁定不是單一插槽。同一個 prim 可以同時綁「渲染用的外觀材質」與「物理用的摩擦/彈性材質」,兩者透過 <strong>material purpose</strong> 區分。這個設計是必要的:視覺與物理是兩套完全獨立的屬性,一個橡膠外觀的物件在物理上可能被刻意設成無摩擦。</p>
+<p>UsdShade 白皮書把 <code>full</code>(最高保真的最終算圖)與 <code>preview</code>(服務於操作、建模、即時播放)訂為 canonical 值,加上 fallback 的 <code>allPurpose</code>(空 token),並明文「We see no reason to limit the possible purposes」——<strong>purpose 是可擴充的</strong>。UsdPhysics 正是用了這個擴充點(逐字):</p>
+<blockquote>
+<p>USD Physics materials are bound in the same way as graphics materials using UsdShadeMaterialBindingAPI, <strong>either wih no material purpose or with a specific "physics" purpose.</strong></p>
+</blockquote>
+<p>(原文的 <code>wih</code> typo 保留。)對應到 usda 就是 <code>rel material:binding:physics = &lt;/World/Looks/RegularMaterial&gt;</code>。</p>
+<p><code>UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial(purpose)</code> 是「解析出這個 purpose 下實際生效的材質」的官方入口。<strong>Python 版與 C++ 版的回傳不同</strong>,官方明文:</p>
+<blockquote>
+<p>The python version of this method returns a tuple containing the bound material and the "winning" binding relationship.</p>
+<p>⚠ <code>MaterialBindingAPI.GetMaterialPurposes()</code> 官方只寫「Returns a vector of the possible values for the 'material purpose'」,<strong>沒有逐字列舉內容</strong>。要知道當前 USD 版本認哪些值,呼叫它印出來,不要憑印象寫死一份清單。</p>
+</blockquote>
+<h3 id="陷阱它幾乎不會回-none">陷阱:它幾乎不會回 None</h3>
+<p>這裡是最容易誤判的地方,而且它是<strong>官方解析規則的直接後果</strong>,不是實作 bug。官方對材質解析的第 3 條規則寫得很清楚(逐字):</p>
+<blockquote>
+<p>The purpose of the resolved material binding must either match the requested special (i.e. restricted) purpose <strong>or be an all-purpose binding</strong>. The restricted purpose binding, if available is preferred over an all-purpose binding.</p>
+</blockquote>
+<p>也就是:查詢 <code>physics</code> purpose 時,若該 prim 上<strong>沒有</strong>綁物理材質,解析會合法地退回 <strong><code>allPurpose</code> 的那個渲染材質</strong>——你拿到一個非 <code>None</code> 的結果,程式看起來一切正常,但 PhysX 用的是預設摩擦值。</p>
+<p><strong>判準不能是「有沒有回傳東西」,必須是「回傳的東西是不是 PhysicsMaterial」:</strong></p>
+<pre><code class="language-python">from pxr import UsdShade, UsdPhysics
+
+mat, _rel = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial(&quot;physics&quot;)
+bound = bool(mat) and mat.GetPrim().HasAPI(UsdPhysics.MaterialAPI)
+#                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#                     這一段才是真正的判準
+</code></pre>
+<h3 id="第二個陷阱綁在-xform-上完全無效且不報錯">第二個陷阱:綁在 Xform 上完全無效,且不報錯</h3>
+<p>物理材質只對<strong>碰撞形狀</strong>有意義——摩擦係數描述的是接觸面的行為,沒有碰撞形狀就沒有接觸面。把材質綁在中間的 Xform 或剛體層上,USD 會老實記錄這個綁定關係,PhysX 則完全不理會。</p>
+<p>所以補綁時的篩選條件必須包含 <code>HasAPI(UsdPhysics.CollisionAPI)</code>:</p>
+<pre><code class="language-python">for p in stage.Traverse():
+    if not p.HasAPI(UsdPhysics.CollisionAPI):
+        continue                              # 沒有碰撞形狀,綁了也沒用
+    UsdShade.MaterialBindingAPI(p).Bind(
+        phys_material,
+        bindingStrength=UsdShade.Tokens.weakerThanDescendants,
+        materialPurpose=&quot;physics&quot;,
+    )
+</code></pre>
+<p><code>weakerThanDescendants</code> 的用意:子層若有刻意設定的材質(例如某個面故意設成低摩擦),不要被這次批次補綁壓掉。<strong>批次操作預設應該是弱綁定</strong>——你在補一個缺失,不是在宣告權威。</p>
+<h2 id="4-執行期補綁是診斷工具不是交付方式">4. 執行期補綁是診斷工具,不是交付方式</h2>
+<p>執行期(startup 腳本裡)補綁物理材質很方便,而且在診斷階段極有價值:改一行、重啟、看行為變化,不必動模型檔、不必等建模者。實測上把承載面補綁高摩擦材質後,被搬物的側向偏移從 9.3 cm 降到 1 cm 以內。</p>
+<p>但它有三個必須寫下來的邊界:</p>
+<ol>
+<li><strong>場景重載會清掉它</strong>。任何 <code>open_stage()</code> 重載後必須重新套用,所以重置流程的結尾要包含「重新套用執行期物理設定」這一步——這是很容易漏的一步,因為重置後的第一輪通常看起來正常,問題要幾輪後才浮現。</li>
+<li><strong>它會蓋掉建模者的意圖</strong>。若場景物理由建模者負責,執行期覆寫就是在繞過分工。合理做法是<strong>預設關閉、以開關啟用</strong>,驗證有效後把結果回饋給建模者寫進模型檔。</li>
+<li><strong>它讓「場景檔」不再是完整事實</strong>。之後任何人拿同一份 USD 在別的環境開,行為會不一樣。</li>
+</ol>
+<p>摩擦值本身怎麼選,沒有普適答案,但有一條硬約束:<code>staticFriction ≥ dynamicFriction</code>(靜摩擦不小於動摩擦,這是物理事實,反過來設會讓物體「一動就更好動」而震盪)。若數值明顯偏高是為了補償剛體模型缺少的機制(例如沒有建模叉齒表面的凸起防滑結構),<strong>把這個理由寫在旁邊</strong>——否則下一個人會覺得這個值不合理而「修正」它。</p>
+<h2 id="5-素材版本與跨機搬運">5. 素材、版本與跨機搬運</h2>
+<p>USD 的外部參照是路徑導向的。跨機搬場景只複製 <code>.usd</code> 主檔一定破圖:</p>
+<ul>
+<li>Collect 產生的整個素材目錄要一起搬,並<strong>保持相對位置不變</strong>(素材目錄與主檔同層);</li>
+<li>Collect 的 mapping 檔含每個素材的 source/target hash,是現成的完整性驗證工具,不必自建清單。</li>
+</ul>
+<p>素材缺失的典型症狀是<strong>模型變成單一顏色(通常是紅色)、貼圖全無</strong>。判別方式是在啟動 log 中 grep MDL 材質模組缺失訊息(<code>could not find module</code>),不要靠肉眼看畫面猜。</p>
+<p>至於版本管理,失控的典型形態長這樣:</p>
+<pre><code>scene_600.usd                 160 MB
+scene_600 (copy).usd          157 MB
+scene_600 (another copy).usd  157 MB   ← 與上一個位元組數完全相同
+scene_full.usd                148 MB
+</code></pre>
+<p><code>(copy)</code> 是檔案管理器的自動命名,不帶版本語意;相同大小的兩個檔無從判斷新舊,mtime 在複製時已失真。</p>
+<p>紀律很簡單:<strong>場景檔驗過就凍結,備份以 md5 + 時間戳命名,線上只留一份現行檔</strong>。</p>
+<p>還有一條值得單獨記:<strong>機構行為異常時,第一步驗場景檔 md5,而不是調物理參數</strong>。載到舊場景檔會產生所有症狀,而且每個症狀都有看似合理的其他解釋——這種錯誤的診斷成本極高,而驗 md5 只要三秒。</p>
+<h2 id="6-一個路徑陷阱與一個診斷紀律">6. 一個路徑陷阱與一個診斷紀律</h2>
+<p>USD prim 路徑<strong>大小寫敏感</strong>。曾遇過實際 prim 名為 <code>/ZoneA</code>,而外部對映表與診斷腳本都寫成 <code>/zoneA</code>,查詢一律得到「找不到」,被誤讀成「這個區域的物件不見了」。</p>
+<p>對策不是「小心一點」,而是<strong>讓診斷指令在找不到時明確印出 <code>NOT FOUND</code>,而不是安靜跳過</strong>。沉默的診斷輸出讓你分不清「不存在」與「這段程式碼根本沒跑到」——這兩者的排查方向完全相反。</p>
+<p>同理,場景幾何與上層系統(路網、倉儲管理)的儲位是兩套獨立事實,必須有一份明寫的對映表,而且<strong>要記錄允許誤差與理由</strong>。沒有那行說明,下一個人看到座標差異會誤判成 bug 並開始「修正」一個本來就正確的設定。判定一個既有設定多餘之前,先重建它當初為什麼存在——這條在讀別人的場景檔時特別值得守。</p>
+<h2 id="7-檢查清單">7. 檢查清單</h2>
+<p><strong>剛體、碰撞與質量</strong></p>
+<ul>
+<li>[ ] 每個可搬物件是「Xform 容器 → RigidBodyAPI → CollisionAPI 葉節點」三層</li>
+<li>[ ] RigidBodyAPI <strong>不</strong>掛在葉節點,CollisionAPI <strong>不</strong>只掛在剛體層</li>
+<li>[ ] 質量掛在碰撞體層,並確認不是預設值</li>
+<li>[ ] 搬運機構與被搬物質量比拉開(範例 2.5:1)</li>
+<li>[ ] 感測器掛載點沒有任何物理 API</li>
+<li>[ ] 碰撞近似:一般件 convex hull,只有承重面才用 mesh</li>
+</ul>
+<p><strong>物理材質(最容易漏)</strong></p>
+<ul>
+<li>[ ] <code>PhysicsMaterial</code> prim 集中放在固定路徑</li>
+<li>[ ] <code>staticFriction ≥ dynamicFriction</code>;數值偏高的理由寫下來</li>
+<li>[ ] 對<strong>每一個承重接觸面</strong>跑 <code>ComputeBoundMaterial("physics")</code></li>
+<li>[ ] 判準是「回傳的是不是 <code>PhysicsMaterial</code>」,不是「有沒有回傳」</li>
+<li>[ ] 補綁篩選含 <code>HasAPI(UsdPhysics.CollisionAPI)</code></li>
+<li>[ ] 補綁用 <code>weakerThanDescendants</code></li>
+<li>[ ] 重置流程結尾<strong>重新套用</strong>執行期物理設定</li>
+<li>[ ] 驗證通過後回寫模型檔,不長期依賴執行期補綁</li>
+</ul>
+<p><strong>素材與版本</strong></p>
+<ul>
+<li>[ ] 素材目錄與主檔同層,整組一起搬</li>
+<li>[ ] 場景檔記錄 md5,備份命名帶 md5 + 時間戳</li>
+<li>[ ] 行為異常時<strong>先驗 md5</strong> 再調參數</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

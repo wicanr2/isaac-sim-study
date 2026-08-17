@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5.1 與 6.0.1 的差異速查 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="">總覽</a><a href="common/">共通</a><a href="5.1/">5.1</a><a href="6.0.1/">6.0.1</a><a href="version-matrix.html" class="on">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"></aside>
+  <main class="doc">
+<h1 id="51-與-601-的差異速查">5.1 與 6.0.1 的差異速查</h1>
+<p>跨版本排查時最花時間的不是「哪裡不一樣」,而是「這個症狀該不該歸給版本」。下表把本 repo 實測或查證過的差異集中在一處,每一列都標出處篇章;沒列進來的,就是本 repo 沒有證據,不要當成「兩版相同」。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>5.1</th>
+<th>6.0.1</th>
+<th>出處</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Python API 命名空間</td>
+<td><code>isaacsim.core.api</code> / <code>isaacsim.core.prims</code> / <code>isaacsim.core.utils</code></td>
+<td>整組移至 <code>isaacsim.core.experimental.*</code>(breaking change)</td>
+<td><a href="common/01-install-and-run-modes/">01 §3</a></td>
+</tr>
+<tr>
+<td>PhysX 版本</td>
+<td>107.3.x</td>
+<td>110.1.x(升級即發生,無法迴避)</td>
+<td><a href="6.0.1/15-physics-backend-5.1-to-6.0/">15 §1</a></td>
+</tr>
+<tr>
+<td>可選物理後端</td>
+<td>PhysX</td>
+<td>PhysX 或 Newton;<strong>5.x 場景官方建議留在 PhysX</strong></td>
+<td><a href="6.0.1/15-physics-backend-5.1-to-6.0/">15 §2–3</a></td>
+</tr>
+<tr>
+<td><code>physxJoint:maxJointVelocity</code> 預設</td>
+<td><code>1000000</code></td>
+<td><code>inf</code> —— 兩版 schema 逐項比對後<strong>唯一</strong>改變的預設值</td>
+<td><a href="6.0.1/15-physics-backend-5.1-to-6.0/">15 §4.5</a></td>
+</tr>
+<tr>
+<td>ROS 2 bridge extension</td>
+<td><code>isaacsim.ros2.bridge</code> 一個 extension 全包</td>
+<td>拆成門面 + <code>core</code>/<code>nodes</code>/<code>examples</code>/<code>ui</code> 四個實作;<code>--enable isaacsim.ros2.bridge</code> 照舊帶起整套</td>
+<td><a href="6.0.1/14-ros2-bridge-6.0-architecture/">14 §1</a></td>
+</tr>
+<tr>
+<td>ROS 2 外部介面(啟動參數、設定鍵、OmniGraph 節點型別名)</td>
+<td>—</td>
+<td><strong>沒變</strong></td>
+<td><a href="6.0.1/14-ros2-bridge-6.0-architecture/">14</a></td>
+</tr>
+<tr>
+<td>匯入器授權的 articulation schema</td>
+<td><code>PhysxArticulationAPI</code></td>
+<td><code>NewtonArticulationRootAPI</code> + <code>newton:selfCollisionEnabled</code></td>
+<td><a href="6.0.1/15-physics-backend-5.1-to-6.0/">15 §5</a></td>
+</tr>
+<tr>
+<td>驅動相容(實測組合)</td>
+<td>555 世代穩定;<strong>595 世代啟動約 65 秒必 segfault</strong></td>
+<td>595 正常</td>
+<td><a href="common/01-install-and-run-modes/">01 §3</a></td>
+</tr>
+<tr>
+<td>5.1 場景搬進新版的記憶體風險</td>
+<td>—</td>
+<td>有 OOM/異常的現場觀察,機轉分「官方出處」與「推測」兩級,尚未直接重現</td>
+<td><a href="6.0.1/08-migration-5.1-to-6.0-oom-risk/">08</a></td>
+</tr>
+<tr>
+<td>官方資產包分片數</td>
+<td>3 片</td>
+<td>5 片</td>
+<td><a href="common/25-offline-assets-deployment/">25 §2</a></td>
+</tr>
+<tr>
+<td>資產解壓後的目錄</td>
+<td><code>Assets/Isaac/5.1</code></td>
+<td><code>Assets/Isaac/6.0</code>(<strong>不是 <code>6.0.1</code></strong>,檔名帶修訂號而目錄名不帶)</td>
+<td><a href="common/25-offline-assets-deployment/">25 §3</a></td>
+</tr>
+<tr>
+<td>離線環境的 extension registry</td>
+<td>需自行關掉</td>
+<td>官方文件稱由 Kit SDK 自動管理(本 repo 未實測)</td>
+<td><a href="common/25-offline-assets-deployment/">25 §5</a></td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="這張表怎麼用">這張表怎麼用</h2>
+<p><code>maxJointVelocity</code> 那一列是升級後最容易誤判的一條。5.x 時代所有 articulation 的關節都有一道 1e6 的速度上限,求解器在接觸不穩定時算出的異常速度會被夾住;6.0 拿掉之後同樣的數值原樣生效,表現成「東西突然飛出去」,而且不報錯。場景若靠 articulation 去推、夾、叉東西,升版後行為變不穩時,先把這個屬性顯式設回有限值當對照實驗,再談其他調參。</p>
+<p>ROS 2 那兩列要一起看:結構換了一輪而外部介面沒動,是最容易產生錯誤判斷的一種升級——照著新架構去改啟動參數和設定鍵,反而會把原本能跑的接法改壞。</p>
+<p>驅動那一列的方向性值得記住:降驅動要 DKMS 重編 kernel module,風險高於換 Isaac Sim 版本(只是換 container tag)。遇到不相容,優先升 Isaac Sim。</p>
+<h2 id="沒有進表的東西">沒有進表的東西</h2>
+<ul>
+<li><strong>6.0 的最小可跑範例</strong>:本 repo 的 <a href="5.1/07-minimal-example/">07 篇</a>程式碼以 4.5–5.1.x API 寫成,在 6.0 需要改 import 路徑,但改完的版本尚未實機驗證,因此不另立一篇。</li>
+<li><strong>WebRTC 串流在 6.0 的行為</strong>:<a href="common/06-webrtc-streaming/">06 篇</a>的單 client 限制與分流架構實測於 5.1,6.0 未驗證。</li>
+<li>兩版共通的機制與方法論不在此表,見<a href="common">共通區</a>。</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="">總覽</a> · <a href="version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

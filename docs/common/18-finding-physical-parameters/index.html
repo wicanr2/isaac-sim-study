@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>18 — 建模擬場域時,物理參數要去哪裡找 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/" class="on"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#0-先講最重要的一件事">0. 先講最重要的一件事</a></li><li class="l2"><a href="#1-來源的優先順序">1. 來源的優先順序</a></li><li class="l2"><a href="#2-不要假設-nvidia-資產帶物理">2. ⚠ 不要假設 NVIDIA 資產帶物理</a></li><li class="l2"><a href="#3-規格書的最大陷阱載重能力-自重">3. ⚠ 規格書的最大陷阱:載重能力 ≠ 自重</a></li><li class="l2"><a href="#4-查不到規格時幾何-材料密度">4. 查不到規格時:幾何 × 材料密度</a></li><li class="l3"><a href="#合理性檢核">合理性檢核</a></li><li class="l2"><a href="#5-不要用-grep-判斷-usdc-有沒有某個屬性">5. ⚠ 不要用 grep 判斷 usdc 有沒有某個屬性</a></li><li class="l2"><a href="#6-建場域時的檢查清單">6. 建場域時的檢查清單</a></li><li class="l2"><a href="#7-這次的實例可當範本">7. 這次的實例(可當範本)</a></li><li class="l2"><a href="#相關">相關</a></li><li class="l2"><a href="#子頁">子頁</a></li></ul></aside>
+  <main class="doc">
+<h1 id="18-建模擬場域時物理參數要去哪裡找">18 — 建模擬場域時,物理參數要去哪裡找</h1>
+<blockquote>
+<p>建一個「看起來對」的場景只需要幾何。建一個<strong>物理上對</strong>的場景,
+每個剛體都要有質量、慣量、摩擦、碰撞近似 —— 而這些<strong>幾乎不會跟著資產一起來</strong>。</p>
+<p>這份記的是<strong>去哪找、每個來源實際給你什麼、以及查不到時怎麼估</strong>。
+2026-07-31 為了查「後推式板車該多重」而整理,方法可套用到任何場域元件。</p>
+</blockquote>
+<h2 id="0-先講最重要的一件事">0. 先講最重要的一件事</h2>
+<p><strong>PhysX 對未授權質量的預設是「網格體積 × 1000 kg/m³」—— 1000 是水的密度。</strong></p>
+<p>所以任何鋼構件如果沒有授權 <code>physics:mass</code> 或 <code>physics:density</code>,
+<strong>會比真實輕約 7.9 倍</strong>(鋼 7850 / 水 1000)。</p>
+<p>實例:東京場景的 push-back 板車自動算成 <strong>9.4 kg</strong>,
+比它載的棧板(20 kg)還輕 —— 真實世界正好相反。用鋼密度重算是 <strong>73.6 kg</strong>。</p>
+<blockquote>
+<p>這種錯<strong>不會有任何警告</strong>,場景照樣跑,只是行為不對
+(太輕的東西被推一下就飛、堆疊不穩、求解器容易發散)。</p>
+</blockquote>
+<h2 id="1-來源的優先順序">1. 來源的優先順序</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>來源</th>
+<th>給你什麼</th>
+<th>不給你什麼</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>資產本身的 authored 值</strong></td>
+<td>若有,直接用</td>
+<td><strong>多數資產包沒有</strong>,見 §2</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>製造商規格書 / 型錄</strong></td>
+<td>尺寸、<strong>載重能力</strong>、材質</td>
+<td><strong>自重(tare weight)很少公布</strong> —— 見 §3 陷阱</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>材料密度 × 幾何體積</strong></td>
+<td>可靠的估算</td>
+<td>需要幾何正確,見 §4</td>
+</tr>
+<tr>
+<td>4</td>
+<td>同類產品的實測/秤重報告</td>
+<td>真值</td>
+<td>難找,且型號不一定對應</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="2-不要假設-nvidia-資產帶物理">2. ⚠ 不要假設 NVIDIA 資產帶物理</h2>
+<p>2026-07-31 用 USD API 稽核(<strong>不是 grep</strong>,理由見 §5)
+NVIDIA Warehouse 資產包(24 GB):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>資產</th>
+<th>prim 數</th>
+<th>RigidBody</th>
+<th>authored mass</th>
+<th>Collision</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>WingPallet_A01</code>(木棧板)</td>
+<td>9</td>
+<td><strong>0</strong></td>
+<td><strong>0</strong></td>
+<td><strong>0</strong></td>
+</tr>
+<tr>
+<td><code>HeavyDutyPalletTruck_A01</code>(油壓拖板車)</td>
+<td>25</td>
+<td><strong>0</strong></td>
+<td><strong>0</strong></td>
+<td><strong>0</strong></td>
+</tr>
+<tr>
+<td><code>Rack_E02</code>(層架)</td>
+<td>9</td>
+<td><strong>0</strong></td>
+<td><strong>0</strong></td>
+<td><strong>0</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>全部是純幾何 + 材質。</strong> 這是 <em>digital twin</em>(視覺)資產包,不是物理資產包。</p>
+<p>⚠ 它們的 <code>metersPerUnit = 0.01</code>(公分制)。把它們放進公尺制場景時
+父層會有 0.01 縮放 —— <strong>算體積一定要用世界座標變換</strong>,
+只用 local 頂點會錯 10⁶ 倍。</p>
+<blockquote>
+<p>Isaac Sim 自己的機器人資產(<code>Isaac/Robots/…</code>)通常<strong>有</strong>完整物理,
+因為它們是要被模擬的。<strong>「資產包的用途」決定它有沒有物理</strong> ——
+視覺/場景佈置用的沒有,機器人/可互動物件才有。</p>
+</blockquote>
+<p>工具:<span class="offsite"><code>audit_asset_physics.py</code><span class="offsite-tag">內部資料</span></span>
+—— 給它一個 USD,列出哪些 prim 有 RigidBody/Mass/Collision API 與 authored 值。</p>
+<h2 id="3-規格書的最大陷阱載重能力-自重">3. ⚠ 規格書的最大陷阱:載重能力 ≠ 自重</h2>
+<p>查「push-back 板車多重」時,搜尋結果幾乎全部是:</p>
+<pre><code>每個 cart 承載 2,500 lbs / Steel King SK3600 每 cart 3,000 lb
+每顆輪子額定 2,000 lb(四輪)
+</code></pre>
+<p><strong>那些都是 capacity(能載多重),不是 tare weight(自己多重)。</strong></p>
+<p>製造商公布載重是因為那是客戶要的規格;自重對客戶沒意義,所以不公布。
+<strong>要自重通常得直接跟廠商要規格 PDF,或用 §4 估。</strong></p>
+<p>同樣的混淆會出現在:堆高機(舉升能力 vs 車重)、輸送帶、AGV。
+<strong>看到一個重量數字,先問「這是它能載的,還是它本身的」。</strong></p>
+<h2 id="4-查不到規格時幾何-材料密度">4. 查不到規格時:幾何 × 材料密度</h2>
+<p>這是最實用的路,而且<strong>可驗證、可覆盤</strong>。</p>
+<pre><code>質量 = 封閉網格的世界座標體積 × 材料密度
+</code></pre>
+<p>常用密度(kg/m³):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>材料</th>
+<th>密度</th>
+<th>常見於</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>鋼</td>
+<td><strong>7850</strong></td>
+<td>貨架、板車、機構件</td>
+</tr>
+<tr>
+<td>鋁</td>
+<td>2700</td>
+<td>輕型結構</td>
+</tr>
+<tr>
+<td>木(松/合板)</td>
+<td>500~700</td>
+<td>棧板</td>
+</tr>
+<tr>
+<td>硬塑膠(HDPE)</td>
+<td>950</td>
+<td>塑膠棧板、周轉箱</td>
+</tr>
+<tr>
+<td>混凝土</td>
+<td>2400</td>
+<td>地面、配重</td>
+</tr>
+<tr>
+<td><strong>水</strong></td>
+<td><strong>1000</strong></td>
+<td>← <strong>PhysX 的預設值</strong>,不要讓它留著</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠ <strong>體積要用世界座標算</strong>,而且要確認網格是<strong>封閉</strong>的
+(不封閉的話有號體積無意義)。工具:
+<span class="offsite"><code>estimate_trolley_mass.py</code><span class="offsite-tag">內部資料</span></span>。</p>
+<p>⚠ <strong>釐清「材料體積」還是「包絡體積」</strong>:
+- 焊接鋼構的網格若是實心桿件建模 → 體積 ≈ 材料體積 ✅
+- 若碰撞近似是 convex hull → 體積 ≈ 包絡,會<strong>大幅高估</strong></p>
+<p>實例:板車網格體積 0.00938 m³ = 9.4 公升。
+包絡大約 1.2 × 1.1 × 0.2 m ≈ 0.26 m³ —— 差 28 倍,
+所以 0.00938 是<strong>材料體積</strong>,乘鋼密度得 73.6 kg 是合理的。</p>
+<h3 id="合理性檢核">合理性檢核</h3>
+<p>估完一定要對真實世界做一次 sanity check:</p>
+<ul>
+<li>板車 73.6 kg —— 四顆額定 1400~2000 lb 的輪子 + 焊接鋼構,量級對 ✅</li>
+<li>若估出 9.4 kg → 比它載的棧板還輕,<strong>物理上說不通</strong> ❌</li>
+</ul>
+<p><strong>「這個數字在真實世界說得通嗎」是最後一道關,不要跳過。</strong></p>
+<h2 id="5-不要用-grep-判斷-usdc-有沒有某個屬性">5. ⚠ 不要用 grep 判斷 usdc 有沒有某個屬性</h2>
+<p>usdc 是二進位。實測對 NVIDIA 資產 grep:</p>
+<pre><code>Mesh / points / material     抓得到
+UsdGeom / xformOp            抓不到
+</code></pre>
+<p><strong>部分有效 = 不能當判準。</strong> 一定要用 USD API 開。</p>
+<p>同理,<code>Usd.Stage.Open</code> 需要 <code>pxr</code>,而 Isaac 容器裡核心 USD <strong>只在 kit 執行期載入</strong> ——
+獨立 python 要自己設兩個環境變數:</p>
+<pre><code class="language-bash">USDLIB=$(ls -d /isaac-sim/extscache/omni.usd.libs-*/ | head -1)
+export PYTHONPATH=${USDLIB}:$PYTHONPATH
+export LD_LIBRARY_PATH=${USDLIB}bin:$LD_LIBRARY_PATH
+/isaac-sim/kit/python/bin/python3 your_script.py
+</code></pre>
+<h2 id="6-建場域時的檢查清單">6. 建場域時的檢查清單</h2>
+<p>每加一個會被物理模擬的物件,逐項確認:</p>
+<ul>
+<li>[ ] <code>physics:mass</code> 或 <code>physics:density</code> <strong>有授權</strong>(否則吃水的密度)</li>
+<li>[ ] 質量數字對真實世界說得通(§4 的 sanity check)</li>
+<li>[ ] 慣量:多數情況讓 PhysX 從幾何算即可,但<strong>細長件</strong>要確認</li>
+<li>[ ] 碰撞近似:<code>convexHull</code> 會填滿凹處;薄件或有孔洞的要用 <code>sdf</code></li>
+<li>[ ] 摩擦係數在物理範圍(<strong>μ &gt; 1 代表咬合</strong>,一般 0.2~0.8)</li>
+<li>[ ] <code>metersPerUnit</code> 與父層縮放 —— 混用公分制資產時特別容易錯</li>
+<li>[ ] 驅動器的 <code>maxForce</code> 是真實值(見下)</li>
+</ul>
+<p>⚠ <strong><code>maxForce</code> 也是物理參數。</strong> 位置控制配上近乎無限的力,
+等於「無論多大阻力都推得動」—— 那不是機器,是運動學規定。
+真實堆高機舉升 2.5 噸 ⇒ 約 <strong>25 kN</strong>;設 10⁶ N 是不物理的。</p>
+<h2 id="7-這次的實例可當範本">7. 這次的實例(可當範本)</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>物件</th>
+<th>現況</th>
+<th>應為</th>
+<th>依據</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>push-back 板車</td>
+<td>9.4 kg(未授權 → 水密度)</td>
+<td><strong>~73.6 kg</strong></td>
+<td>網格體積 0.00938 m³ × 鋼 7850</td>
+</tr>
+<tr>
+<td>木棧板</td>
+<td>20 kg(authored)</td>
+<td>20~25 kg ✅</td>
+<td>標準歐規/美規空棧板</td>
+</tr>
+<tr>
+<td>叉齒 <code>fork_liftA1</code></td>
+<td>50 kg(authored)</td>
+<td>合理 ✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>z1/z2</code> 驅動 <code>maxForce</code></td>
+<td><strong>10⁶ N</strong></td>
+<td>~25 kN</td>
+<td>舉升 2.5 噸</td>
+</tr>
+<tr>
+<td>叉齒↔棧板摩擦</td>
+<td>static <strong>5.0</strong></td>
+<td>0.3~0.6</td>
+<td>μ&gt;1 不物理</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="相關">相關</h2>
+<ul>
+<li><a href="../../common/10-scene-physics-authoring/"><code>10</code> 場景物理授權</a></li>
+<li><a href="../../6.0.1/17-physics-parameter-tuning-6.0/"><code>17</code> 6.0 物理調參</a></li>
+<li>專案實例:<code>isaac-sim-60-tuning</code> 的 <code>docs/142</code>(場景物理快照)、<code>docs/144</code>(保真度實驗設計)</li>
+</ul>
+<h2 id="子頁">子頁</h2>
+<ul>
+<li><a href="../../common/18-finding-physical-parameters/vdi2198-forklift-datasheets.html">用 VDI 2198 規格表取得堆高機的真實物理參數</a>
+  —— 工業車輛(堆高機/前伸式/AGV)的規格是<strong>標準化且公開</strong>的。欄位編號對照表、
+  型錄沒列牽引力時的三條獨立推導、型號對不上時怎麼用功能等價去找。</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

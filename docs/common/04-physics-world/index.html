@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>建立物理世界:Stage、模擬狀態與 Articulation — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/" class="on"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-物理世界的基本組成">1. 物理世界的基本組成</a></li><li class="l2"><a href="#2-模擬狀態playing-才有物理">2. 模擬狀態:PLAYING 才有物理</a></li><li class="l2"><a href="#3-用虛擬關節驅動移動機器人一種務實的建模法">3. 用虛擬關節驅動移動機器人:一種務實的建模法</a></li><li class="l2"><a href="#4-關節控制-api兩種語意別混用">4. 關節控制 API:兩種語意,別混用</a></li><li class="l2"><a href="#5-兩條互斥的控制路徑articulation-vs-直改-xform">5. 兩條互斥的控制路徑:articulation vs 直改 xform</a></li><li class="l2"><a href="#6-物理互動不一定要擬真幾何驅動吸附">6. 物理互動不一定要擬真:幾何驅動吸附</a></li><li class="l2"><a href="#7-除錯武器庫">7. 除錯武器庫</a></li><li class="l2"><a href="#8-延伸閱讀">8. 延伸閱讀</a></li></ul></aside>
+  <main class="doc">
+<h1 id="建立物理世界stage模擬狀態與-articulation">建立物理世界:Stage、模擬狀態與 Articulation</h1>
+<p>把模型放進場景只完成了一半——那是「佈景」,不是「世界」。要讓物體有重量、會碰撞、關節能受控,需要理解 Isaac Sim 的物理層(PhysX)怎麼跟場景層(USD)協作:什麼時候物理才真的在算、機器人的關節怎麼驅動、以及哪些操作會把物理引擎搞壞。</p>
+<h2 id="1-物理世界的基本組成">1. 物理世界的基本組成</h2>
+<p>一個能跑物理的場景,USD 裡至少要有:</p>
+<ul>
+<li><strong>Physics Scene</strong>(一個 prim):定義重力方向與大小、solver 設定。習慣上重力 <code>-Z</code> 9.81 m/s²,場景 Z-up。</li>
+<li><strong>地面</strong>:帶 collision 的靜態平面/幾何,否則物體會一路往下掉。</li>
+<li><strong>剛體(Rigid Body)</strong>:要受物理影響的 prim 加上 rigid body + collision 屬性——沒有 collision 的 mesh 是「鬼魂」,會互相穿透。</li>
+<li><strong>Articulation</strong>(關節樹):機器人本體——多個剛體用 joint 串起來,joint 可帶 drive(馬達)接受位置/速度目標。</li>
+</ul>
+<p>GUI 裡這些都是右鍵選單的 Add → Physics;程式做法用 <code>pxr.UsdPhysics</code> API 或 <code>isaacsim.core</code> 的封裝。這些屬性都存在 USD 裡,隨場景檔走。</p>
+<h2 id="2-模擬狀態playing-才有物理">2. 模擬狀態:PLAYING 才有物理</h2>
+<p><strong>場景載入 ≠ 模擬開始。</strong> timeline 有三態:STOPPED / PLAYING / PAUSED。只有 PLAYING 時 PhysX 才逐步積分、關節才會動、TF 與 joint states 才對外發布。這是 headless 部署「一切正常但什麼都不動」的第一大根因,值得反覆強調:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>症狀</th>
+<th>根因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>外部拿不到 TF / joint states</td>
+<td>模擬停在 STOPPED</td>
+</tr>
+<tr>
+<td>機器人不理會關節命令</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>橋接程式回報 pose 無效</td>
+<td>同上</td>
+</tr>
+</tbody>
+</table></div>
+<p>控制方式三選一:GUI 按 Play、Python <code>omni.timeline.get_timeline_interface().play()</code>、或 ROS2 標準服務(<code>simulation_interfaces/srv/SetSimulationState</code>,見 <a href="../../common/05-ros2-bridge/">05-ros2-bridge</a>)。自動化部署把 <code>play()</code> 寫進 <code>--exec</code> 腳本,不留手動步驟。</p>
+<h2 id="3-用虛擬關節驅動移動機器人一種務實的建模法">3. 用虛擬關節驅動移動機器人:一種務實的建模法</h2>
+<p>直覺上,模擬堆高機應該模擬四個輪子的轉速與轉向。實戰採用的是另一種建模:<strong>給底盤三個「虛擬世界關節」<code>world_x</code>、<code>world_y</code>、<code>world_yaw</code></strong>——底盤相對世界的平移與旋轉本身作為 prismatic / revolute joint,再加上叉車機構的真實關節(<code>stage</code> 伸縮、<code>z1</code>/<code>z2</code> 兩段升降、<code>tilt</code> 傾角),整台車就是一棵 7-DOF(DOF,degree of freedom,自由度)的 articulation。</p>
+<p align="center"><img src="../../img/virtual-joints.svg" width="700" alt="虛擬世界關節 + 叉車機構關節"></p>
+
+<p>為什麼這樣做?第一性原理:<strong>上游系統(車隊排程)給的是「走到世界座標 (x, y, θ)」層級的任務,不是輪速指令</strong>。如果模擬輪子,就得在中間自己實作一整套底盤運動學與輪速控制器,而這些對「驗證派工與物流流程」毫無貢獻。虛擬關節讓「位置命令 → 車到位」的鏈路最短,同時保留叉車機構的真實物理(舉升有速度上限、傾角影響棧板)。取捨也要誠實面對:這不是動力學擬真(不模擬輪胎打滑、慣性漂移),適合流程級模擬,不適合底盤控制器開發。</p>
+<p>⚠ <strong>關節的名字不保證它的世界軸向。</strong> 關節軸定義在 joint frame 局部座標,body 鏈上任何一層的 <code>xformOp:orient</code> 都會把它轉走。實測案例:一組命名 <code>world_x</code>/<code>world_y</code> 的虛擬關節,因根 prim 帶一個 orient 旋轉,實際各沿世界 <strong>−Y</strong> 與 <strong>−X</strong>——名字互換且帶負號。控制鏈自洽時完全無症狀,<strong>逐軸調參/除錯時才會炸</strong>;先讀 joint frame 與祖先旋轉,或用極端值實測哪個軸動(<a href="../../common/09-physics-simulation-fundamentals/">09 篇 §4</a>有完整條目)。</p>
+<h2 id="4-關節控制-api兩種語意別混用">4. 關節控制 API:兩種語意,別混用</h2>
+<p>對 articulation 下命令有兩條路,語意完全不同。<strong>注意:<code>SingleArticulation</code> 上沒有 <code>set_joint_position_targets</code> 這個方法</strong>(v5.1.0 原始碼證實)——該方法屬於批次操作的 <code>Articulation</code> view 類別。單一機器人的 PD(PD,比例-微分控制,靠剛度/阻尼把關節拉向目標)目標控制,要用 <code>apply_action(ArticulationAction(...))</code>:</p>
+<pre><code class="language-python">from isaacsim.core.prims import SingleArticulation
+from isaacsim.core.utils.types import ArticulationAction
+
+robot = SingleArticulation(&quot;/World/MyRobot&quot;)
+robot.initialize()
+
+robot.set_joint_positions(...)                                   # 瞬移(teleport):直接改狀態,不經 drive
+robot.apply_action(ArticulationAction(joint_positions=...))      # PD 目標:交給 joint drive 用剛度/阻尼追
+</code></pre>
+<ul>
+<li><strong>PD 目標控制需要 joint 有 drive 增益</strong>(stiffness / damping)。對沒有 drive 的 joint 下 <code>apply_action</code> 目標,什麼都不會發生——不報錯,就是不動。這是「命令發了車不動」的常見暗坑。</li>
+<li><strong><code>set_joint_positions</code> 是瞬移</strong>,但上游若以高頻率(如每個物理步)送密集軌跡點,逐點瞬移在視覺上是平滑的——流程級模擬完全夠用。</li>
+<li>官方已預告 <code>Single*</code> 系列類別未來將移除、建議改用 <code>Articulation</code> view 類別(單台機器人也傳長度 1 的路徑清單即可);且 6.0 起 <code>isaacsim.core.prims</code> 整組移至 experimental namespace——升版時關節控制路徑要重新驗證,不能假設不動。</li>
+</ul>
+<p>透過 ROS2 bridge 發 <code>JointState</code> 命令時,實測出兩條重要規則:</p>
+<ol>
+<li><strong>只帶要控制的 joint</strong>:曾嘗試「發完整 joint 清單、不控制的填 NaN 遮罩」,實測會被 bridge 整包忽略。</li>
+<li><strong>position 命令不要帶 <code>velocity</code> 欄位</strong>:<code>velocity=0.0</code> 不是「不指定」,會被當成明確的速度目標(hold),導致關節不動。位置與速度目標對同一 joint 混用還會讓 drive 抖動。</li>
+</ol>
+<h2 id="5-兩條互斥的控制路徑articulation-vs-直改-xform">5. 兩條互斥的控制路徑:articulation vs 直改 xform</h2>
+<p><a href="../../common/02-python-no-ui/">02 篇</a>介紹過用 ScriptNode 直接改 prim 的 translate/orient——那是「非物理」的控制:繞過 PhysX 直接改場景樹。它與 articulation 控制<strong>互斥</strong>:</p>
+<blockquote>
+<p>對一台由 PhysX articulation 管理的機器人直改 root xform,PhysX 的模擬 view 會失效,報 <code>Simulation view object is invalidated</code>,之後 joint states 回饋全部不可信,只能重載場景。</p>
+</blockquote>
+<p>一個物件,一條控制路徑:要物理(碰撞、drive、joint 回饋)就走 articulation;要輕量位姿同步(例如把外部定位結果視覺化)就直改 xform、且該物件不掛 articulation。接手既有場景時,先弄清楚每個可動物件走哪條路,再動手加控制。</p>
+<h2 id="6-物理互動不一定要擬真幾何驅動吸附">6. 物理互動不一定要擬真:幾何驅動吸附</h2>
+<p>叉車「叉起棧板」若走純物理(叉齒與棧板的摩擦與受力),對流程模擬是高成本低回報——PhysX 接觸求解對薄板穿插很敏感,失敗模式又難除錯。實戰的替代方案是<strong>幾何判定 + attach</strong>:</p>
+<ul>
+<li>每個物理步檢查「叉架高度與棧板底面的距離」+「水平距離」,兩者都在門檻內 → 把棧板 attach 到叉架(隨叉架移動);</li>
+<li>放下時(高度回落、位置在儲位內)→ detach,棧板落回世界。</li>
+</ul>
+<p>這是「demo 級擬真」的誠實取捨:視覺與流程正確,物理細節簡化。文件與程式裡應明說這是吸附,不是真實叉取,避免後人誤以為可以拿來驗證叉取力學。</p>
+<h2 id="7-除錯武器庫">7. 除錯武器庫</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>症狀</th>
+<th>檢查</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>什麼都不動</td>
+<td>模擬是否 PLAYING(§2)</td>
+</tr>
+<tr>
+<td>命令發了、特定關節不動</td>
+<td>joint 有無 drive 增益;命令是否帶了 <code>velocity=0.0</code>;joint 名是否拼錯</td>
+</tr>
+<tr>
+<td><code>Simulation view object is invalidated</code></td>
+<td>有東西直改了 articulation 的 xform(§5);重載場景</td>
+</tr>
+<tr>
+<td>物體穿透</td>
+<td>collision 屬性缺失;mesh 太薄(改用近似碰撞體)</td>
+</tr>
+<tr>
+<td>位置有殘差</td>
+<td>命令流結束 ≠ 物理到位(命令是非同步的);drive 增益不足;旋轉中心不在預期點,轉彎帶出平移</td>
+</tr>
+</tbody>
+</table></div>
+<p>最後一列展開說:<strong>yaw 旋轉的中心不保證是你以為的參考點</strong>(例如 <code>base_link</code>)。純旋轉時鎖住 x/y joint 值,參考點的世界座標仍可能漂移。對策不是鎖 joint,而是「hold 世界座標點、每個控制週期重新投影回 joint 目標」。</p>
+<h2 id="8-延伸閱讀">8. 延伸閱讀</h2>
+<ul>
+<li>官方文件:Isaac Sim Physics、Articulations、<code>isaacsim.core</code> API</li>
+<li>下一篇:<a href="../../common/05-ros2-bridge/">05 ROS2 橋接</a></li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>用 VDI 2198 規格表取得堆高機的真實物理參數 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#為什麼這類特別好查">為什麼這類特別好查</a></li><li class="l2"><a href="#沒有-55-時三條互相獨立的推導">沒有 5.5 時,三條互相獨立的推導</a></li><li class="l3"><a href="#①-從爬坡能力通常最接近設計值">① 從爬坡能力(通常最接近設計值)</a></li><li class="l3"><a href="#②-從驅動輪附著力物理上限不可超過">② 從驅動輪附著力(物理上限,不可超過)</a></li><li class="l3"><a href="#③-從馬達功率低速時不是瓶頸但要驗">③ 從馬達功率(低速時不是瓶頸,但要驗)</a></li><li class="l2"><a href="#舉升力同理">舉升力同理</a></li><li class="l2"><a href="#找型錄的實務">找型錄的實務</a></li><li class="l2"><a href="#這次的實例linde-r14-r16-r20series-1120">這次的實例:Linde R14 / R16 / R20(Series 1120)</a></li><li class="l2"><a href="#-型號對不上時怎麼辦">⚠ 型號對不上時怎麼辦</a></li><li class="l2"><a href="#來源">來源</a></li></ul></aside>
+  <main class="doc">
+<h1 id="用-vdi-2198-規格表取得堆高機的真實物理參數">用 VDI 2198 規格表取得堆高機的真實物理參數</h1>
+<blockquote>
+<p>屬於 <a href="../../common/18-finding-physical-parameters/"><code>docs/18</code> 找物理參數</a>。這份講的是<strong>工業車輛</strong>這一類 ——
+它有一個很多人不知道的好處:<strong>規格是標準化的,而且公開</strong>。</p>
+</blockquote>
+<h2 id="為什麼這類特別好查">為什麼這類特別好查</h2>
+<p>工業車輛(堆高機、拖板車、前伸式、AGV)有一份德國標準 <strong>VDI 2198
+"Typenblätter für Flurförderzeuge"(工業車輛型錄表)</strong>,規定了型錄要列哪些欄位、
+用什麼編號。結果是<strong>每一家廠商的規格表長得一模一樣</strong>,只是數字不同。</p>
+<p>所以你不需要「找得到那一家的文件」,只要<strong>知道欄位編號在問什麼</strong>:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>編號</th>
+<th>欄位</th>
+<th>拿來設什麼</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.5</td>
+<td>Load capacity 額定載重</td>
+<td>載荷上限、驗證用</td>
+</tr>
+<tr>
+<td>1.6</td>
+<td>Load centre distance 載重中心距</td>
+<td>力矩計算的力臂</td>
+</tr>
+<tr>
+<td>1.9</td>
+<td>Wheelbase 軸距</td>
+<td>底盤幾何</td>
+</tr>
+<tr>
+<td><strong>2.1</strong></td>
+<td><strong>Service weight 自重</strong></td>
+<td><strong>剛體質量 ← 最常缺的那一個</strong></td>
+</tr>
+<tr>
+<td>2.3 / 2.4</td>
+<td>Axle load 前/後軸荷(載/空)</td>
+<td>質心位置、<strong>驅動輪附著力上限</strong></td>
+</tr>
+<tr>
+<td>4.1</td>
+<td>Mast tilt 前傾/後傾角</td>
+<td><code>tilt</code> 關節的<strong>行程上限</strong></td>
+</tr>
+<tr>
+<td>4.22</td>
+<td>Fork dimensions 叉齒 厚×寬×長</td>
+<td>叉齒幾何</td>
+</tr>
+<tr>
+<td>4.28</td>
+<td>Reach travel 前伸行程</td>
+<td>伸縮關節行程</td>
+</tr>
+<tr>
+<td>5.1</td>
+<td>Travel speed 行駛速度</td>
+<td>底盤速度上限</td>
+</tr>
+<tr>
+<td>5.2 / 5.3</td>
+<td>Lifting / Lowering speed</td>
+<td>舉升關節速度上限</td>
+</tr>
+<tr>
+<td>5.4</td>
+<td>Reach speed 前伸速度</td>
+<td>伸縮關節速度</td>
+</tr>
+<tr>
+<td><strong>5.5</strong></td>
+<td><strong>Drawbar pull 牽引力(載/空)</strong></td>
+<td><strong>驅動關節的 maxForce ← 直接就是答案</strong></td>
+</tr>
+<tr>
+<td>5.6</td>
+<td>Max drawbar pull 最大牽引力</td>
+<td>峰值</td>
+</tr>
+<tr>
+<td><strong>5.8</strong></td>
+<td><strong>Gradeability 最大爬坡能力</strong></td>
+<td><strong>沒有 5.5 時用這個回推牽引力</strong></td>
+</tr>
+<tr>
+<td>6.1</td>
+<td>Drive motor rating 行走馬達</td>
+<td>功率上限交叉驗證</td>
+</tr>
+<tr>
+<td>6.2</td>
+<td>Lift motor rating 舉升馬達</td>
+<td>舉升力上限交叉驗證</td>
+</tr>
+<tr>
+<td>6.5</td>
+<td>Battery weight 電池重量</td>
+<td><strong>常佔自重 1/4 以上,漏掉整車就太輕</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠ <strong>前伸式(reach truck)的型錄常常省略 5.5/5.6。</strong> 那不是查不到 ——
+用 5.8 爬坡能力回推即可(見下)。</p>
+<h2 id="沒有-55-時三條互相獨立的推導">沒有 5.5 時,三條互相獨立的推導</h2>
+<p><strong>都算一次,取最小的那個</strong> —— 真實牽引力是三者中最先飽和的那一個限制住的。</p>
+<h3 id="①-從爬坡能力通常最接近設計值">① 從爬坡能力(通常最接近設計值)</h3>
+<pre><code>F = (自重 + 載重) × g × 坡度
+  = (3470 + 1600) kg × 9.81 × 0.10 ≈ **5.0 kN**
+</code></pre>
+<h3 id="②-從驅動輪附著力物理上限不可超過">② 從驅動輪附著力(物理上限,不可超過)</h3>
+<p>驅動輪壓不住就打滑,再大的馬達也沒用。</p>
+<p>⚠ <strong>要用驅動軸的軸荷,不是整車重。</strong></p>
+<p>⚠ <strong>而且型錄那兩行的 <code>with load</code> / <code>without load</code> 標籤是互換的</strong> ——
+用算術與物理三重驗證(R16):</p>
+<pre><code>2.3 標 &quot;with load&quot;    2190/1280 = 3470  = 自重(2.1)          → 其實是空車
+2.4 標 &quot;without load&quot;  610/4460 = 5070  = 自重 + 載重 1600   → 其實是載重
+2.4 &quot;fork retracted, with load&quot; 1911/3159 = 5070             → 叉縮回,重心回移
+</code></pre>
+<p>空車重心偏驅動輪側(2190 &gt; 1280,前伸式配重在後)、載重且叉伸出時大幅移到承載輪
+(4460)、叉縮回時回移(3159) —— 三者都符合前伸式的力學,所以是標籤互換無誤。
+<strong>照字面用會讓驅動輪附著力算錯 3.6 倍。</strong></p>
+<p>代入正確的值:</p>
+<pre><code>F = 驅動軸荷 × g × μ        (橡膠/PU 對水泥地 μ ≈ 0.7)
+空車(驅動輪 2190 kg): 2190 × 9.81 × 0.7 ≈ **15.0 kN**   ← 峰值
+載重叉伸出(僅 610 kg): 610 × 9.81 × 0.7 ≈  4.2 kN      ← 此時附著力最低
+</code></pre>
+<h3 id="③-從馬達功率低速時不是瓶頸但要驗">③ 從馬達功率(低速時不是瓶頸,但要驗)</h3>
+<pre><code>F = P × η / v
+6.5 kW × 0.85 / 3.89 m/s(14 km/h)≈  1.4 kN   ← 高速時功率受限
+6.5 kW × 0.85 / 1.0  m/s          ≈  5.5 kN   ← 低速時
+</code></pre>
+<p><strong>結論:持續 ~5 kN、峰值 ~15 kN。</strong> 模擬要給上限就取峰值那個。</p>
+<h2 id="舉升力同理">舉升力同理</h2>
+<pre><code>靜態:(載重 + 貨叉架自重) × g = (1600 + 500) × 9.81 ≈ 20.6 kN
+馬達:14 kW × 0.85 / 0.49 m/s(載重舉升速度)      ≈ 24.3 kN
+</code></pre>
+<p><strong>取 ~25 kN。</strong></p>
+<h2 id="找型錄的實務">找型錄的實務</h2>
+<ol>
+<li>廠商官網 <code>Datasheets</code> 目錄的 PDF(最權威,但<strong>連結會失效</strong>,
+   我這次抓 R-MATIC 那份就是 404 回一頁 HTML)。
+   ⚠ <code>curl</code> 下來要先 <code>file</code> 確認真的是 PDF ——
+   404 頁面也是 200 OK,<code>pdftotext</code> 才會報錯。</li>
+<li><code>pdftotext -layout</code> 抽表格。<strong>一定要加 <code>-layout</code></strong>,否則欄位會錯行。</li>
+<li>LECTURA Specs、AllMachines 這類彙整站可當交叉驗證,但<strong>以原廠 PDF 為準</strong>。</li>
+<li>自動化版本(AGV)通常<strong>沿用某個手動型號的底盤</strong> ——
+   例如 Linde <code>R-MATIC</code> 的型錄標題自己寫「based on R16 HD」,
+   所以直接查 R16 就好。</li>
+</ol>
+<h2 id="這次的實例linde-r14-r16-r20series-1120">這次的實例:Linde R14 / R16 / R20(Series 1120)</h2>
+<p>從<a href="https://www.linde-mh.com/media/Datasheets/EN_ds_r14_r20g_1120_en_e_1020_view.pdf">原廠 PDF</a>實際抽出:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>編號</th>
+<th>欄位</th>
+<th>R14</th>
+<th>R16</th>
+<th>R20</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.5</td>
+<td>額定載重 (t)</td>
+<td>1.4</td>
+<td><strong>1.6</strong></td>
+<td>2.0</td>
+</tr>
+<tr>
+<td>1.6</td>
+<td>載重中心距 (mm)</td>
+<td>600/500</td>
+<td>600/500</td>
+<td>600/500</td>
+</tr>
+<tr>
+<td>1.9</td>
+<td>軸距 (mm)</td>
+<td>1380</td>
+<td>1380</td>
+<td>1530</td>
+</tr>
+<tr>
+<td><strong>2.1</strong></td>
+<td><strong>自重 (kg)</strong></td>
+<td>3410</td>
+<td><strong>3470</strong></td>
+<td>3650</td>
+</tr>
+<tr>
+<td>2.3</td>
+<td>軸荷 <strong>空車</strong> 前/後 (kg)</td>
+<td>2160/1250</td>
+<td><strong>2190/1280</strong></td>
+<td>2390/1260</td>
+</tr>
+<tr>
+<td>2.4</td>
+<td>軸荷 <strong>載重</strong>(叉伸出) 前/後 (kg)</td>
+<td>645/4165</td>
+<td><strong>610/4460</strong></td>
+<td>560/5090</td>
+</tr>
+<tr>
+<td>2.4</td>
+<td>軸荷 載重(叉縮回) 前/後 (kg)</td>
+<td>1916/2894</td>
+<td><strong>1911/3159</strong></td>
+<td>2272/3378</td>
+</tr>
+<tr>
+<td>4.1</td>
+<td>桅桿前傾/後傾 (°)</td>
+<td>2.0/4.0</td>
+<td><strong>2.0/4.0</strong></td>
+<td>2.0/4.0</td>
+</tr>
+<tr>
+<td>4.4</td>
+<td>舉升高度 (mm)</td>
+<td>4910</td>
+<td>5710</td>
+<td>6960</td>
+</tr>
+<tr>
+<td>4.22</td>
+<td>叉齒 厚×寬×長 (mm)</td>
+<td>45×100×1150</td>
+<td><strong>45×100×1150</strong></td>
+<td>45×100×1150</td>
+</tr>
+<tr>
+<td>4.28</td>
+<td>前伸行程 (mm)</td>
+<td>634</td>
+<td>634</td>
+<td>779</td>
+</tr>
+<tr>
+<td>5.1</td>
+<td>行駛速度 (km/h)</td>
+<td>14</td>
+<td><strong>14</strong></td>
+<td>14</td>
+</tr>
+<tr>
+<td>5.2</td>
+<td>舉升速度 載/空 (m/s)</td>
+<td>0.51/0.58</td>
+<td><strong>0.49/0.58</strong></td>
+<td>0.44/0.58</td>
+</tr>
+<tr>
+<td>5.3</td>
+<td>下降速度 (m/s)</td>
+<td>0.6</td>
+<td><strong>0.6</strong></td>
+<td>0.6</td>
+</tr>
+<tr>
+<td>5.4</td>
+<td>前伸速度 (m/s)</td>
+<td>0.2</td>
+<td><strong>0.2</strong></td>
+<td>0.2</td>
+</tr>
+<tr>
+<td>5.8</td>
+<td>最大爬坡 載/空 (%)</td>
+<td>10.0</td>
+<td><strong>10.0</strong></td>
+<td>10.0</td>
+</tr>
+<tr>
+<td>6.1</td>
+<td>行走馬達 S2 60min (kW)</td>
+<td>6.5</td>
+<td><strong>6.5</strong></td>
+<td>6.5</td>
+</tr>
+<tr>
+<td>6.2</td>
+<td>舉升馬達 S3 15% (kW)</td>
+<td>14</td>
+<td><strong>14</strong></td>
+<td>14</td>
+</tr>
+<tr>
+<td>6.5</td>
+<td><strong>電池重量 (kg)</strong></td>
+<td>939</td>
+<td><strong>939</strong></td>
+<td>939</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>注意 6.5</strong>:電池 939 kg = 自重的 <strong>27%</strong>。
+建模時若只堆「看得見的結構件」,整車會輕掉四分之一以上。</p>
+</blockquote>
+<p><strong>Linde <code>R-MATIC</code> 自動化前伸式 based on R16 HD</strong>,載重 1.6 t、
+舉升至 11 m、走道寬 2.90 m,用 3D 相機偵測儲位與<strong>叉孔</strong>並微調叉齒 ——
+功能上正是我們在模擬的那台。</p>
+<h2 id="-型號對不上時怎麼辦">⚠ 型號對不上時怎麼辦</h2>
+<p>我們的資產叫 <code>MR1533</code>,<strong>Linde 型錄裡沒有這個型號</strong>
+(搜尋 "Linde MR15" 只會回 MT15 電動拖板車、R14–R25 前伸式,都不是)。</p>
+<p>這種時候<strong>不要放棄,改用「功能等價」去對</strong>:</p>
+<pre><code>關節組成 stage(伸縮)+ z1/z2(兩段舉升)+ tilt(門架傾角)+ 貨叉
+  → 這是**前伸式堆高機**的定義特徵(一般平衡重式沒有伸縮)
+取放高度 ~1.15 m、載重一顆棧板
+  → 1.4~1.6 t 級距
+</code></pre>
+<p><strong>參數要的是量級對,不是型號對。</strong> 用同級距同型式的公開型錄,
+比用一個查不到的型號枯等好得多 —— 但<strong>要在文件裡寫清楚這是類比來源</strong>,
+不要讓後面的人以為是原廠給的。</p>
+<h2 id="來源">來源</h2>
+<ul>
+<li><a href="https://www.linde-mh.com/media/Datasheets/EN_ds_r14_r20g_1120_en_e_1020_view.pdf">Linde R14–R20 G Series 1120 規格表 (PDF, VDI 2198)</a></li>
+<li><a href="https://www.linde-mh.com/en/Products/Automated-Trucks/R-Matic/">Linde R-MATIC 自動化前伸式</a></li>
+<li><a href="https://www.linde-mh.com/en/Products/Reach-Trucks/R14-R25/">Linde 前伸式產品線 R14–R25</a></li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

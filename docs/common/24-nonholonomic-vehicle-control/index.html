@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>24 — 把「會瞬移的底盤」換成「真的有輪子的車」 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/" class="on"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#一句話">一句話</a></li><li class="l2"><a href="#0-前提鏈順序不能顛倒">0. 前提鏈:順序不能顛倒</a></li><li class="l2"><a href="#1-①-車重到不了輪子最底層也最容易漏">1. ① 車重到不了輪子:最底層,也最容易漏</a></li><li class="l3"><a href="#症狀">症狀</a></li><li class="l3"><a href="#為什麼">為什麼</a></li><li class="l3"><a href="#判別n-是真的了沒靜態值不行要看回彈">判別「N 是真的了沒」——靜態值不行,要看回彈</a></li><li class="l3"><a href="#-有正向力不等於那是車重">⚠ 「有正向力」不等於「那是車重」</a></li><li class="l2"><a href="#2-②-抓地力算清楚誰才是限制">2. ② 抓地力:算清楚誰才是限制</a></li><li class="l2"><a href="#3-③-轉向符號一個沒驗過的旗標燒掉十幾輪">3. ③ 轉向符號:一個沒驗過的旗標,燒掉十幾輪</a></li><li class="l3"><a href="#症狀_1">症狀</a></li><li class="l3"><a href="#檢定式不需要改任何程式純資料">檢定式(不需要改任何程式,純資料)</a></li><li class="l3"><a href="#-這個符號會隨行進方向再翻一次">🔴 這個符號會隨行進方向再翻一次</a></li><li class="l3"><a href="#-可複用的規則">🔑 可複用的規則</a></li><li class="l2"><a href="#4-④-追蹤參考點錯了會系統性地偏而且長得像軸距錯">4. ④ 追蹤參考點:錯了會系統性地偏,而且長得像軸距錯</a></li><li class="l3"><a href="#症狀_2">症狀</a></li><li class="l3"><a href="#兩個候選用幾何實測分辨比跑實驗便宜">兩個候選,用幾何實測分辨(比跑實驗便宜)</a></li><li class="l3"><a href="#-修法是在固定軸的座標裡規劃不是後處理路徑">🔴 修法是在固定軸的座標裡規劃,不是後處理路徑</a></li><li class="l2"><a href="#5-⑤-路徑追蹤pure-pursuit-的三個前提">5. ⑤ 路徑追蹤:pure pursuit 的三個前提</a></li><li class="l3"><a href="#前提一引導點必須離車至少一個前視距離">前提一:引導點必須離車至少一個前視距離</a></li><li class="l3"><a href="#前提二引導點必須在前方">前提二:引導點必須在前方</a></li><li class="l3"><a href="#前提三ld-不能大於路徑的曲率半徑">前提三:Ld 不能大於路徑的曲率半徑</a></li><li class="l3"><a href="#-規劃時要留轉向餘裕">🔴 規劃時要留轉向餘裕</a></li><li class="l3"><a href="#-行進方向要整段鎖定不可逐步重判">🔴 行進方向要整段鎖定,不可逐步重判</a></li><li class="l2"><a href="#6-⑥-到位判定歐氏距離對這類系統不可能收斂">6. ⑥ 到位判定:歐氏距離對這類系統不可能收斂</a></li><li class="l2"><a href="#7-工程紀律這一輪真正省時間的三件事">7. 工程紀律:這一輪真正省時間的三件事</a></li><li class="l3"><a href="#71-幾何全部做成離線可測的純函式">7.1 幾何全部做成離線可測的純函式</a></li><li class="l3"><a href="#72-每個結論配一個行為指紋而且要問它什麼時候會騙我">7.2 每個結論配一個行為指紋,而且要問「它什麼時候會騙我」</a></li><li class="l3"><a href="#73-事後讀狀態常常讀不到真相">7.3 事後讀狀態常常讀不到真相</a></li><li class="l2"><a href="#8-檢查清單換底盤之前逐項確認">8. 檢查清單(換底盤之前逐項確認)</a></li><li class="l2"><a href="#9-還沒解決的誠實紀錄">9. 還沒解決的(誠實紀錄)</a></li></ul></aside>
+  <main class="doc">
+<h1 id="24-把會瞬移的底盤換成真的有輪子的車">24 — 把「會瞬移的底盤」換成「真的有輪子的車」</h1>
+<blockquote>
+<p>東京 Isaac Sim 6.0 專案,2026-08-15/16。一台自動堆高機原本用三個位置關節
+(x / y / yaw)移動,要換成真輪系(轉向 + 驅動 + 輪胎摩擦)。</p>
+<p>這一篇不談某個參數,談的是<strong>這個轉換會依序踩到哪些坑,以及每一個坑
+為什麼都長得像別的問題</strong>。裡面每個數字都是實測的,失敗的做法也留著。</p>
+</blockquote>
+<h2 id="一句話">一句話</h2>
+<p><strong>位置控制的底盤與輪系底盤不是同一個系統的兩種設定,是兩個不同的系統。</strong>
+中間有一條<strong>必須按順序滿足的前提鏈</strong>,而每一環沒滿足時的症狀
+<strong>都不會指向那一環</strong>。</p>
+<hr />
+<h2 id="0-前提鏈順序不能顛倒">0. 前提鏈:順序不能顛倒</h2>
+<pre><code>① 車重壓在輪子上          →  沒有它,μ·N 的 N 是 0,後面全部無意義
+② 輪胎抓地力夠            →  牽引力上限 = μ·N,要與馬達扭力比較
+③ 轉向指令的**符號**正確   →  錯號時控制器會越修越歪,看起來像「增益不夠」
+④ 路徑追蹤的**參考點**正確 →  錯點時半徑會系統性偏大,看起來像「軸距錯」
+⑤ 路徑追蹤的**演算法前提** →  引導點必須在前方且距離 ≥ 前視距離
+⑥ 到位判定用**弧長**       →  歐氏距離對非完整約束系統不可能收斂(Brockett)
+</code></pre>
+<p><strong>每一環都可以獨立驗證,而且應該獨立驗證。</strong> 跳過任何一環去調後面的,
+得到的都是雜訊 —— 我們在 ③ 之前花了十幾輪調 ⑤ 的參數,全部作廢。</p>
+<hr />
+<h2 id="1-①-車重到不了輪子最底層也最容易漏">1. ① 車重到不了輪子:最底層,也最容易漏</h2>
+<h3 id="症狀">症狀</h3>
+<p>輪子轉了,車幾乎不動。實測<strong>滑移率 85.7%</strong>(輪子轉 6.394 m,車只走 0.914 m)。
+把輪胎摩擦係數從 0.02 掃到 5.00(<strong>250 倍</strong>),14 秒直行位移
+0.922 / 0.954 / 0.978 m —— <strong>完全平坦</strong>。</p>
+<h3 id="為什麼">為什麼</h3>
+<p><code>F = μ·N</code>,而 <code>N ≈ 0</code>。三個獨立的原因,任何一個成立就夠:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>原因</th>
+<th>怎麼查</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>地面<strong>沒有碰撞體</strong></td>
+<td>實查地板 prim 的 <code>collisionEnabled</code> —— 我們的 24 片全是 <code>False</code></td>
+</tr>
+<tr>
+<td>剛體被關掉重力</td>
+<td>查 <code>physxRigidBody:disableGravity</code>。⚠ 文件寫 3 個,<strong>實查是 8 個</strong>,含四個承載輪體與 2050 kg 的車體</td>
+</tr>
+<tr>
+<td>底盤<strong>沒有垂直自由度</strong></td>
+<td>車被錨死在某個高度,重力只是載進錨點。查關節鏈裡有沒有沿世界 Z 的自由度</td>
+</tr>
+</tbody>
+</table></div>
+<p>🔴 <strong>這三項是同一件事的三個半,分開做每一個都是 no-op</strong> ——
+所以也<strong>分不出誰有效</strong>。要一起改,不要當成三個變因。</p>
+<h3 id="判別n-是真的了沒靜態值不行要看回彈">判別「N 是真的了沒」——靜態值不行,要看<strong>回彈</strong></h3>
+<p>車靜止時垂直關節讀到 <code>0.0</code>,<strong>同時相容於「重力有開、車坐在輪上」與
+「重力沒開、車浮著」</strong>。決定性的觀察是<strong>車動起來之後它會不會回彈</strong>:</p>
+<pre><code>world_z  min +0.000000  max +0.000800  最後 +0.000000   非零樣本 157 / 1980
+</code></pre>
+<p>被壓下 0.8 mm 然後<strong>回到 0</strong>。重力關著時,接觸衝量會把一個自由的垂直關節
+往上推而<strong>不會回來</strong>(沒有東西把它拉下去)。</p>
+<h3 id="-有正向力不等於那是車重">⚠ 「有正向力」不等於「那是車重」</h3>
+<p>修好之前,我們量到「輪胎抵抗 15 kN」,一度以為抓地力沒問題。
+實際上輪底穿透是 <strong>0.0000</strong>,那 15 kN 是<strong>剛體被硬推進地面時求解器的
+穿透回復力</strong> —— 由 authored 的高度與求解器決定,<strong>與 3470 kg 無關</strong>。</p>
+<p>🔑 <strong>判摩擦有沒有生效,唯一可信的是量物理行為(滑動發生在什麼加速度),
+不是回讀屬性、也不是看某個力的數字大不大。</strong></p>
+<hr />
+<h2 id="2-②-抓地力算清楚誰才是限制">2. ② 抓地力:算清楚誰才是限制</h2>
+<pre><code>馬達給得出的力      5 000 N  → 1.44 m/s²   (drive maxForce 575 N·m ÷ 輪半徑 0.115 m)
+輪胎抓得住的上限   27 233 N  → 7.85 m/s²   (μ 0.8 × 3470 kg × g)
+餘裕                  5.4 倍
+實測 p99 線加速度   1.54 m/s²(≈ 馬達上限)  只用掉約 20% 抓地力
+</code></pre>
+<p><strong>限制是馬達扭力,不是輪胎打滑。</strong> 這個判斷要在調任何控制參數之前做完 ——
+否則會把「馬達出力不足」當成「摩擦不夠」去調 μ。</p>
+<p>⚠ <strong>驅動輪用速度控制時,牽引力上限要用「持續」而非「峰值」。</strong>
+峰值 15 kN 超過驅動輪的靜態附著力(1726 kg × g × 0.8 = 13.5 kN),
+速度控制會全力追指令轉速 → 輪子空轉,實測滑移率 81.5%。</p>
+<hr />
+<h2 id="3-③-轉向符號一個沒驗過的旗標燒掉十幾輪">3. ③ 轉向符號:一個沒驗過的旗標,燒掉十幾輪</h2>
+<h3 id="症狀_1">症狀</h3>
+<p>控制器一路把轉向打死(角度中位數 <strong>65.1°</strong>、上限 75.3°),車繞著目標轉,
+<code>improvement</code> 是負的,輪子來回換向。<strong>看起來完全像「增益調不好」。</strong></p>
+<h3 id="檢定式不需要改任何程式純資料">檢定式(不需要改任何程式,純資料)</h3>
+<p>同一則 <code>/joint_states</code> 裡就有轉向角、輪子轉角、車體偏航 —— 天然對齊。
+自行車模型:<code>yaw_rate = v·tan(δ)/L</code>,所以</p>
+<pre><code>預期偏航方向 = sign(Δ輪角 · tan δ)          ← Δ輪角帶號,所以已含行進方向
+</code></pre>
+<p>拿它跟實測的 <code>Δyaw</code> 比:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>符號一致性</td>
+<td><strong>73% 相反</strong></td>
+</tr>
+<tr>
+<td>|實測 Δyaw| ÷ |模型 Δyaw|</td>
+<td>中位 <strong>0.94</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>量級對、符號反</strong> ⇒ 自行車模型與軸距是對的,錯的只有符號。
+翻號之後轉向角中位數 <strong>65.1° → 2.3°</strong>。</p>
+<h3 id="-這個符號會隨行進方向再翻一次">🔴 這個符號<strong>會隨行進方向再翻一次</strong></h3>
+<p>同一個檢定分開統計:</p>
+<pre><code>輪子正轉  相反   9%   (n=34)
+輪子反轉  相反  97%   (n=68)
+</code></pre>
+<p>推導:實際要送到關節的角度 <code>δ_joint = −atan(L·κ)</code> <strong>只由路徑曲率決定,
+與行進方向無關</strong>;而 pure pursuit 算出的轉向角內含 <code>·forward</code>
+(倒車時轉向要反向)。兩者不抵銷,倒車就反號。</p>
+<pre><code>前進  steer=+atan(Lκ) × sign(v)=+1 × polarity=−1 → −atan(Lκ) ✅
+倒車  steer=−atan(Lκ) × sign(v)=−1 × polarity=−1 → −atan(Lκ) ✅
+</code></pre>
+<p>⇒ <strong>送出去的關節角要再乘 <code>sign(speed)</code></strong>,同一個極性才能涵蓋兩個方向。</p>
+<h3 id="-可複用的規則">🔑 可複用的規則</h3>
+<p><strong>任何「先留一個旗標,之後用正對照定號」的註解,都要當成未爆彈。</strong>
+我們那行註解寫著「尚未實測…第一輪用極端值正對照定號」,而那個第一輪
+從來沒發生過,預設值一路用到現在。<strong>接手一個模組時,grep 這類註解。</strong></p>
+<hr />
+<h2 id="4-④-追蹤參考點錯了會系統性地偏而且長得像軸距錯">4. ④ 追蹤參考點:錯了會系統性地偏,而且長得像軸距錯</h2>
+<h3 id="症狀_2">症狀</h3>
+<p>轉向關節精準跟隨指令(誤差 0.3~2°),但車做出的迴轉半徑<strong>比 <code>R = L/tan δ</code> 大</strong>,
+控制器越要越多(44.5° → 56.8°)而橫向誤差照樣累積。</p>
+<h3 id="兩個候選用幾何實測分辨比跑實驗便宜">兩個候選,用<strong>幾何實測</strong>分辨(比跑實驗便宜)</h3>
+<p>量各輪體與車體原點在<strong>車體縱向</strong>的位置(⚠ 一律從世界變換投影,
+不要讀 local 分量 —— 根 prim 的 orient 會把軸名轉掉):</p>
+<pre><code>承載輪軸(front_left/right 中點)  縱向 −0.8487 m
+轉向/驅動輪                       縱向 +0.5628 m
+⇒ L_eff = 1.4115 m               ← 與控制器用的完全相同,軸距**沒錯**
+⇒ 車體原點離承載輪軸 = 0.8487 m   ← 這才是問題
+</code></pre>
+<p><strong>自行車模型的「固定軸」是承載輪軸,它沒有側滑,速度方向就是車頭方向。</strong>
+車體原點不在那條線上,離 <code>d</code> 的點走的半徑是 <code>sqrt(R² + d²)</code>:</p>
+<pre><code>δ=45°  固定軸 1.412 m → 車體原點 1.647 m(大 16.7%),車體偏航還差 31°
+要讓車體原點走 R=1.41 的彎,固定軸半徑得 1.128 → **δ = 51.4°**
+而控制器只要 44.5° —— 差 6.9°,正是它一路加到 56.8° 的原因
+</code></pre>
+<h3 id="-修法是在固定軸的座標裡規劃不是後處理路徑">🔴 修法是<strong>在固定軸的座標裡規劃</strong>,不是後處理路徑</h3>
+<p>後處理的三種做法都試過,全錯:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>做法</th>
+<th>為什麼錯</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>沿末端切線把路徑延長 <code>d</code></td>
+<td>只對直線成立;彎道差 <code>d²/(2R)</code>(R=1.41、d=0.85 時 <strong>0.255 m</strong>,實測 0.2355)</td>
+</tr>
+<tr>
+<td>用路徑點宣告的 yaw 逐點平移</td>
+<td><code>enforce_tangent=false</code> 時宣告 yaw <strong>不是</strong>路徑切線,常數 yaw 會把整條路徑<strong>整體搬移</strong></td>
+</tr>
+<tr>
+<td>沿<strong>切線</strong>逐點平移</td>
+<td>半徑變成 <code>sqrt(R²+d²)</code>,而固定軸該是 <code>sqrt(R²−d²)</code> —— <strong>方向剛好相反</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>正解</strong>:把<strong>起點與目標</strong>各自沿自身航向推 <code>d</code>,規劃出來的直接就是固定軸的軌跡。
+不需要後處理,也不必在折線上估局部曲率(那是噪聲來源)。
+終點推 <code>d</code> 之後,「固定軸到達推移後的目標」=「車體原點到達原目標」。</p>
+<p>驗證:轉彎段起點的轉向需求從 66.3° 變成 <strong>−44.5°</strong>,正好是 <code>atan(L/R)</code> 的理論值。</p>
+<hr />
+<h2 id="5-⑤-路徑追蹤pure-pursuit-的三個前提">5. ⑤ 路徑追蹤:pure pursuit 的三個前提</h2>
+<h3 id="前提一引導點必須離車至少一個前視距離">前提一:引導點必須離車<strong>至少一個前視距離</strong></h3>
+<p>規劃出來的路徑常是高頻重取樣的(30 Hz × 速度 → 732 點散在幾公尺),
+相鄰點只有幾公分。而</p>
+<pre><code>κ = 2·sin(方位角) / Ld ,  sin(方位角) = y_local / distance
+</code></pre>
+<p><code>distance</code> 幾公分時 <code>sin</code> 逼近 ±1,<strong>5 cm 的橫向誤差就打死方向盤</strong>。
+實測:車在 50 個點內從貼著路徑跑到 12 m 外。</p>
+<p>⇒ 引導點要<strong>按弧長取</strong>(<code>s + Ld</code> 處插值),不是取「下一個路徑點」。</p>
+<h3 id="前提二引導點必須在前方">前提二:引導點必須在<strong>前方</strong></h3>
+<p>用「從當前索引往前找第一個距離 ≥ Ld 的點」也不夠 —— 車超過該索引之後,
+第一個夠遠的點在<strong>後面</strong>,pure pursuit 會倒車,然後閘門滿足、索引前進、
+再翻回來 → 沿線來回震盪。</p>
+<p>⇒ 必須先做<strong>最近點投影</strong>取弧長 <code>s</code>(且 <code>s</code> 單調不減),再從 <code>s</code> 往前取。</p>
+<h3 id="前提三ld-不能大於路徑的曲率半徑">前提三:<code>Ld</code> 不能大於路徑的曲率半徑</h3>
+<p><code>Ld</code> 大於曲率半徑時,車到引導點的<strong>弦會整個切過弧</strong>,轉向立刻飽和。</p>
+<p>自適應的判準用<strong>弦到路徑的最大偏離(sagitta)</strong>,不要估曲率
+(折線上數值微分會被取樣雜訊主導):</p>
+<pre><code>chord_tol 0.08 → 允許 Ld ≤ 0.937   ← 對 R=1.41 等於不限制(實際偏離 0.074)
+chord_tol 0.04 → 允許 Ld ≤ 0.667
+</code></pre>
+<p>⚠ 容差設太鬆時<strong>自適應機制等於沒作用</strong>,而 log 上看不出來 ——
+把實際用的 <code>Ld</code> 印出來。</p>
+<h3 id="-規劃時要留轉向餘裕">🔴 規劃時要留轉向餘裕</h3>
+<p>Dubins 用 <code>δ_max</code> 算 <code>R_min</code>。若規劃直接用車的 <code>δ_max</code>(70° → R=0.514 m),
+<strong>路徑正好貼在轉向極限上,控制器一點修正權限都不剩</strong>。</p>
+<p>改用 δ_plan = 45°(R=1.41 m),留 25° 給修正。</p>
+<p>⚠ 「弧上轉向飽和」不一定是 bug:R=0.5 的弧上 <code>δ = atan(L/R) = 70.5°</code> 就是<strong>正解</strong>。
+我第一版把「不飽和」寫成自測的通過條件 —— <strong>那個斷言本身是錯的</strong>。</p>
+<h3 id="-行進方向要整段鎖定不可逐步重判">🔴 行進方向要<strong>整段鎖定</strong>,不可逐步重判</h3>
+<p>從引導點方位角逐步判前進/倒車時,車偏掉之後引導點會跑到「前方」,
+於是倒車路徑被自己切成前進 → <code>Ld</code> 跳回、轉向翻號 → 迅速發散。</p>
+<p><strong>規劃出來的方向不該由控制器中途改掉,那個自由度不該存在。</strong></p>
+<p>實測(同一條轉彎路徑,逐項疊加):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>組態</th>
+<th>完成度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前進</td>
+<td>25%</td>
+</tr>
+<tr>
+<td>倒車 + 轉向反號</td>
+<td>2%</td>
+</tr>
+<tr>
+<td>倒車 + 正號</td>
+<td>31%</td>
+</tr>
+<tr>
+<td>倒車 + 正號 + <strong>方向鎖定</strong></td>
+<td><strong>50%</strong></td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="6-⑥-到位判定歐氏距離對這類系統不可能收斂">6. ⑥ 到位判定:歐氏距離對這類系統不可能收斂</h2>
+<p><strong>非完整約束系統(瞬時橫向速度恆為 0)不可能用連續的靜態狀態回授
+穩定到一個點</strong> —— 這是 Brockett 條件,不是增益調不好。</p>
+<p>把目標點反覆餵給控制器的後果會<strong>隨控制器變好而惡化</strong>:</p>
+<pre><code>轉向符號錯時  → 車繞著目標轉,誤差卡在 0.58 m
+轉向符號對時  → 積分項(overdrive)把目標往外推,而車跟得上
+                → **追著一個一直後退的點跑出場景(y = 11.28 m)**
+</code></pre>
+<p>⇒ 到位判定要用<strong>沿路徑的弧長</strong>,橫向與航向誤差<strong>分開記錄當品質指標</strong>,
+不拿來當控制目標。</p>
+<p><strong>靠泊(最後對準)可以另外做</strong>:引導點放在<strong>進場軸線上</strong>、比車當前投影
+前進一個前視距離,且<strong>永不越過目標</strong>。點在線上 → pure pursuit 自然把車拉回線上,
+橫向不需要第二個迴路;點不越過目標 → 不會追著後退的點跑掉。</p>
+<p>實測結果:<strong>橫向 0.0001 m、航向誤差 0.03°</strong>。</p>
+<hr />
+<h2 id="7-工程紀律這一輪真正省時間的三件事">7. 工程紀律:這一輪真正省時間的三件事</h2>
+<h3 id="71-幾何全部做成離線可測的純函式">7.1 幾何全部做成<strong>離線可測的純函式</strong></h3>
+<p>投影、取引導點、自適應前視、方向鎖定 —— 全部不依賴模擬器,寫成純函式,
+配 30+ 項自測。<strong>這一輪的五個 bug 全是純幾何錯誤,離線測試當場就抓到</strong>,
+而在模擬器裡每驗一次要 5~10 分鐘機時。</p>
+<p>自測要<strong>釘住踩過的坑</strong>,不是只測 happy path:</p>
+<pre><code>✅ 引導點在車前方        ← 曾經跑到後面 → 沿線震盪
+✅ 尾端引導點仍在前方    ← 夾在終點會落到車後面
+✅ 側方逼近不誤判 done   ← 歐氏距離會
+✅ s 單調不減            ← 投影抖動會把車拉回上一段
+✅ 負對照:偏離超限 abort / 點不足 raise
+</code></pre>
+<h3 id="72-每個結論配一個行為指紋而且要問它什麼時候會騙我">7.2 每個結論配一個<strong>行為指紋</strong>,而且要問「它什麼時候會騙我」</h3>
+<p><code>ros2 param get</code> 只證明宣告值,證明不了攔截點吃到哪個值 —— 要在程式裡
+印一行。而<strong>指標本身也會有盲區</strong>,這一輪踩了三次:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>指標</th>
+<th>盲區</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>橫向誤差 <code>cross</code></td>
+<td>對<strong>航向</strong>不連續結構上看不見 —— 起點 <code>cross=0</code> 卻要 66° 轉向</td>
+</tr>
+<tr>
+<td><code>ARRIVED</code> 計數</td>
+<td>依賴引導點距離,不反映控制品質</td>
+</tr>
+<tr>
+<td>log 印的轉向角</td>
+<td>只乘了極性沒乘 <code>sign(v)</code>,倒車時顯示成反號(<strong>致動是對的,顯示在騙人</strong>)</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="73-事後讀狀態常常讀不到真相">7.3 事後讀狀態常常讀不到真相</h3>
+<p>中止時控制器會把致動歸零,所以<strong>事後去讀 <code>/joint_states</code> 一定讀到 0</strong>。
+要分辨「指令對」還是「關節做得到」,必須在<strong>跑的當下</strong>把兩者一起記進 log。</p>
+<hr />
+<h2 id="8-檢查清單換底盤之前逐項確認">8. 檢查清單(換底盤之前逐項確認)</h2>
+<pre><code>□ 地面有碰撞體?(查 collisionEnabled,不要假設)
+□ 相關剛體的重力沒被關掉?(查 disableGravity,**逐一列出**不要信文件)
+□ 底盤有垂直自由度?(關節鏈裡有沿世界 Z 的自由度)
+□ 上面三項一起改、一起驗(分開做都是 no-op)
+□ 車動起來時垂直自由度會**回彈**?(靜態值分不出兩個世界)
+□ 算過馬達扭力上限 vs 抓地力上限,知道誰是限制?
+□ 轉向符號用資料驗過?(sign 一致性 + 量級比,量級對才是只有符號錯)
+□ 轉向符號在**兩個行進方向**都驗過?
+□ 追蹤參考點是固定軸(不側滑的那一軸)?量過它離車體原點多遠?
+□ 規劃座標與追蹤點一致?(起點與目標都推過偏移)
+□ 引導點按**弧長**取、保證在前方、`Ld` ≤ 曲率半徑?
+□ 規劃的 R_min 留了轉向餘裕?(不要用車的 δ_max 去規劃)
+□ 行進方向整段鎖定?
+□ 到位判定用弧長不用歐氏距離?
+□ 幾何寫成離線可測的純函式,自測釘住踩過的坑?
+□ 每個變因有行為指紋,而且想過那個指紋什麼時候會騙人?
+</code></pre>
+<hr />
+<h2 id="9-還沒解決的誠實紀錄">9. 還沒解決的(誠實紀錄)</h2>
+<p>轉彎段目前推進到 <strong>50%</strong>(5.753 / 11.464 m)。卡點是<strong>轉向飽和</strong>:
+<code>joint_act</code> 貼在 72°、<code>s</code> 停住不再前進而橫向誤差繼續長 ——
+規劃的 45° 加上要修正的量已經吃掉全部權限。</p>
+<p>下一步是把規劃的 <code>δ_plan</code> 再降(例如 35° → R=2.0 m)看飽和是否消失。
+⚠ 判準要看 <code>joint_act</code> <strong>有沒有貼在上限</strong>,不是看走多遠 ——
+「走得更遠」在這條線上出現過三次,每次都是延後發散而不是收斂。</p>
+<p>專案端的逐輪紀錄在
+<a href="https://github.com/wicanr2/isaac-sim-60-tuning/blob/main/docs/202-wheels-grounded-cannot-spin.md"><code>isaac-sim-60-tuning/docs/202</code></a>。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

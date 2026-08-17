@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>16 · 把 5.x 的搬運場景調到 6.0 能跑,而且東西不會亂飛 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/" class="on">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">6.0.1</div><ul class="side-l"><li><a href="../../6.0.1/08-migration-5.1-to-6.0-oom-risk/"><span class="n">08</span>5.1 USD 場景搬進 6.0.1</a></li><li><a href="../../6.0.1/14-ros2-bridge-6.0-architecture/"><span class="n">14</span>ROS 2 Bridge 在 6.0 的架構重組</a></li><li><a href="../../6.0.1/15-physics-backend-5.1-to-6.0/"><span class="n">15</span>5.1 到 6.0 的物理層變動</a></li><li><a href="../../6.0.1/16-model-tuning-for-6.0/" class="on"><span class="n">16</span>把 5.x 的搬運場景調到 6.0 能跑,而且東西不會亂飛</a></li><li><a href="../../6.0.1/17-physics-parameter-tuning-6.0/"><span class="n">17</span>Isaac Sim 6.0 的物理調參</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-一個會被搬走的箱子由什麼組成">1. 一個「會被搬走的箱子」由什麼組成</a></li><li class="l3"><a href="#11-真實案例一顆棧板">1.1 真實案例:一顆棧板</a></li><li class="l2"><a href="#2-怎麼看見這些不開-gui">2. 怎麼看見這些(不開 GUI)</a></li><li class="l3"><a href="#21-為什麼-vs-code-直接打不開">2.1 為什麼 VS Code 直接打不開</a></li><li class="l3"><a href="#22-離線讀把關心的那一小塊轉成文字">2.2 離線讀:把關心的那一小塊轉成文字</a></li><li class="l3"><a href="#23-線上讀對跑著的模擬發探針">2.3 線上讀:對跑著的模擬發探針</a></li><li class="l2"><a href="#3-用-vs-code-gvim-改-usd">3. 用 VS Code / gvim 改 USD</a></li><li class="l3"><a href="#31-轉成文字改轉回去">3.1 轉成文字、改、轉回去</a></li><li class="l3"><a href="#32-但多數時候不該改檔案">3.2 但多數時候,不該改檔案</a></li><li class="l2"><a href="#4-四個讓物理看起來壞掉的結構問題">4. 四個讓物理「看起來壞掉」的結構問題</a></li><li class="l3"><a href="#41-剛體與碰撞貼在不同層">4.1 剛體與碰撞貼在不同層</a></li><li class="l3"><a href="#42-質量貼在碰撞子層而不是剛體層">4.2 質量貼在碰撞子層,而不是剛體層</a></li><li class="l3"><a href="#43-材質綁定查得到-綁上了">4.3 材質綁定:查得到 ≠ 綁上了</a></li><li class="l3"><a href="#44-sdf-解析度不足以表達那個孔">4.4 SDF 解析度不足以表達那個孔</a></li><li class="l2"><a href="#5-東西亂飛的成因排序">5. 「東西亂飛」的成因排序</a></li><li class="l3"><a href="#51-診斷順序">5.1 診斷順序</a></li><li class="l2"><a href="#6-修法與驗收">6. 修法與驗收</a></li><li class="l3"><a href="#61-修的順序">6.1 修的順序</a></li><li class="l3"><a href="#62-驗收">6.2 驗收</a></li><li class="l2"><a href="#7-一頁摘要">7. 一頁摘要</a></li><li class="l2"><a href="#參考">參考</a></li></ul></aside>
+  <main class="doc">
+<h1 id="16-把-5x-的搬運場景調到-60-能跑而且東西不會亂飛">16 · 把 5.x 的搬運場景調到 6.0 能跑,而且東西不會亂飛</h1>
+<p>一個在 Isaac Sim 5.1 上跑得好好的搬運場景,搬到 6.0 之後開始出怪事:棧板抬不起來、抬起來又滑掉、或者一碰到就彈飛。畫面上看起來像是「物理壞了」,但模擬器<strong>從頭到尾不會報任何錯</strong>。</p>
+<p>這篇從零講起:一個「會被搬動的箱子」在 USD 裡究竟由哪些東西組成、怎麼在不開 GUI 的情況下看見它們、怎麼用 VS Code 或 gvim 改、以及四個最常見的結構問題各自會表現成什麼症狀。</p>
+<p>不需要先熟悉 Isaac Sim。需要的前置只有一個觀念,而且它是這整篇的地基:</p>
+<blockquote>
+<p><strong>物理求解器沒有「這個設定不合理」的概念。它永遠算得出一個答案,然後把答案畫給你看。</strong>
+所以「沒有錯誤訊息」不代表設定是對的——它什麼資訊都沒提供。</p>
+</blockquote>
+<p>延伸閱讀:<a href="../../common/13-contact-and-grasp-first-principles/">13 接觸與抓握的第一性原理</a>(為什麼調摩擦常是錯的第一步)、<a href="../../common/10-scene-physics-authoring/">10 場景資產的物理結構</a>、<a href="../../6.0.1/15-physics-backend-5.1-to-6.0/">15 5.1 → 6.0 的物理層變動</a>。</p>
+<p>本篇的結構與數值來自一個真實場景(倉儲 AMR 叉取棧板),全部標了是實測還是推論。</p>
+<hr />
+<h2 id="1-一個會被搬走的箱子由什麼組成">1. 一個「會被搬走的箱子」由什麼組成</h2>
+<p>USD 場景是一棵樹,樹上每個節點叫 <strong>prim</strong>。prim 本身只是個位置(<code>Xform</code>)或一塊網格(<code>Mesh</code>),<strong>它預設完全沒有物理</strong>——你看得到它,但它不會掉、不會擋路、不會被推。</p>
+<p>物理是靠<strong>貼標籤</strong>加上去的。這些標籤叫 API schema,像貼紙一樣貼在某個 prim 上:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>標籤</th>
+<th>貼上去之後</th>
+<th>沒貼會怎樣</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RigidBodyAPI</code></td>
+<td>這個 prim 成為一個<strong>剛體</strong>:會受重力、有速度、會被推</td>
+<td>它是靜止的背景,不會動</td>
+</tr>
+<tr>
+<td><code>CollisionAPI</code></td>
+<td>這塊網格會<strong>參與碰撞偵測</strong>:別的東西撞得到它</td>
+<td>別人<strong>直接穿過去</strong></td>
+</tr>
+<tr>
+<td><code>MassAPI</code></td>
+<td>顯式指定質量、質心、慣性</td>
+<td>由<strong>密度 × 碰撞體體積</strong>自動推算</td>
+</tr>
+<tr>
+<td><code>MeshCollisionAPI</code></td>
+<td>指定碰撞用什麼形狀近似(<code>convexHull</code> / <code>sdf</code> / …)</td>
+<td>吃預設近似</td>
+</tr>
+</tbody>
+</table></div>
+<p>這四張貼紙<strong>可以貼在不同的 prim 上</strong>,而它們貼在哪裡,決定了物理對不對。這就是本篇後半所有問題的來源。</p>
+<h3 id="11-真實案例一顆棧板">1.1 真實案例:一顆棧板</h3>
+<p>實際從場景檔讀出來的結構(讀法見 §2):</p>
+<pre><code>/target_pallet                              Xform      ← 沒有任何物理標籤
+  └─ target_pallet                          Xform      [RigidBody]           ← 剛體在這層
+       ├─ SM_RecycledWoodPallet_A04_01      Mesh       [Collision, Mass=20, approx=sdf]
+       │    ├─ M_..._Body                   GeomSubset
+       │    └─ M_..._Bolts                  GeomSubset
+       ├─ Looks/Wood_Recycled_A             Material   ← 渲染材質(木頭外觀)
+       └─ Cube                              Mesh       [Collision, Mass=20, approx=sdf]
+
+bbox 最長邊 = 1.079 m
+</code></pre>
+<p>讀出來的事實:</p>
+<ul>
+<li><strong>剛體</strong>貼在中間那層 <code>target_pallet</code>;</li>
+<li><strong>碰撞</strong>貼在再下一層的兩塊網格上(棧板本體 + 上面那箱貨);</li>
+<li><strong>質量</strong>也貼在那兩塊網格上,各 20 kg,而剛體那層自己沒有 <code>MassAPI</code>;</li>
+<li>兩塊碰撞網格都用 <code>sdf</code> 近似。</li>
+</ul>
+<p>先記住這個形狀。§4 會說明它的每一項各自埋了什麼。</p>
+<hr />
+<h2 id="2-怎麼看見這些不開-gui">2. 怎麼看見這些(不開 GUI)</h2>
+<p>場景檔動輒上百 MB、跑在遠端 GPU 機器上,開 GUI 拖來拖去不現實。有三條路。</p>
+<h3 id="21-為什麼-vs-code-直接打不開">2.1 為什麼 VS Code 直接打不開</h3>
+<p>先看檔案的前 16 個位元組:</p>
+<pre><code class="language-bash">$ head -c 16 AISHOW_isaac60.usd | xxd
+00000000: 5058 522d 5553 4443 0008 0000 0000 0000  PXR-USDC........
+</code></pre>
+<p><code>PXR-USDC</code> 是 <strong>crate 格式</strong>的檔頭——USD 的<strong>二進位</strong>序列化格式。副檔名雖然是 <code>.usd</code>,內容不是文字。用編輯器打開只會看到亂碼。</p>
+<p>USD 其實有兩種存法,是同一份資料的兩種寫法:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>格式</th>
+<th>副檔名慣例</th>
+<th>內容</th>
+<th>編輯器</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>crate</strong></td>
+<td><code>.usd</code> / <code>.usdc</code></td>
+<td>二進位,體積小、載入快</td>
+<td>❌ 打不開</td>
+</tr>
+<tr>
+<td><strong>ASCII</strong></td>
+<td><code>.usda</code></td>
+<td>純文字,人看得懂</td>
+<td>✅ VS Code / gvim 都行</td>
+</tr>
+</tbody>
+</table></div>
+<p>所以流程是:<strong>crate → 轉成 .usda → 用編輯器改 → 轉回 crate</strong>。</p>
+<h3 id="22-離線讀把關心的那一小塊轉成文字">2.2 離線讀:把關心的那一小塊轉成文字</h3>
+<p>標準做法是 <code>usdcat</code> 這支命令列工具。⚠ <strong>但 Isaac Sim 的容器裡沒有附 <code>usdcat</code></strong>(實測 <code>find /isaac-sim -name "usdcat*"</code> 回空),而 USD 的 Python 套件 <code>pxr</code> 藏在 extension 快取裡、不在預設路徑上。</p>
+<p>要接起來,得同時設兩個環境變數:</p>
+<pre><code class="language-bash"># 在 Isaac Sim 容器內
+USDLIB=$(ls -d /isaac-sim/extscache/omni.usd.libs-*/ | head -1)
+export PYTHONPATH=${USDLIB}:$PYTHONPATH
+export LD_LIBRARY_PATH=${USDLIB}bin:$LD_LIBRARY_PATH    # ← 少這行會 ImportError: libusd_tf.so
+
+/isaac-sim/kit/python/bin/python3 -c &quot;from pxr import Usd; print('pxr OK')&quot;
+</code></pre>
+<blockquote>
+<p>只設 <code>PYTHONPATH</code> 會失敗在 <code>ImportError: libusd_tf.so: cannot open shared object file</code>——Python 模組找得到了,但它背後的 C++ 動態庫找不到。<strong>兩個都要設。</strong></p>
+</blockquote>
+<p>接起來之後就能唯讀檢視。關鍵是 <code>Usd.Stage.LoadNone</code>:</p>
+<pre><code class="language-python">from pxr import Usd, UsdGeom, UsdPhysics
+
+# LoadNone:只讀場景結構,不把幾何資料載進記憶體 —— 126 MB 的場景才開得動
+stage = Usd.Stage.Open(scene_path, load=Usd.Stage.LoadNone)
+prim = stage.GetPrimAtPath(&quot;/target_pallet&quot;)
+prim.Load()          # 只把這一支的內容載進來
+
+print(prim.HasAPI(UsdPhysics.RigidBodyAPI))    # 有沒有貼剛體貼紙
+print(prim.HasAPI(UsdPhysics.CollisionAPI))    # 有沒有貼碰撞貼紙
+
+# 量 bounding box —— 算 SDF 體素大小要用它(§4.4)
+cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
+size = cache.ComputeWorldBound(prim).ComputeAlignedRange().GetSize()
+print(&quot;最長邊 %.3f m&quot; % max(size))
+</code></pre>
+<blockquote>
+<p>⚠ <strong>絕對不要對大場景用 <code>stage.Flatten()</code>。</strong> 它把所有 layer 攤平成一份完整資料,126 MB 的 crate 攤平後是數 GB 的文字,會把磁碟塞爆。要匯出局部,用 <code>Sdf.CopySpec</code> 只複製你關心的那棵子樹。</p>
+</blockquote>
+<h3 id="23-線上讀對跑著的模擬發探針">2.3 線上讀:對跑著的模擬發探針</h3>
+<p>離線讀的是<strong>檔案裡寫死的值</strong>(authored value)。模擬跑起來之後,東西的位置每一格都在變,那個「現在在哪」不在檔案裡。</p>
+<p>要看即時值,得對跑著的進程發查詢指令,讓它自己印出來。做法是在啟動腳本裡開一個命令通道(UDP / MQTT 都行),收到指令就查、查完 <code>print</code>。</p>
+<p><strong>兩者回答的是不同問題,不能互相取代:</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>離線讀檔</th>
+<th>線上探針</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>看到的</td>
+<td>檔案寫死的初始值</td>
+<td>模擬當下的即時值</td>
+</tr>
+<tr>
+<td>適合問</td>
+<td>結構對不對、標籤貼在哪、參數設多少</td>
+<td>東西現在在哪、有沒有在動、抬起來幾公分</td>
+</tr>
+<tr>
+<td>需要</td>
+<td>停機也能讀</td>
+<td>模擬必須在跑</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="3-用-vs-code-gvim-改-usd">3. 用 VS Code / gvim 改 USD</h2>
+<h3 id="31-轉成文字改轉回去">3.1 轉成文字、改、轉回去</h3>
+<pre><code class="language-bash"># crate → 文字
+usdcat scene.usd -o scene.usda
+# (沒有 usdcat 時,用 §2.2 的 python:layer.Export(&quot;scene.usda&quot;))
+
+# 用你習慣的編輯器改
+code scene.usda      # VS Code
+gvim scene.usda
+
+# 文字 → crate
+usdcat scene.usda -o scene_new.usd
+</code></pre>
+<p><code>.usda</code> 的內容長這樣,是給人看的:</p>
+<pre><code class="language-usda">def Xform &quot;target_pallet&quot; (
+    prepend apiSchemas = [&quot;PhysicsRigidBodyAPI&quot;]
+)
+{
+    def Mesh &quot;SM_RecycledWoodPallet_A04_01&quot; (
+        prepend apiSchemas = [&quot;PhysicsCollisionAPI&quot;, &quot;PhysicsMassAPI&quot;,
+                              &quot;PhysxSDFMeshCollisionAPI&quot;]
+    )
+    {
+        float physics:mass = 20
+        uniform token physics:approximation = &quot;sdf&quot;
+        uniform int physxSDFMeshCollision:sdfResolution = 256
+    }
+}
+</code></pre>
+<p><code>apiSchemas</code> 那一行就是 §1 講的「貼紙清單」。要讓某個 prim 變成剛體,就是把 <code>"PhysicsRigidBodyAPI"</code> 加進它的 <code>apiSchemas</code>。</p>
+<p><strong>VS Code 建議裝 USD 語法高亮擴充</strong>(搜尋 "USD" 或 "usda"),沒有的話設成 Python 或 C 的語法著色也堪用——<code>.usda</code> 的括號結構跟它們像。gvim 可以 <code>:set syntax=cpp</code> 應急。</p>
+<h3 id="32-但多數時候不該改檔案">3.2 但多數時候,不該改檔案</h3>
+<p>直接改 USD 有三個現實問題:</p>
+<ol>
+<li><strong>場景檔通常是別人給的</strong>,下次對方更新一版,你的修改全沒了;</li>
+<li><strong>同一份場景要餵給兩台不同版本的機器</strong>(5.1 一台、6.0 一台),改死在檔案裡就沒辦法兩邊通吃;</li>
+<li><strong>crate ↔ 文字來回轉換有風險</strong>,大檔案尤其。</li>
+</ol>
+<p>替代做法是<strong>在啟動腳本裡於載入後套用修改</strong>(runtime patch)。Isaac Sim 支援用 <code>--exec script.py</code> 指定啟動時執行的腳本:</p>
+<pre><code class="language-python"># 啟動腳本裡,場景載入之後
+from pxr import UsdPhysics, PhysxSchema
+
+prim = stage.GetPrimAtPath(&quot;/target_pallet/target_pallet/SM_RecycledWoodPallet_A04_01&quot;)
+sdf_api = PhysxSchema.PhysxSDFMeshCollisionAPI.Apply(prim)
+sdf_api.CreateSdfResolutionAttr().Set(512)      # 原檔不動,啟動時才改
+</code></pre>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>直接改 USD</th>
+<th>啟動腳本 runtime 套用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>原始場景檔</td>
+<td>被改掉</td>
+<td>不動</td>
+</tr>
+<tr>
+<td>版本控制</td>
+<td>二進位,diff 看不出改了什麼</td>
+<td>腳本是文字,能 review、能回溯</td>
+</tr>
+<tr>
+<td>兩台不同版本</td>
+<td>要維護兩份場景</td>
+<td>一份場景 + 腳本內做版本判斷</td>
+</tr>
+<tr>
+<td>上游更新場景</td>
+<td>修改遺失</td>
+<td>照樣套用</td>
+</tr>
+<tr>
+<td>缺點</td>
+<td>—</td>
+<td>每次啟動多幾秒;腳本本身要維護</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>建議:結構性的錯誤(貼紙貼錯層)在源頭修;調參性質的(解析度、offset、摩擦)用啟動腳本。</strong></p>
+<blockquote>
+<p>⚠ 用啟動腳本要注意一個坑:如果容器掛載的是啟動時<strong>複製的快照</strong>,改了來源檔不重啟不會生效。改完務必確認你改的那份就是跑起來的那份。</p>
+</blockquote>
+<hr />
+<h2 id="4-四個讓物理看起來壞掉的結構問題">4. 四個讓物理「看起來壞掉」的結構問題</h2>
+<p>以下四項都符合同一個模式:<strong>設定得進去、不報錯、但行為錯</strong>。</p>
+<h3 id="41-剛體與碰撞貼在不同層">4.1 剛體與碰撞貼在不同層</h3>
+<p>官方對這件事的規則很硬:</p>
+<blockquote>
+<p><strong>Rule:</strong> <code>RigidBodyAPI</code> + <code>CollisionAPI</code> on the <strong>same prim</strong>. Splitting them across parent/child causes intermittent collision failures.</p>
+<p>— 官方 <code>skills/physics-simulation/SKILL.md</code></p>
+</blockquote>
+<p>回頭看 §1.1 那顆棧板:剛體在 <code>target_pallet</code>,碰撞在它底下兩塊 <code>Mesh</code>。<strong>分層了。</strong></p>
+<p>分層的兩種壞法方向相反:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>貼法</th>
+<th>後果</th>
+<th>症狀</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>剛體貼在<strong>每個葉節點</strong></td>
+<td>每塊網格各自是獨立剛體,彼此沒有剛性約束</td>
+<td><strong>一受力就散架、零件各自飛走</strong></td>
+</tr>
+<tr>
+<td>碰撞只貼在<strong>剛體那層</strong>,子網格沒有</td>
+<td>子網格沒有碰撞代理</td>
+<td>別的東西直接穿過去</td>
+</tr>
+<tr>
+<td>剛體在父、碰撞在子(本案例)</td>
+<td>PhysX 仍會把子層碰撞聚合給父剛體,但<strong>質量與慣性的來源變得不明確</strong>(見 4.2)</td>
+<td>間歇性的接觸失效、抬起來的姿態不對</td>
+</tr>
+</tbody>
+</table></div>
+<p>概念圖見 <a href="../../img/rigidbody-collision-layering.svg"><code>img/rigidbody-collision-layering.svg</code></a>。</p>
+<p><strong>怎麼查</strong>:對每個 prim 印 <code>HasAPI(RigidBodyAPI)</code> 與 <code>HasAPI(CollisionAPI)</code>,看兩者是不是落在同一層。</p>
+<h3 id="42-質量貼在碰撞子層而不是剛體層">4.2 質量貼在碰撞子層,而不是剛體層</h3>
+<p>本案例:</p>
+<pre><code>target_pallet                        [RigidBody]              ← 剛體,但沒有 MassAPI
+  ├─ SM_RecycledWoodPallet_A04_01    [Collision, Mass=20]     ← 質量在這
+  └─ Cube                            [Collision, Mass=20]     ← 這也有
+</code></pre>
+<p>剛體那層沒有 <code>MassAPI</code>,兩個子網格各宣告 20 kg。於是「這顆棧板到底幾公斤」變成一個<strong>要靠聚合規則推導</strong>的問題,而不是一個寫死的事實。</p>
+<p>為什麼這件事會讓東西亂飛:<strong>慣性張量</strong>(物體對旋轉的「阻力」)是由質量分布算出來的。如果聚合出來的慣性張量異常小,一個很小的力矩就會產生巨大的角加速度——畫面上就是<strong>一碰到就開始瘋狂旋轉、然後飛出去</strong>。</p>
+<p>而 6.0 讓這件事更需要留意:官方 release notes 明講 <code>MassAPI</code> 的授權規則改了——<strong>只在設定了非預設密度時才套用</strong>。也就是說,同一個資產流程在 5.x 與 6.0 產出的質量可能不同,而且不會有任何警告。</p>
+<p><strong>建議</strong>:跨版本搬場景時,質量屬於「要重新量、不能假設沿用」的那一類。最穩的做法是在剛體那層顯式寫死 <code>MassAPI</code>,不要依賴推算。</p>
+<h3 id="43-材質綁定查得到-綁上了">4.3 材質綁定:查得到 ≠ 綁上了</h3>
+<p>物理材質(摩擦、彈性)是獨立的 prim,要<strong>綁定</strong>到碰撞體上才有作用。查綁定的 API 是 <code>ComputeBoundMaterial</code>。</p>
+<p>陷阱在於:<strong>它幾乎不會回 <code>None</code>。</strong> 找不到物理材質時,它會沿 fallback 把<strong>渲染材質</strong>回給你。</p>
+<p>本案例實測(<code>purpose="physics"</code>):</p>
+<pre><code>fork_tilt        → /World/PhysicsMaterials/high_friction_fork_pallet   ✅ 這是 PhysicsMaterial
+fork_tilt_01     → /World/PhysicsMaterials/high_friction_fork_pallet   ✅
+fork_liftA1      → /World/Looks/Metal_Glossy_A                         ❌ 這是渲染材質
+棧板全部 prim    → .../Looks/Wood_Recycled_A                            ❌ 這是渲染材質
+</code></pre>
+<p>四行都「查得到東西」。但後兩行拿到的是外觀用的材質——<code>Metal_Glossy_A</code>、<code>Wood_Recycled_A</code> 是<strong>決定它看起來像金屬 / 像木頭</strong>的,裡面根本沒有摩擦係數。</p>
+<p><strong>所以那個 μ=5.0 的高摩擦材質只綁在叉齒單側,棧板那側走的是 PhysX 預設值。</strong></p>
+<p>那麼實際生效的摩擦是多少?這裡有第二層陷阱:<strong>取決於 combine mode,而它有四種</strong>。</p>
+<p>摩擦是<strong>兩個</strong>接觸面材質合成的結果,合成方式由 <code>physxMaterial:frictionCombineMode</code> 決定:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>combine mode</th>
+<th>合成方式</th>
+<th>單側綁 μ=5.0、另一側預設 0.5 的結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>average</code>(<strong>schema 預設</strong>)</td>
+<td>取平均</td>
+<td>2.75 —— 被稀釋掉一半</td>
+</tr>
+<tr>
+<td><code>min</code></td>
+<td>取小</td>
+<td>0.5 —— <strong>綁了等於沒綁</strong></td>
+</tr>
+<tr>
+<td><code>max</code></td>
+<td>取大</td>
+<td><strong>5.0 —— 單側綁定就足夠</strong></td>
+</tr>
+<tr>
+<td><code>multiply</code></td>
+<td>相乘</td>
+<td>2.5</td>
+</tr>
+</tbody>
+</table></div>
+<p>本案例實測 authored 的是 <strong><code>max</code></strong>,所以 μ=5.0 在「叉齒 ↔ 任何東西」的接觸上是真的生效的。</p>
+<p><strong>但沒綁的那一側仍然有影響</strong>:凡是<strong>不涉及叉齒</strong>的接觸(棧板 ↔ 載具、棧板 ↔ 地面、棧板 ↔ 貨架),兩側都沒有物理材質,全部走 PhysX 預設。</p>
+<blockquote>
+<p><strong>教訓</strong>:看到「單側沒綁物理材質」時,不要直接下結論說摩擦沒生效。<strong>先讀 <code>frictionCombineMode</code>。</strong> 在 <code>max</code> 之下單側綁定就夠,在 <code>min</code> 之下綁了等於沒綁 —— 同一個綁定狀態,四種 mode 給出四種完全不同的結論。</p>
+</blockquote>
+<p><img alt="物理材質綁定的 fallback 陷阱" src="../../img/physics-material-binding-fallback.svg" /></p>
+<blockquote>
+<p><strong>判準:不是「有沒有回傳」,是「回傳的型別是不是 PhysicsMaterial」。</strong>
+只看有沒有回傳,會得到「都綁好了」的錯誤結論。</p>
+</blockquote>
+<p>順帶一提,<code>μ = 5.0</code> 這個值本身就是個訊號。日常工程材料的靜摩擦大致落在 0.3–1.0:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>材質配對</th>
+<th>靜摩擦 μ</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>紙板 / 鋼</td>
+<td>0.4</td>
+</tr>
+<tr>
+<td>木 / 木</td>
+<td>0.5</td>
+</tr>
+<tr>
+<td>混凝土 / 混凝土</td>
+<td>0.6</td>
+</tr>
+<tr>
+<td>鋼 / 鋼</td>
+<td>0.74</td>
+</tr>
+<tr>
+<td>橡膠 / 混凝土</td>
+<td>1.0</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>看到場景裡掛著 μ=5,那通常不代表「這裡摩擦很大」,而代表「有人往摩擦方向調過,而且沒有解決問題」。</strong> 這種數值是排查證據,不是設定。</p>
+<h3 id="44-sdf-解析度不足以表達那個孔">4.4 SDF 解析度不足以表達那個孔</h3>
+<p>要讓叉齒插進棧板的叉孔,碰撞近似必須<strong>表達得出那個孔</strong>。凸包(<code>convexHull</code>)在定義上做不到——孔內每一點都是孔周頂點的凸組合,必然被填實(推導見 <a href="../../common/13-contact-and-grasp-first-principles/">13 篇</a>)。所以要用 <code>sdf</code>。</p>
+<p>本案例已經用了 <code>sdf</code>。但<strong>用了 SDF 不等於孔就表達得出來</strong>,還要看解析度。</p>
+<p>PhysX schema 對 <code>sdfResolution</code> 的定義是權威的:</p>
+<blockquote>
+<p>The spacing of the uniformly sampled SDF is equal to the <strong>largest AABB extent of the mesh, divided by the resolution</strong>.</p>
+<p>— <code>PhysxSchema/resources/schema.usda</code>,<code>physxSDFMeshCollision:sdfResolution</code>(預設值 <strong>256</strong>)</p>
+</blockquote>
+<p>也就是:</p>
+<pre><code>體素邊長 = 最長的 bounding box 邊 ÷ sdfResolution
+</code></pre>
+<p>代入本案例的實測值:</p>
+<pre><code>棧板最長邊    1.079 m
+sdfResolution 256                    ← schema 預設值
+─────────────────────────────────
+體素邊長      1.079 / 256 = 4.21 mm
+
+叉孔高度      18 mm(實測 z = 1.205 ~ 1.223)
+─────────────────────────────────
+整個孔只有    18 / 4.21 ≈ 4.3 個體素
+</code></pre>
+<p><strong>用 4 個取樣點去描述一個孔洞。</strong> 孔的邊緣在哪、表面法線朝哪個方向,在這個解析度下都只是粗略的插值結果。而接觸力的<strong>方向</strong>就是由法線決定的——法線不準,力的方向就不準,棧板就會被往意料之外的方向推。</p>
+<p><img alt="SDF 解析度與最小特徵尺寸" src="../../img/sdf-resolution-vs-feature-size.svg" /></p>
+<p>PhysX 官方文件對這個機制的說法:</p>
+<blockquote>
+<p>A too low SDF resolution can lead to situations where <strong>very thin parts of the mesh don't collide</strong> since the SDF cannot represent/capture them. However, a too high SDF resolution might lead to increased memory consumption and a bit slower collision detection performance.</p>
+</blockquote>
+<p>同一個場景裡的對照很說明問題:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>物件</th>
+<th>sdfResolution</th>
+<th>是誰設的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>叉齒 <code>fork_liftA1</code></td>
+<td><strong>512</strong></td>
+<td>有人特意調過</td>
+</tr>
+<tr>
+<td>叉齒 <code>fork_tilt_01</code></td>
+<td>256</td>
+<td>預設值</td>
+</tr>
+<tr>
+<td><strong>棧板(兩塊碰撞網格)</strong></td>
+<td><strong>256</strong></td>
+<td><strong>預設值,沒人動過</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>叉齒被調高了,棧板留在預設。而需要表達精細凹特徵的,恰恰是<strong>棧板</strong>那一側。</p>
+<p><strong>怎麼選解析度</strong>:先算出你要表達的最小特徵尺寸,反推需要的體素數。</p>
+<pre><code>想讓叉孔有 N 個體素     →  resolution = 最長邊 ÷ (孔高 ÷ N)
+要 8 個體素:  1.079 / (0.018 / 8) ≈ 480   →  取 512
+要 10 個體素: 1.079 / (0.018 / 10) ≈ 600  →  取 1024(下一個常用檔位)
+</code></pre>
+<p>代價是記憶體。SDF 的記憶體隨解析度成長很快(稀疏 SDF 只存表面附近,但仍隨解析度顯著上升),<strong>調高之後要實際量 VRAM,不要假設沒事</strong>。</p>
+<blockquote>
+<p>⚠ 還有一個容易漏掉的細節:本案例裡 <code>fork_tilt</code> 這個 prim 設了 <code>sdfres=256</code>,但它<strong>沒有 <code>CollisionAPI</code></strong>(碰撞在子層的 <code>fork_tilt_01</code>)。<strong>一個貼在沒有碰撞體的 prim 上的碰撞參數,是個孤兒設定,完全不生效。</strong> 它不會報錯,你 grep 得到它,但它什麼也沒做。</p>
+</blockquote>
+<hr />
+<h2 id="5-東西亂飛的成因排序">5. 「東西亂飛」的成因排序</h2>
+<p>剛體被賦予異常大的速度,通常出自這幾個來源。按<strong>檢查成本由低到高</strong>排列(不是按可能性):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>成因</th>
+<th>機制</th>
+<th>怎麼確認</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>初始就穿透</strong></td>
+<td>起始狀態兩物體重疊(<code>g &lt; 0</code>),solver 第一步就要把它們推開,產生巨大衝量</td>
+<td>模擬啟動瞬間就飛 → 幾乎必然是這個</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>慣性張量異常</strong></td>
+<td>質量分布算錯(§4.2),小力矩 → 巨大角加速度</td>
+<td>先瘋狂旋轉才飛出去</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>接觸法線方向錯</strong></td>
+<td>SDF 解析度不足(§4.4),法線是粗糙插值的結果</td>
+<td>接觸瞬間往奇怪方向彈</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>質量比失衡</strong></td>
+<td>重物推輕物,輕的那個拿到巨大加速度</td>
+<td>查兩邊 mass 的比值</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>kinematic 用錯方式移動</strong></td>
+<td>用 teleport 直接覆寫位姿而非 <code>setKinematicTarget</code>,穿過去之後才被偵測到</td>
+<td>查控制路徑</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>timestep 太大</strong></td>
+<td>一步移動太遠,離散取樣漏抓碰撞</td>
+<td>提高 Hz 或開 CCD 會改善</td>
+</tr>
+</tbody>
+</table></div>
+<p>本案例已測得的:質量比是棧板 20~40 kg vs 叉齒 100 kg(<strong>2.5~5:1,不算極端</strong>),所以第 4 項不是主嫌;第 2、3 項都有結構性證據。</p>
+<h3 id="51-診斷順序">5.1 診斷順序</h3>
+<pre><code>東西飛走 / 抬不起來 / 滑掉
+│
+├─ 0. 先確認物理後端是 PhysX 還是 Newton(6.0 起,見 15 篇)
+│     └─ 後端不同,以下參數語意全部不同
+│
+├─ 1. 結構檢查(離線讀檔就能做,不必跑模擬)
+│     ├─ RigidBody 與 Collision 在同一層嗎?          → §4.1
+│     ├─ 質量寫在剛體層還是子層?值合理嗎?           → §4.2
+│     ├─ 物理材質綁定回傳的是 PhysicsMaterial 嗎?    → §4.3
+│     └─ 碰撞參數有沒有貼在「沒有碰撞體」的 prim 上?  → §4.4 註
+│
+├─ 2. 幾何檢查(要量,不能猜)
+│     ├─ 兩物體初始有沒有重疊?
+│     └─ 要表達的最小特徵 ÷ 體素邊長 = 幾個體素?     → §4.4
+│
+└─ 3. 這一步之前,不要碰摩擦係數
+      理由:g &gt; 0 ⟹ λₙ = 0 ⟹ ‖f_t‖ ≤ μ·0 = 0
+      沒有接觸點時,μ 設多大都是零(見 13 篇)
+</code></pre>
+<p><strong>最重要的一條</strong>:1 和 2 全部是<strong>靜態檢查</strong>,離線讀檔就能做,不需要跑模擬、不需要派任務。跑一次完整搬運要好幾分鐘,靜態檢查是秒級的。<strong>能靜態量的就別派任務。</strong></p>
+<hr />
+<h2 id="6-修法與驗收">6. 修法與驗收</h2>
+<h3 id="61-修的順序">6.1 修的順序</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>順序</th>
+<th>動作</th>
+<th>為什麼排這裡</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>把碰撞參數從沒有碰撞體的 prim 上移除或補上 <code>CollisionAPI</code></td>
+<td>孤兒設定,先清掉才不會誤導後面的判斷</td>
+</tr>
+<tr>
+<td>2</td>
+<td>在剛體層顯式寫 <code>MassAPI</code></td>
+<td>讓質量從「推算結果」變成「已知事實」</td>
+</tr>
+<tr>
+<td>3</td>
+<td>補上物理材質綁定(兩側都要)</td>
+<td>摩擦是<strong>兩個</strong>接觸面的組合</td>
+</tr>
+<tr>
+<td>4</td>
+<td>依最小特徵反推 SDF 解析度</td>
+<td>有明確算式,不是試誤</td>
+</tr>
+<tr>
+<td>5</td>
+<td>剛體與碰撞收攏到同一層</td>
+<td>動到結構,風險最高,放最後</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>一次只動一個。</strong> 同時改兩項,無論結果好壞都無法歸因,等於這一輪白跑。</p>
+<h3 id="62-驗收">6.2 驗收</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>層級</th>
+<th>憑據</th>
+<th>可信度</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>流程回報「完成」</td>
+<td>控制器說做完了</td>
+<td>❌ <strong>零</strong>。開環控制器動作跑完就報成功</td>
+</tr>
+<tr>
+<td>畫面看起來對</td>
+<td>截圖</td>
+<td>⚠ 只能排除明顯錯誤</td>
+</tr>
+<tr>
+<td><strong>物件的實際世界座標</strong></td>
+<td>搬運前後各量一次,算位移</td>
+<td>✅ <strong>唯一算數的</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>量的是<strong>位移多少公分</strong>,不是「有沒有動」。「動了」和「動了 1.9 cm 但需要 5 cm」是完全不同的結論,而後者才能指導下一步。</p>
+<hr />
+<h2 id="7-一頁摘要">7. 一頁摘要</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>問題</th>
+<th>一句話</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>.usd</code> 為什麼編輯器打不開</td>
+<td>它是 crate 二進位(檔頭 <code>PXR-USDC</code>),要先轉 <code>.usda</code> 文字</td>
+</tr>
+<tr>
+<td>Isaac Sim 容器裡有 usdcat 嗎</td>
+<td><strong>沒有</strong>。要自己接 <code>PYTHONPATH</code> + <code>LD_LIBRARY_PATH</code> 用 <code>pxr</code></td>
+</tr>
+<tr>
+<td>讀大場景會爆記憶體嗎</td>
+<td>用 <code>Usd.Stage.LoadNone</code> 只讀結構;<strong>絕不要 <code>Flatten()</code></strong></td>
+</tr>
+<tr>
+<td>該改檔還是改啟動腳本</td>
+<td>結構錯誤改源頭;調參用啟動腳本(可版控、兩版本通吃)</td>
+</tr>
+<tr>
+<td>剛體和碰撞可以分層嗎</td>
+<td>官方規則是<strong>同一個 prim</strong>;分層造成間歇性碰撞失效</td>
+</tr>
+<tr>
+<td>材質綁定怎麼確認</td>
+<td>看回傳<strong>型別是不是 PhysicsMaterial</strong>,不是看有沒有回傳</td>
+</tr>
+<tr>
+<td>SDF 體素多大</td>
+<td><strong>最長 AABB 邊 ÷ resolution</strong>(預設 256)</td>
+</tr>
+<tr>
+<td>東西亂飛先查什麼</td>
+<td>初始穿透 → 慣性張量 → 接觸法線 → 質量比</td>
+</tr>
+<tr>
+<td>什麼時候才調摩擦</td>
+<td>東西<strong>抬得起來但會滑</strong>的時候。抬不起來調摩擦是無效的</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="參考">參考</h2>
+<p>官方:</p>
+<ul>
+<li><code>PhysxSchema/resources/schema.usda</code>,<code>physxSDFMeshCollision:sdfResolution</code> — 體素間距的權威定義</li>
+<li><code>skills/physics-simulation/SKILL.md</code> @ v6.0.1 — RigidBody/Collision 同 prim 規則、摩擦參考值表</li>
+<li>PhysX 5.6 Rigid Body Collision 文件 — SDF 解析度過低導致薄結構不碰撞</li>
+<li>Isaac Sim 6.0.0 release notes — <code>MassAPI</code> 授權規則變更</li>
+</ul>
+<p>實測:一台 <code>nvcr.io/nvidia/isaac-sim:6.0.1</code>,2026-07-29。棧板結構樹、bbox 1.079 m、材質綁定解算結果、<code>sdfResolution</code> 實際值均為該機讀出。叉孔高度 18 mm 來自同專案的頂點掃描實測。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>17 · Isaac Sim 6.0 的物理調參:入口、生效條件、與完整參數表 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/" class="on">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">6.0.1</div><ul class="side-l"><li><a href="../../6.0.1/08-migration-5.1-to-6.0-oom-risk/"><span class="n">08</span>5.1 USD 場景搬進 6.0.1</a></li><li><a href="../../6.0.1/14-ros2-bridge-6.0-architecture/"><span class="n">14</span>ROS 2 Bridge 在 6.0 的架構重組</a></li><li><a href="../../6.0.1/15-physics-backend-5.1-to-6.0/"><span class="n">15</span>5.1 到 6.0 的物理層變動</a></li><li><a href="../../6.0.1/16-model-tuning-for-6.0/"><span class="n">16</span>把 5.x 的搬運場景調到 6.0 能跑,而且東西不會亂飛</a></li><li><a href="../../6.0.1/17-physics-parameter-tuning-6.0/" class="on"><span class="n">17</span>Isaac Sim 6.0 的物理調參</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-三個調參入口">1. 三個調參入口</a></li><li class="l2"><a href="#2-五個生效條件">2. 五個生效條件</a></li><li class="l3"><a href="#21-條件一貼在有對應-api-的-prim-上">2.1 條件一:貼在有對應 API 的 prim 上</a></li><li class="l3"><a href="#22-條件二後端要吃這個屬性">2.2 條件二:後端要吃這個屬性</a></li><li class="l3"><a href="#23-條件三場景檔的值可能被-runtime-patch-覆蓋">2.3 條件三:場景檔的值可能被 runtime patch 覆蓋</a></li><li class="l3"><a href="#25-條件五runtime-寫入不一定會被採用而且剛體與關節不一樣">2.5 條件五:runtime 寫入不一定會被採用,而且剛體與關節不一樣</a></li><li class="l3"><a href="#24-條件四combine-mode-兩側材質怎麼合成">2.4 條件四:combine mode —— 兩側材質怎麼合成</a></li><li class="l2"><a href="#3-完整參數表isaac-sim-601-physx-110113">3. 完整參數表(Isaac Sim 6.0.1 / PhysX 110.1.13)</a></li><li class="l3"><a href="#31-physxsceneapi-場景層貼在-physicsscene-上">3.1 PhysxSceneAPI — 場景層(貼在 PhysicsScene 上)</a></li><li class="l3"><a href="#32-physxrigidbodyapi-剛體貼在有-rigidbodyapi-的-prim-上">3.2 PhysxRigidBodyAPI — 剛體(貼在有 RigidBodyAPI 的 prim 上)</a></li><li class="l3"><a href="#33-physxcollisionapi-碰撞">3.3 PhysxCollisionAPI — 碰撞</a></li><li class="l3"><a href="#34-physxsdfmeshcollisionapi-sdf-碰撞">3.4 PhysxSDFMeshCollisionAPI — SDF 碰撞</a></li><li class="l3"><a href="#35-physxmaterialapi-物理材質">3.5 PhysxMaterialAPI — 物理材質</a></li><li class="l3"><a href="#36-physxarticulationapi-physxjointapi-關節與-articulation">3.6 PhysxArticulationAPI / PhysxJointAPI — 關節與 articulation</a></li><li class="l2"><a href="#4-調參順序接續-13-篇的推導">4. 調參順序(接續 13 篇的推導)</a></li><li class="l2"><a href="#5-怎麼確認一個參數真的生效">5. 怎麼確認一個參數真的生效</a></li><li class="l2"><a href="#6-一頁摘要">6. 一頁摘要</a></li><li class="l2"><a href="#參考">參考</a></li></ul></aside>
+  <main class="doc">
+<h1 id="17-isaac-sim-60-的物理調參入口生效條件與完整參數表">17 · Isaac Sim 6.0 的物理調參:入口、生效條件、與完整參數表</h1>
+<p>前一篇(<a href="../../6.0.1/16-model-tuning-for-6.0/">16</a>)講的是<strong>結構</strong>——貼紙貼在哪一層。這一篇講<strong>數值</strong>:6.0 有哪些物理參數可以調、從哪裡調、以及一個參數要滿足什麼條件才會真的生效。</p>
+<p>核心問題只有一個,而它在這個系統裡出乎意料地難回答:</p>
+<blockquote>
+<p><strong>我設了這個值,它到底有沒有作用?</strong></p>
+</blockquote>
+<p>底下先講五個生效條件(每一個都可以無聲地讓設定失效),再給完整參數表。</p>
+<p>依據來自 Isaac Sim 6.0.1 隨附的 <code>PhysxSchema</code> 定義檔實測(<code>omni.usd.schema.physx-110.1.13</code>),路徑與引文都標了。</p>
+<p>延伸閱讀:<a href="../../6.0.1/16-model-tuning-for-6.0/">16 模型結構調校</a>、<a href="../../6.0.1/15-physics-backend-5.1-to-6.0/">15 物理層變動</a>、<a href="../../common/09-physics-simulation-fundamentals/">09 物理模擬基礎</a>。</p>
+<hr />
+<h2 id="1-三個調參入口">1. 三個調參入口</h2>
+<p>同一個參數可能有三種設法,作用時機與持久性都不同。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>入口</th>
+<th>形式</th>
+<th>何時生效</th>
+<th>存在哪</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>USD 屬性</strong></td>
+<td><code>physxRigidBody:maxLinearVelocity = 30</code></td>
+<td>場景載入時</td>
+<td>場景檔(持久)</td>
+</tr>
+<tr>
+<td><strong>啟動參數(carb setting)</strong></td>
+<td><code>--/persistent/physics/...=X</code></td>
+<td>程序啟動時</td>
+<td>命令列(不持久)</td>
+</tr>
+<tr>
+<td><strong>Runtime API</strong></td>
+<td><code>PhysxSchema.PhysxRigidBodyAPI.Apply(prim)</code> 後設屬性</td>
+<td>呼叫當下</td>
+<td>記憶體(重載即失)</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>物理參數的絕大多數是第一種。</strong> 第二種主要管全域行為與 UI 預設,第三種是啟動腳本 patch 的做法(見 <a href="../../6.0.1/16-model-tuning-for-6.0/">16 篇 §3.2</a>)。</p>
+<p>Runtime 改的典型寫法:</p>
+<pre><code class="language-python">from pxr import PhysxSchema, UsdPhysics
+
+prim = stage.GetPrimAtPath(&quot;/target_pallet/target_pallet&quot;)
+api = PhysxSchema.PhysxRigidBodyAPI.Apply(prim)     # 沒有就貼上,有就取得
+api.CreateMaxLinearVelocityAttr().Set(30.0)
+</code></pre>
+<p>⚠ <code>Apply()</code> 是冪等的,可以重複呼叫;<code>CreateXxxAttr()</code> 在屬性不存在時建立、存在時取得。<strong>兩者都不會報「你貼錯 prim 了」。</strong></p>
+<hr />
+<h2 id="2-五個生效條件">2. 五個生效條件</h2>
+<p>一個屬性設下去卻沒作用,幾乎都是踩到這四條之一。四條都<strong>不報錯</strong>。</p>
+<h3 id="21-條件一貼在有對應-api-的-prim-上">2.1 條件一:貼在有對應 API 的 prim 上</h3>
+<p><code>physxSDFMeshCollision:sdfResolution</code> 只有在該 prim 具備碰撞能力時才有意義。貼在一個沒有 <code>CollisionAPI</code> 的 prim 上,它就是個<strong>孤兒設定</strong>:grep 得到、讀得出來、完全不生效。</p>
+<p>實例(來自一個真實場景):</p>
+<pre><code>fork_tilt         [RigidBody, Mass=100]  physxSDFMeshCollision:sdfResolution = 256   ← 孤兒
+  └─ fork_tilt_01 [Collision, approx=sdf]                                            ← 碰撞其實在這
+</code></pre>
+<p><code>fork_tilt</code> 沒有 <code>CollisionAPI</code>,那個 <code>sdfResolution</code> 什麼也沒做。真正該設的是子層的 <code>fork_tilt_01</code>。</p>
+<p><strong>檢查法</strong>:設任何碰撞相關參數前,先確認同一個 prim 上有 <code>CollisionAPI</code>;設剛體相關參數前,先確認有 <code>RigidBodyAPI</code>。</p>
+<h3 id="22-條件二後端要吃這個屬性">2.2 條件二:後端要吃這個屬性</h3>
+<p>6.0 有 PhysX 與 Newton 兩個後端(<a href="../../6.0.1/15-physics-backend-5.1-to-6.0/">15 篇</a>)。<code>physx*</code> 命名空間的屬性由 PhysX 讀,<code>newton:*</code> 由 Newton 讀。<strong>設了另一個後端的屬性,會被靜默忽略。</strong></p>
+<p>6.0 的 schema 裡有三個屬性標了 Deprecated 並指向 Newton,而它們恰好是搬運場景最常設的:</p>
+<pre><code>physxScene:timeStepsPerSecond
+  doc = &quot;Deprecated: use newton:timeStepsPerSecond (NewtonSceneAPI) instead.&quot;
+
+physxCollision:contactOffset      預設 -inf
+  doc = &quot;Deprecated: use newton:contactGap (NewtonCollisionAPI) instead.&quot;
+
+physxCollision:restOffset         預設 -inf
+  doc = &quot;Deprecated: use newton:contactMargin (NewtonCollisionAPI) instead.&quot;
+</code></pre>
+<blockquote>
+<p><strong>怎麼解讀這個 Deprecated</strong>:這些屬性在 6.0 仍然存在於 <code>PhysxSchema</code> 裡、仍有預設值、PhysX 後端仍是官方支援的後端。<strong>合理推斷是「PhysX 下照舊有效,Newton 下改用 newton:* 對應項」</strong>,而不是「6.0 起一律失效」。</p>
+<p>⚠ <strong>但這是推斷,不是實測。</strong> 要確認,最直接的方式是設一個極端值(例如 <code>timeStepsPerSecond = 30</code> 對 <code>= 480</code>)跑同一段模擬,看行為有沒有差。<strong>在有這個實測之前,不要把「我設了 timestep」當成已知事實</strong> —— 尤其當你正在追一個「參數調了沒反應」的問題時,這條要優先排除。</p>
+</blockquote>
+<h3 id="23-條件三場景檔的值可能被-runtime-patch-覆蓋">2.3 條件三:場景檔的值可能被 runtime patch 覆蓋</h3>
+<p>啟動腳本可以在場景載入後改任何屬性。於是<strong>檔案裡的值與實際跑的值可以不同</strong>。</p>
+<p>實例:某場景檔裡叉齒是 <code>physics:approximation = convexHull</code>,但跑起來探針讀到的是 <code>sdf</code> + <code>sdfResolution=512</code> —— 啟動腳本改的。</p>
+<p><strong>兩個值都要查,而且要分清楚</strong>:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>問題</th>
+<th>查哪個</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>這個場景檔本身怎麼設的</td>
+<td>離線讀檔的 <strong>authored value</strong></td>
+</tr>
+<tr>
+<td>現在跑的模擬實際用什麼</td>
+<td>對跑著的程序發<strong>探針</strong>讀即時值</td>
+</tr>
+<tr>
+<td>兩者為什麼不同</td>
+<td>讀啟動腳本</td>
+</tr>
+</tbody>
+</table></div>
+<p>只查檔案會漏掉 patch;只查 runtime 會分不清「原本就這樣」和「腳本改的」。</p>
+<h3 id="25-條件五runtime-寫入不一定會被採用而且剛體與關節不一樣">2.5 條件五:<strong>runtime 寫入不一定會被採用,而且剛體與關節不一樣</strong></h3>
+<p>§2.3 說「啟動腳本可以在場景載入後改任何屬性」。<strong>那句要加一個但書:寫得進去,不代表 PhysX 會收下。</strong></p>
+<p>實測(Isaac Sim 6.0.1-rc.7 / PhysX 110.1.13,2026-08-01):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>對象</th>
+<th>runtime 寫入</th>
+<th>回讀</th>
+<th>PhysX 實際採用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>剛體屬性</strong>(<code>physxRigidBody:maxLinearVelocity</code> 等)</td>
+<td>成功</td>
+<td>成功</td>
+<td>❌ <strong>不採用</strong></td>
+</tr>
+<tr>
+<td><strong>關節 drive</strong>(<code>drive:linear:physics:maxForce</code>)</td>
+<td>成功</td>
+<td>成功</td>
+<td>✅ <strong>採用</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>兩者走的是<strong>不同路徑</strong>,不要互相推論。剛體那組的 runtime 寫入只碰到 USD 層,
+沒有進到模擬;關節 drive 則會即時反映在行為上。</p>
+<h4 id="怎麼證明彈道正對照">怎麼證明:彈道正對照</h4>
+<p>「回讀成功」完全不是證據(§5 已經說過)。要證明一次 runtime 寫入有沒有被採用,
+用一個<strong>方向明確、只要生效就必然改變畫面</strong>的量:</p>
+<pre><code>給一個靜止的剛體 physics:velocity = (0, 0, 10)
+若被採用 → 1.5 秒後應上升約 4 公尺(扣掉重力)
+實測 Δz = +0.0000  →  沒被採用
+</code></pre>
+<p>這個方法可重用:<strong>挑一個「生效就會大幅改變、不生效就完全不動」的量</strong>,
+而不是去比較兩個都很小的數字。</p>
+<p>對照組同樣要做:關節 drive 的 <code>maxForce</code> 用門檻掃描
+(1000 → 2000,行為在中間翻轉)證明那條路徑是通的。
+<strong>只驗失敗的那一側,分不出「這個旋鈕沒用」與「我的寫入方式沒用」。</strong></p>
+<h4 id="後果">後果</h4>
+<p>要真的改剛體屬性只有兩條路,<strong>都不是 runtime</strong>:</p>
+<ol>
+<li>寫進 USD 資產(改場景檔)</li>
+<li>在啟動腳本裡用 Isaac 的 API 設定(需重啟)</li>
+</ol>
+<p>⚠ 這條的代價很具體:曾經有 40 輪實驗把「剛體速度上限」當成一個變因在比較,
+而那個變因<strong>從頭到尾沒有真的施加過</strong>。四小時的資料全部無效,
+而且過程中沒有任何錯誤訊息。</p>
+<h3 id="24-條件四combine-mode-兩側材質怎麼合成">2.4 條件四:combine mode —— 兩側材質怎麼合成</h3>
+<p>摩擦與彈性是<strong>兩個接觸面</strong>材質合成的結果,合成方式由 combine mode 決定。<strong>同一個綁定狀態,不同 mode 給出完全不同的有效值。</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th><code>frictionCombineMode</code></th>
+<th>合成</th>
+<th>一側 μ=5.0、另一側預設 0.5</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>average</code>(<strong>schema 預設</strong>)</td>
+<td>平均</td>
+<td>2.75</td>
+</tr>
+<tr>
+<td><code>min</code></td>
+<td>取小</td>
+<td><strong>0.5 —— 綁了等於沒綁</strong></td>
+</tr>
+<tr>
+<td><code>max</code></td>
+<td>取大</td>
+<td><strong>5.0 —— 單側綁定就足夠</strong></td>
+</tr>
+<tr>
+<td><code>multiply</code></td>
+<td>相乘</td>
+<td>2.5</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>restitutionCombineMode</code>、<code>dampingCombineMode</code> 同理,預設都是 <code>average</code>。</p>
+<p><strong>所以「只有一側綁了物理材質」這件事本身不足以下任何結論。</strong> 必須先讀 combine mode。</p>
+<hr />
+<h2 id="3-完整參數表isaac-sim-601-physx-110113">3. 完整參數表(Isaac Sim 6.0.1 / PhysX 110.1.13)</h2>
+<p>只列與剛體搬運相關的類別。預設值全部來自實機的 <code>generatedSchema.usda</code>。</p>
+<h3 id="31-physxsceneapi-場景層貼在-physicsscene-上">3.1 <code>PhysxSceneAPI</code> — 場景層(貼在 PhysicsScene 上)</h3>
+<p>最常調的:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>屬性</th>
+<th>預設</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>timeStepsPerSecond</code></td>
+<td><strong>60</strong></td>
+<td>物理步頻。一般剛體 60–120、緊密接觸建議 240 ⚠ 標 Deprecated(§2.2)</td>
+</tr>
+<tr>
+<td><code>solverType</code></td>
+<td><code>TGS</code></td>
+<td><code>TGS</code> / <code>PGS</code>。TGS 對長關節鏈更穩</td>
+</tr>
+<tr>
+<td><code>enableCCD</code></td>
+<td><strong>0</strong></td>
+<td>連續碰撞偵測,防高速穿透</td>
+</tr>
+<tr>
+<td><code>enableStabilization</code></td>
+<td><strong>0</strong></td>
+<td>額外穩定化;<strong>會破壞自由旋轉物體的角動量</strong></td>
+</tr>
+<tr>
+<td><code>enableGPUDynamics</code></td>
+<td>1</td>
+<td>GPU 動力學管線</td>
+</tr>
+<tr>
+<td><code>broadphaseType</code></td>
+<td><code>GPU</code></td>
+<td>粗篩演算法</td>
+</tr>
+<tr>
+<td><code>collisionSystem</code></td>
+<td><code>PCM</code></td>
+<td>碰撞偵測系統</td>
+</tr>
+<tr>
+<td><code>bounceThreshold</code></td>
+<td>0</td>
+<td>相對速度低於此值不彈跳</td>
+</tr>
+<tr>
+<td><code>frictionOffsetThreshold</code></td>
+<td>0.04</td>
+<td>接觸分離距離超過此值不算摩擦</td>
+</tr>
+<tr>
+<td><code>frictionCorrelationDistance</code></td>
+<td>0.025</td>
+<td>接觸點合併成 patch 的距離</td>
+</tr>
+<tr>
+<td><code>frictionType</code></td>
+<td><code>patch</code></td>
+<td>摩擦模型</td>
+</tr>
+<tr>
+<td><code>maxBiasCoefficient</code></td>
+<td><code>inf</code></td>
+<td>約束求解器的最大偏置係數</td>
+</tr>
+<tr>
+<td><code>minPositionIterationCount</code> / <code>max</code></td>
+<td>1 / 255</td>
+<td>全場景 position 疊代上下限</td>
+</tr>
+<tr>
+<td><code>minVelocityIterationCount</code> / <code>max</code></td>
+<td>0 / 255</td>
+<td>全場景 velocity 疊代上下限</td>
+</tr>
+<tr>
+<td><code>enableExternalForcesEveryIteration</code></td>
+<td>0</td>
+<td>提高 TGS 穩定性</td>
+</tr>
+<tr>
+<td><code>solveArticulationContactLast</code></td>
+<td><strong>0</strong></td>
+<td><strong>110 新增</strong>:把 articulation 接觸與關節最大速度約束排到最後解</td>
+</tr>
+<tr>
+<td><code>disableSleeping</code></td>
+<td><strong>0</strong></td>
+<td><strong>110 新增</strong>:全場景禁止睡眠</td>
+</tr>
+<tr>
+<td><code>enableEnhancedDeterminism</code></td>
+<td>0</td>
+<td>以效能換確定性</td>
+</tr>
+</tbody>
+</table></div>
+<p>GPU 容量類(場景大時才需要動):<code>gpuCollisionStackSize</code> 64MB、<code>gpuHeapCapacity</code> 64MB、<code>gpuMaxRigidContactCount</code> 524288、<code>gpuMaxRigidPatchCount</code> 81920、<code>gpuFoundLostPairsCapacity</code> 262144、<code>gpuFoundLostAggregatePairsCapacity</code> 1024、<code>gpuTotalAggregatePairsCapacity</code> 1024、<code>gpuTempBufferCapacity</code> 16MB、<code>gpuMaxNumPartitions</code> 8。</p>
+<h3 id="32-physxrigidbodyapi-剛體貼在有-rigidbodyapi-的-prim-上">3.2 <code>PhysxRigidBodyAPI</code> — 剛體(貼在有 RigidBodyAPI 的 prim 上)</h3>
+<p><strong>「東西亂飛」的主要控制面在這一區。</strong></p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>屬性</th>
+<th>預設</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>maxLinearVelocity</code></td>
+<td><strong><code>inf</code></strong></td>
+<td>線速度上限。<strong>預設不設限</strong></td>
+</tr>
+<tr>
+<td><code>maxAngularVelocity</code></td>
+<td><strong>5729.58</strong></td>
+<td>角速度上限(度/秒),約 16 轉/秒</td>
+</tr>
+<tr>
+<td><code>maxDepenetrationVelocity</code></td>
+<td><strong>3</strong></td>
+<td>solver 推開穿透時的最大速度。<strong>初始穿透造成暴衝的主要控制點</strong></td>
+</tr>
+<tr>
+<td><code>maxContactImpulse</code></td>
+<td><code>inf</code></td>
+<td>單一接觸可施加的衝量上限</td>
+</tr>
+<tr>
+<td><code>linearDamping</code></td>
+<td>0</td>
+<td>線性阻尼</td>
+</tr>
+<tr>
+<td><code>angularDamping</code></td>
+<td>0.05</td>
+<td>角阻尼</td>
+</tr>
+<tr>
+<td><code>solverPositionIterationCount</code></td>
+<td><strong>16</strong></td>
+<td>該剛體的 position 疊代</td>
+</tr>
+<tr>
+<td><code>solverVelocityIterationCount</code></td>
+<td><strong>1</strong></td>
+<td>該剛體的 velocity 疊代</td>
+</tr>
+<tr>
+<td><code>enableCCD</code></td>
+<td>0</td>
+<td>該剛體的掃掠積分</td>
+</tr>
+<tr>
+<td><code>enableSpeculativeCCD</code></td>
+<td>0</td>
+<td>依速度動態調整 contact offset</td>
+</tr>
+<tr>
+<td><code>enableGyroscopicForces</code></td>
+<td>1</td>
+<td>陀螺力</td>
+</tr>
+<tr>
+<td><code>sleepThreshold</code></td>
+<td>5e-5</td>
+<td>質量正規化動能低於此值可睡眠</td>
+</tr>
+<tr>
+<td><code>stabilizationThreshold</code></td>
+<td>1e-5</td>
+<td>低於此值參與穩定化</td>
+</tr>
+<tr>
+<td><code>cfmScale</code></td>
+<td>0.025</td>
+<td>弱化約束響應,可穩定 articulation</td>
+</tr>
+<tr>
+<td><code>contactSlopCoefficient</code></td>
+<td>0</td>
+<td>接觸角度容差,改善滾動行為</td>
+</tr>
+<tr>
+<td><code>disableGravity</code></td>
+<td>0</td>
+<td>關閉重力</td>
+</tr>
+<tr>
+<td><code>retainAccelerations</code></td>
+<td>0</td>
+<td>跨幀保留力/加速度</td>
+</tr>
+<tr>
+<td><code>solveContact</code></td>
+<td>1</td>
+<td>是否在 solver 中處理其接觸</td>
+</tr>
+<tr>
+<td><code>lockedPosAxis</code> / <code>lockedRotAxis</code></td>
+<td>0 / 0</td>
+<td>位元旗標,鎖定特定軸的移動/旋轉</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="33-physxcollisionapi-碰撞">3.3 <code>PhysxCollisionAPI</code> — 碰撞</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>屬性</th>
+<th>預設</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>contactOffset</code></td>
+<td><strong><code>-inf</code></strong></td>
+<td>開始產生接觸約束的距離 ⚠ Deprecated → <code>newton:contactGap</code></td>
+</tr>
+<tr>
+<td><code>restOffset</code></td>
+<td><strong><code>-inf</code></strong></td>
+<td>休息間隙,可縮放實際碰撞體積 ⚠ Deprecated → <code>newton:contactMargin</code></td>
+</tr>
+<tr>
+<td><code>torsionalPatchRadius</code></td>
+<td>0</td>
+<td>扭轉摩擦的接觸 patch 半徑</td>
+</tr>
+<tr>
+<td><code>minTorsionalPatchRadius</code></td>
+<td>0</td>
+<td>同上,下限</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><code>-inf</code> 是「未設定,用系統推導值」的哨兵值,不是真的負無限大。</p>
+</blockquote>
+<h3 id="34-physxsdfmeshcollisionapi-sdf-碰撞">3.4 <code>PhysxSDFMeshCollisionAPI</code> — SDF 碰撞</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>屬性</th>
+<th>預設</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sdfResolution</code></td>
+<td><strong>256</strong></td>
+<td><strong>體素間距 = 最長 AABB 邊 ÷ 此值</strong>(見 <a href="../../6.0.1/16-model-tuning-for-6.0/">16 篇 §4.4</a>)</td>
+</tr>
+<tr>
+<td><code>sdfSubgridResolution</code></td>
+<td>6</td>
+<td>&gt;0 啟用稀疏 SDF;0 為稠密</td>
+</tr>
+<tr>
+<td><code>sdfBitsPerSubgridPixel</code></td>
+<td><code>BitsPerPixel16</code></td>
+<td>8 / 16 / 32,降低可省記憶體但損精度</td>
+</tr>
+<tr>
+<td><code>sdfMargin</code></td>
+<td>0.01</td>
+<td>SDF 相對 bbox 對角線的擴張比例</td>
+</tr>
+<tr>
+<td><code>sdfNarrowBandThickness</code></td>
+<td>0.01</td>
+<td>表面附近高解析取樣的帶寬</td>
+</tr>
+<tr>
+<td><code>sdfEnableRemeshing</code></td>
+<td>0</td>
+<td>計算前先重新網格化</td>
+</tr>
+<tr>
+<td><code>sdfTriangleCountReductionFactor</code></td>
+<td>1</td>
+<td>保留輸入三角形的比例</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="35-physxmaterialapi-物理材質">3.5 <code>PhysxMaterialAPI</code> — 物理材質</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>屬性</th>
+<th>預設</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>frictionCombineMode</code></td>
+<td><strong><code>average</code></strong></td>
+<td>兩側摩擦合成方式(§2.4)</td>
+</tr>
+<tr>
+<td><code>restitutionCombineMode</code></td>
+<td><strong><code>average</code></strong></td>
+<td>彈性合成方式</td>
+</tr>
+<tr>
+<td><code>dampingCombineMode</code></td>
+<td><strong><code>average</code></strong></td>
+<td>阻尼合成方式</td>
+</tr>
+<tr>
+<td><code>compliantContactStiffness</code></td>
+<td>0</td>
+<td>柔順接觸的隱式彈簧剛度</td>
+</tr>
+<tr>
+<td><code>compliantContactDamping</code></td>
+<td>0</td>
+<td>柔順接觸阻尼</td>
+</tr>
+<tr>
+<td><code>compliantContactAccelerationSpring</code></td>
+<td>0</td>
+<td>切換成加速度式柔順接觸</td>
+</tr>
+</tbody>
+</table></div>
+<p>摩擦值本身是 <code>UsdPhysics.MaterialAPI</code> 的 <code>physics:staticFriction</code> / <code>dynamicFriction</code> / <code>restitution</code>。</p>
+<h3 id="36-physxarticulationapi-physxjointapi-關節與-articulation">3.6 <code>PhysxArticulationAPI</code> / <code>PhysxJointAPI</code> — 關節與 articulation</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>屬性</th>
+<th>預設</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>physxArticulation:solverPositionIterationCount</code></td>
+<td><strong>32</strong></td>
+<td>articulation 的 position 疊代(比剛體的 16 高)</td>
+</tr>
+<tr>
+<td><code>physxArticulation:solverVelocityIterationCount</code></td>
+<td><strong>1</strong></td>
+<td>velocity 疊代。<strong>官方對複雜關節建議 16,預設遠低於此</strong></td>
+</tr>
+<tr>
+<td><code>physxArticulation:sleepThreshold</code></td>
+<td>5e-5</td>
+<td></td>
+</tr>
+<tr>
+<td><code>physxArticulation:stabilizationThreshold</code></td>
+<td>1e-5</td>
+<td></td>
+</tr>
+<tr>
+<td><code>physxArticulation:articulationEnabled</code></td>
+<td>1</td>
+<td></td>
+</tr>
+<tr>
+<td><code>physxArticulation:enabledSelfCollisions</code></td>
+<td>1</td>
+<td>⚠ Deprecated → <code>newton:selfCollisionEnabled</code></td>
+</tr>
+<tr>
+<td><strong><code>physxJoint:maxJointVelocity</code></strong></td>
+<td><strong><code>inf</code></strong></td>
+<td><strong>關節速度上限。5.x 時代預設是 1e6,6.0 拿掉了</strong>(見 <a href="../../6.0.1/15-physics-backend-5.1-to-6.0/">15 篇 §4.5</a>)</td>
+</tr>
+<tr>
+<td><code>physxJoint:jointFriction</code></td>
+<td>0</td>
+<td>關節摩擦</td>
+</tr>
+<tr>
+<td><code>physxJoint:armature</code></td>
+<td>0</td>
+<td>致動器的等效慣性,可穩定高增益驅動</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="4-調參順序接續-13-篇的推導">4. 調參順序(接續 13 篇的推導)</h2>
+<p>物理層面的順序由接觸力學決定,不能交換:</p>
+<pre><code>幾何(λₙ 存不存在)→ 質量/慣性 → 碰撞近似精度 → offset → 致動 → 摩擦
+</code></pre>
+<p>在這之上,<strong>穩定性問題</strong>(抖動、暴衝、下陷)有另一組旋鈕,順序建議:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>順序</th>
+<th>症狀</th>
+<th>先動</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>一啟動就飛</td>
+<td>檢查初始穿透;<code>maxDepenetrationVelocity</code>(預設 3)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>接觸後暴衝</td>
+<td><code>maxLinearVelocity</code>(預設 inf)、<code>maxAngularVelocity</code>;articulation 場景加 <code>physxJoint:maxJointVelocity</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>抖動 / 下陷</td>
+<td>提高 <code>solverPositionIterationCount</code>(剛體 16 → 32,articulation 32 → 64)</td>
+</tr>
+<tr>
+<td>4</td>
+<td>高速穿透</td>
+<td><code>enableCCD</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>接觸解不穩</td>
+<td>提高 <code>timeStepsPerSecond</code>(120 → 240)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>仍不穩</td>
+<td><code>enableStabilization</code> ⚠ 會破壞自由旋轉物體的角動量</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>一次只動一個。</strong> 同時改兩項,無論結果好壞都無法歸因。</p>
+<hr />
+<h2 id="5-怎麼確認一個參數真的生效">5. 怎麼確認一個參數真的生效</h2>
+<p>按可信度由低到高:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>方法</th>
+<th>能證明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>在場景檔裡 grep 得到</td>
+<td>只證明<strong>寫下來了</strong></td>
+</tr>
+<tr>
+<td>2</td>
+<td>離線讀出 authored value</td>
+<td>證明<strong>值正確且格式沒錯</strong></td>
+</tr>
+<tr>
+<td>3</td>
+<td>對跑著的模擬用探針讀回</td>
+<td>證明<strong>載入後仍是這個值</strong>(排除 runtime patch 覆蓋)</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>設極端值,行為有可觀察的差異</strong></td>
+<td><strong>證明它真的參與計算</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>只有第 4 項能證明生效。</strong> 前三項都可能踩到 §2 的四個條件之一。</p>
+<p>第 4 項的操作:選一個<strong>方向明確</strong>的極端值(例如把 <code>maxLinearVelocity</code> 從 30 設成 0.1),跑同一段模擬,量同一個數字。有差 → 生效;沒差 → 這個參數對當前情境無作用,或設定沒被採用。</p>
+<blockquote>
+<p>⚠ 極端值測試要挑<strong>無副作用</strong>或<strong>易回復</strong>的參數,而且要事先想好回退方式。不要拿會改變狀態的操作當煙霧測試。</p>
+</blockquote>
+<hr />
+<h2 id="6-一頁摘要">6. 一頁摘要</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>問題</th>
+<th>答案</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>參數從哪設</td>
+<td>USD 屬性(主要)、啟動參數、runtime API</td>
+</tr>
+<tr>
+<td>為什麼我設了沒用</td>
+<td>貼錯 prim(缺對應 API)/ 後端不吃 / 被 runtime patch 覆蓋 / combine mode 稀釋 / <strong>runtime 寫入沒被採用(剛體屬性)</strong></td>
+</tr>
+<tr>
+<td>東西亂飛先動什麼</td>
+<td><code>maxDepenetrationVelocity</code> → <code>maxLinearVelocity</code> → articulation 的 <code>maxJointVelocity</code></td>
+</tr>
+<tr>
+<td>抖動下陷先動什麼</td>
+<td>solver iteration(剛體預設 16/1、articulation 32/1,都偏低)</td>
+</tr>
+<tr>
+<td>緊密接觸場景的 timestep</td>
+<td>官方建議 240,schema 預設只有 60</td>
+</tr>
+<tr>
+<td>單側綁物理材質夠不夠</td>
+<td><strong>看 <code>frictionCombineMode</code></strong>:<code>max</code> 夠、<code>min</code> 完全不夠、<code>average</code> 打對折</td>
+</tr>
+<tr>
+<td>怎麼證明參數生效</td>
+<td>設極端值看行為差異。grep 得到、讀得出來都不算</td>
+</tr>
+</tbody>
+</table></div>
+<hr />
+<h2 id="參考">參考</h2>
+<ul>
+<li><code>omni.usd.schema.physx-110.1.13/plugins/PhysxSchema/resources/generatedSchema.usda</code> — 本篇所有預設值與 doc 引文的來源,取自 Isaac Sim 6.0.1 實機</li>
+<li>官方 <code>skills/physics-simulation/SKILL.md</code> @ v6.0.1 — Hz 與 solver iteration 的建議表</li>
+<li><a href="../../common/13-contact-and-grasp-first-principles/">13 接觸與抓握的第一性原理</a> — 為什麼調參順序是幾何優先</li>
+<li><a href="../../6.0.1/15-physics-backend-5.1-to-6.0/">15 物理層變動</a> §4.5 — <code>maxJointVelocity</code> 在 107 → 110 的變更</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>
