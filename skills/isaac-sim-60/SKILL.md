@@ -320,7 +320,7 @@ grep 得到、讀得出來、探針讀回來,都只證明「值在那裡」。
 - `isaac-sim/IsaacSim` @ v6.0.1:`source/apps/*.kit`、`source/extensions/isaacsim.ros2.*`、
   `skills/physics-simulation/SKILL.md`
 - Isaac Sim 6.0.0 release notes
-- 完整推導與圖:`isaac-sim-study` 的 [14](../../docs/14-ros2-bridge-6.0-architecture/README.md)、
-  [15](../../docs/15-physics-backend-5.1-to-6.0/README.md)、
-  [16](../../docs/16-model-tuning-for-6.0/README.md)、
-  [17](../../docs/17-physics-parameter-tuning-6.0/README.md)
+- 完整推導與圖:`isaac-sim-study` 的 [14](../../docs/6.0.1/14-ros2-bridge-6.0-architecture/README.md)、
+  [15](../../docs/6.0.1/15-physics-backend-5.1-to-6.0/README.md)、
+  [16](../../docs/6.0.1/16-model-tuning-for-6.0/README.md)、
+  [17](../../docs/6.0.1/17-physics-parameter-tuning-6.0/README.md)

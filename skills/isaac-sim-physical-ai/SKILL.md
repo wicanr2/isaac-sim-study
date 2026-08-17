@@ -429,10 +429,7 @@ app 有沒有 enable isaacsim.physics.newton ?
 
 ## 延伸閱讀
 
-- **完整推導 + 圖解**:公開教學 repo [`wicanr2/issac-sim-study`](https://github.com/wicanr2/issac-sim-study)
-  —— 第 13 篇「接觸與抓握的第一性原理」(摩擦錐、凸包 vs SDF 兩張 SVG)、
-  09 篇(timestep/CCD/PD/solver)、10 篇(材質綁定、質量比)、11 篇(讀位姿與放置精度)、
-  08 篇(5.1→6.0 遷移風險)。
-- **專案實例(按需讀)**:[`references/circ-ai-playbook.md`](references/circ-ai-playbook.md) ——
-  headless Isaac 5.1 的 UDP 探針命令表、連續取樣腳本、漂移門檻的取值理由、A/B 紀律。
-  **只有在需要可直接照抄的實作時才讀。**
+- **完整推導 + 圖解**:公開教學 repo [`wicanr2/isaac-sim-study`](https://github.com/wicanr2/isaac-sim-study)
+  —— 共通區的 13 篇「接觸與抓握的第一性原理」(摩擦錐、凸包 vs SDF 兩張 SVG)、
+  09 篇(timestep/CCD/PD/solver)、10 篇(材質綁定、質量比);
+  5.1 區的 11 篇(讀位姿與放置精度);6.0.1 區的 08 篇(5.1→6.0 遷移風險)。
