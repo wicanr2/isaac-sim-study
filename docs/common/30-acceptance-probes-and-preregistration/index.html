@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>30 · 驗收探針與實驗預先登記:開跑前就把判準釘死 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li><li><a href="../../common/26-forklift-physics-and-articulation/"><span class="n">26</span>從規格表到會動的叉車</a></li><li><a href="../../common/27-failure-mode-taxonomy/"><span class="n">27</span>失效模式分類學</a></li><li><a href="../../common/28-error-accumulation-and-harmful-compensation/"><span class="n">28</span>誤差怎麼累積,以及為什麼加一層補償常常讓事情更糟</a></li><li><a href="../../common/29-long-run-error-budget-and-clock-drift/"><span class="n">29</span>長跑才會浮現的兩件事:錯誤預算與時鐘分歧</a></li><li><a href="../../common/30-acceptance-probes-and-preregistration/" class="on"><span class="n">30</span>驗收探針與實驗預先登記</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-為什麼一個階段驗一次不夠">1. 為什麼「一個階段驗一次」不夠</a></li><li class="l2"><a href="#2-探針量什麼由機構原理決定">2. 探針量什麼,由機構原理決定</a></li><li class="l3"><a href="#21-第二條獨立證據鏈">2.1 第二條獨立證據鏈</a></li><li class="l2"><a href="#3-探針設計的四個坑">3. 探針設計的四個坑</a></li><li class="l3"><a href="#31-查詢範圍-場景事實">3.1 查詢範圍 ≠ 場景事實</a></li><li class="l3"><a href="#32-偏離要計入失敗不能只印註記">3.2 偏離要計入失敗,不能只印註記</a></li><li class="l3"><a href="#33-不要用名稱推對應關係">3.3 不要用名稱推對應關係</a></li><li class="l3"><a href="#34-查不到就明說不要猜一個值">3.4 查不到就明說,不要猜一個值</a></li><li class="l2"><a href="#4-只跑正對照不算驗過探針">4. ⚠ 只跑正對照,不算驗過探針</a></li><li class="l3"><a href="#41-表頭有欄位-欄位裡有值">4.1 表頭有欄位 ≠ 欄位裡有值</a></li><li class="l3"><a href="#42-門檻是-n1-校準時要說出來">4.2 門檻是 n=1 校準時,要說出來</a></li><li class="l2"><a href="#5-預先登記在結果出來之前寫死">5. 預先登記:在結果出來之前寫死</a></li><li class="l3"><a href="#51-樣本數-它決定你能問什麼問題">5.1 樣本數 —— 它決定你能問什麼問題</a></li><li class="l3"><a href="#52-組態-連不改變的東西也要寫死">5.2 組態 —— 連「不改變的東西」也要寫死</a></li><li class="l3"><a href="#53-預期結果-三個互斥分支寫在結果之前">5.3 預期結果 —— 三個互斥分支,寫在結果之前</a></li><li class="l3"><a href="#54-判讀規則-包含數字變差時怎麼讀">5.4 判讀規則 —— 包含「數字變差時怎麼讀」</a></li><li class="l3"><a href="#55-停止規則-事先寫死">5.5 停止規則 —— 事先寫死</a></li><li class="l3"><a href="#56-判讀由固定工具做不手算">5.6 判讀由固定工具做,不手算</a></li><li class="l2"><a href="#6-預先登記實際擋掉了什麼">6. 預先登記實際擋掉了什麼</a></li><li class="l3"><a href="#61-但修壞掉的尺是允許的">6.1 但修「壞掉的尺」是允許的</a></li><li class="l2"><a href="#7-登記本身也會有洞">7. 登記本身也會有洞</a></li><li class="l2"><a href="#8-實驗紀錄的三層範本">8. 實驗紀錄的三層範本</a></li><li class="l3"><a href="#81-roundsmd-一輪一列">8.1 ROUNDS.md —— 一輪一列</a></li><li class="l3"><a href="#82-rounds-分檔-固定四個開頭欄位">8.2 rounds/ 分檔 —— 固定四個開頭欄位</a></li><li class="l3"><a href="#83-manifests-場景檔的變更軌跡">8.3 manifests/ —— 場景檔的變更軌跡</a></li><li class="l2"><a href="#9-檢查清單">9. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="30-驗收探針與實驗預先登記開跑前就把判準釘死">30 · 驗收探針與實驗預先登記:開跑前就把判準釘死</h1>
+<p>一輪要跑兩小時。跑完之後才決定「這樣算不算成功」,你會挑一個讓結果好看的定義——不是因為不誠實,是因為<strong>跑完之後,每一個定義看起來都同樣合理</strong>,而你已經知道結果了。</p>
+<p>這一篇講兩件互補的事:<strong>驗收探針</strong>(把成敗變成機器可判的訊號)與<strong>預先登記</strong>(在結果出來之前把判準、樣本數、停止規則寫死)。附一套實驗紀錄的範本。</p>
+<blockquote>
+<p><strong>驗證狀態</strong>:內容來自一段現地場域的 Isaac Sim 6.0 調校(2026-08)的實際做法。統計計算與門檻是那個場景的;⚠ 探針的具體門檻值有幾個是 <strong>n=1 校準</strong>,文中逐處標明。</p>
+</blockquote>
+<h2 id="1-為什麼一個階段驗一次不夠">1. 為什麼「一個階段驗一次」不夠</h2>
+<p>舊的驗收是每個階段結束後看一次。三個具體後果:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>症狀</th>
+<th>實例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>取貨失敗後<strong>在殘局上繼續跑放貨</strong></td>
+<td>一路跑到底,回頭分不清哪一步先壞</td>
+</tr>
+<tr>
+<td><strong>顆數對但位置錯</strong>看不出來</td>
+<td>兩顆都進去了,但整串偏深 0.24 m,舊驗收全綠</td>
+</tr>
+<tr>
+<td>「這一格到底有沒有被推進去」<strong>沒有獨立證據</strong></td>
+<td>只看被搬物的 x,而那個 x 會被叉齒帶著走而失真</td>
+</tr>
+</tbody>
+</table></div>
+<p>第一條是最貴的:<strong>失敗之後繼續跑,會把單一根因變成一串無法歸因的現象</strong>。閘門要插在動作完成的當下,不是階段結束才驗。</p>
+<h2 id="2-探針量什麼由機構原理決定">2. 探針量什麼,由機構原理決定</h2>
+<p>這是設計探針最關鍵的一步,而且它不是「憑經驗設一個容差」。</p>
+<p>後推式通道的落點<strong>不是自由的</strong>:每放一顆都會把整串往內推一格。所以通道裡有 N 顆時,<strong>它們必然佔走道側往內數的前 N 個深度槽</strong>。</p>
+<p>這個推論直接把判準升級了:</p>
+<pre><code>舊:  --expect 某通道:3     →  「數到三顆就過」
+新:  --expect 某通道:3     →  「數量 = 3 且槽位集合 = {0, 1, 2}」
+</code></pre>
+<p><strong>預期落點是算出來的,不是量出來的。</strong> 從機構原理推得的判準,不需要先跑一堆樣本去統計「正常大概落在哪」,而且它在樣本外一樣成立。</p>
+<h3 id="21-第二條獨立證據鏈">2.1 第二條獨立證據鏈</h3>
+<p>被搬物的位置會被叉齒帶著走而失真——它「在正確的地方」可能只是因為它還在叉齒上。</p>
+<p>所以加了第二個觀測對象:通道裡的板車。<strong>板車受軌道約束、不會被叉齒帶走</strong>,所以它回答的是另一個問題:「這一格真的被推進去了嗎?」</p>
+<p>兩條證據鏈互相獨立,才驗得出「東西到了正確位置」與「東西真的交出去了」的差別。</p>
+<p>⚠ <strong>單一判準會被巧合矇混過去。</strong> 有一輪的三條判準裡,只有「被叉齒載著」那一條真正抓到問題(被叉齒往內推 0.595 m、翹起 14.5°),另外兩條都因為數值巧合而顯示通過。<strong>閘門擋下來了,但擋下的方式很脆弱。</strong></p>
+<h2 id="3-探針設計的四個坑">3. 探針設計的四個坑</h2>
+<h3 id="31-查詢範圍-場景事實">3.1 查詢範圍 ≠ 場景事實</h3>
+<p>探針寫死只查兩個群組,於是它報出來的台數<strong>是查詢範圍,不是場景裡真的有幾台</strong>。</p>
+<p>這個錯誤特別危險,因為輸出看起來完全正常——有數字、有單位、沒有錯誤。要避開它,探針要能回報「我查了哪些範圍」,而不只是「我找到幾個」。</p>
+<h3 id="32-偏離要計入失敗不能只印註記">3.2 偏離要計入失敗,不能只印註記</h3>
+<p>原本偏離槽位中心只印一行註記。結果:<strong>沒有被 <code>--expect</code> 點名的那條通道,板車跑掉 3 m 也照樣過關。</strong></p>
+<p>只印警告不算失敗的閘門,等於沒有閘門——因為沒有人會在幾十輪的 log 裡逐行看註記。</p>
+<h3 id="33-不要用名稱推對應關係">3.3 不要用名稱推對應關係</h3>
+<p><code>mainD/t11</code> 與 <code>mainD/t12</code> <strong>不是</strong>同一條通道的兩台。名稱看起來有規律,實際上沒有。</p>
+<p><strong>歸屬一律用幾何判:通道用 y、層數用 z,不看名字。</strong> 這與<a href="../../common/22-geometry-and-measurement-discipline/">22 篇</a>的「prim 原點不是功能面」、<a href="../../common/21-cad-asset-reading-and-conversion/">21 篇</a>的「哪一份能用不寫在檔名上」是同一類錯誤——<strong>用命名推語意,而命名不受任何機制保證</strong>。</p>
+<h3 id="34-查不到就明說不要猜一個值">3.4 查不到就明說,不要猜一個值</h3>
+<p>清單裡沒有來源通道時,探針<strong>明說「本趟沒有取貨閘門」</strong>,而不是填一個預設值進去。</p>
+<p>猜一個值會讓「沒有資料」偽裝成「有資料而且通過」,那是最難查的一種假綠燈。</p>
+<h2 id="4-只跑正對照不算驗過探針">4. ⚠ 只跑正對照,不算驗過探針</h2>
+<p>這一條值得單獨拉出來:</p>
+<blockquote>
+<p><strong>一個永遠回 ✅ 的閘門,與一個正確的閘門,在正對照下的輸出完全相同。</strong></p>
+</blockquote>
+<p>驗探針一定要有反對照:<strong>餵它一個你知道應該失敗的情境,確認它真的擋下來</strong>。沒有這一步,你手上那個「全部通過」的紀錄,同時相容於「系統很好」與「閘門根本沒在判」兩個世界。</p>
+<h3 id="41-表頭有欄位-欄位裡有值">4.1 表頭有欄位 ≠ 欄位裡有值</h3>
+<p>一個真實的例子:記錄腳本的正則式只收兩種標籤,而第三種標籤<strong>每一行都在正則這一關被濾掉</strong>。</p>
+<ul>
+<li>產生標籤的函式寫好了 ✅</li>
+<li>CSV 表頭有那 64 欄 ✅</li>
+<li>報表看起來完整 ✅</li>
+<li>看門狗不報錯 ✅</li>
+<li>實測 <strong>13632 格 100% 是 nan</strong> 🔴</li>
+</ul>
+<blockquote>
+<p><strong>教訓:加欄位之後要驗的是「欄位裡有沒有值」,不是「欄位在不在表頭」。</strong></p>
+</blockquote>
+<h3 id="42-門檻是-n1-校準時要說出來">4.2 門檻是 n=1 校準時,要說出來</h3>
+<p>有個門檻定在 0.60,校準依據是<strong>一次成功 0.417 vs 一次失敗 0.660</strong>。</p>
+<p>處置不是不用它,而是:先用著,同時<strong>每一趟都把峰值寫進紀錄檔</strong>,累積出分布之後再定門檻。<strong>兩個點可以拿來開始,不能拿來定案。</strong></p>
+<h2 id="5-預先登記在結果出來之前寫死">5. 預先登記:在結果出來之前寫死</h2>
+<p>預先登記是一份在開跑前寫、寫完就不改的文件。它至少要有五樣東西。</p>
+<h3 id="51-樣本數-它決定你能問什麼問題">5.1 樣本數 —— 它決定你能問什麼問題</h3>
+<p>一輪三進三出約 2 小時。<strong>這決定了能問什麼、不能問什麼</strong>:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>統計單位</th>
+<th>一輪貢獻</th>
+<th>6 輪的樣本</th>
+<th>6 輪全過時的 95% 信賴下界</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>每次交接</strong></td>
+<td>6 次</td>
+<td><strong>36 次</strong></td>
+<td><strong>≈ 92%</strong></td>
+</tr>
+<tr>
+<td><strong>整輪三進三出</strong></td>
+<td>1 次</td>
+<td>6 次</td>
+<td><strong>≈ 61%</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>下界的算法是單側二項:<code>0.05^(1/6) ≈ 0.61</code>。</p>
+<p>🔴 <strong>6 輪買到的統計力幾乎全部在「每次交接」這一層。</strong> 「整輪成功率 6/6」聽起來很強,但它只能說「≳61%」——要把整輪那一層推到 ≳90%,需要 <strong>約 29 輪 ≈ 58 小時</strong>。</p>
+<p><strong>結論:報告要分兩層寫,而且整輪那一層要附上這個下界,不要只寫 6/6。</strong></p>
+<p>這件事必須在開跑前算,因為它會改變你要跑幾輪、以及你打算宣稱什麼。跑完才算,只能發現「原來我證明不了想證明的事」。</p>
+<h3 id="52-組態-連不改變的東西也要寫死">5.2 組態 —— 連「不改變的東西」也要寫死</h3>
+<p>登記要寫死完整的啟動指令與參數,以及<strong>與上一批的唯一差別是什麼</strong>。</p>
+<p>⚠ 更容易漏的是<strong>觀測條件</strong>。那次登記明文寫了:「逐幀拍攝維持開著,即使這一批不是為了出片。」</p>
+<p>理由是:<strong>探針數量會改變 RTF,而 RTF 會改變物理</strong>(見 <a href="../../common/29-long-run-error-budget-and-clock-drift/">29 篇</a> §2.4)。關掉拍攝會讓這批的結果<strong>不能與上一批相比</strong>,而比較正是這批的目的。</p>
+<p><strong>觀測手段是實驗條件的一部分。</strong> 為了「跑快一點」而關掉某個探針,等於換了一個實驗。</p>
+<h3 id="53-預期結果-三個互斥分支寫在結果之前">5.3 預期結果 —— 三個互斥分支,寫在結果之前</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>若觀察到</th>
+<th>則</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>失敗集中在長程趟次</td>
+<td>瓶頸確認是長程的沿齒滑移</td>
+</tr>
+<tr>
+<td>失敗平均散在長短程</td>
+<td>行程關聯不成立,要重新找變因</td>
+</tr>
+<tr>
+<td>幾乎不失敗(≥34/36)</td>
+<td>先前那 3 筆長程失敗可能是別的共變因,要回頭查那三輪</td>
+</tr>
+</tbody>
+</table></div>
+<p>三個分支互斥且窮盡,結果出來只需對號入座。<strong>沒有這張表,任何結果都可以被解釋成「支持我的假說」。</strong></p>
+<p>實際跑完:三筆失敗<strong>全在 ≥6 m,短程 6/6 乾淨</strong>——正好是分支一。因為預期登記在前,這個吻合才有證明力;事後才說「你看,果然是長程問題」是沒有力量的。</p>
+<h3 id="54-判讀規則-包含數字變差時怎麼讀">5.4 判讀規則 —— 包含「數字變差時怎麼讀」</h3>
+<p>登記裡有這一條:</p>
+<blockquote>
+<p>🔴 <strong>不要把「隨機組的成功率低於前一批」讀成退步。</strong> 前一批刻意避開長程,兩者測的不是同一件事——這一批的數字才是「任意目的地」的真實值。</p>
+</blockquote>
+<p><strong>在還不知道結果的時候寫下「數字變差不代表退步」,和拿到難看的數字之後才這樣說,可信度完全不同。</strong></p>
+<h3 id="55-停止規則-事先寫死">5.5 停止規則 —— 事先寫死</h3>
+<pre><code>- 連續 2 輪在同一階段失敗 → 停下來查,不要把剩下的機時燒完
+- 模擬容器重啟          → 該輪作廢
+- 磁碟低於 50 GB         → 停
+- 控制端出現 ABORT       → 先查是不是那個已知的非確定性卡死
+</code></pre>
+<p>每一條對應一種故障模式。寫死的目的是避免臨場決定要不要繼續——那個決定會被「已經投入這麼多機時了」汙染。</p>
+<h3 id="56-判讀由固定工具做不手算">5.6 判讀由固定工具做,不手算</h3>
+<p>判定綁在一支腳本上,而且接在「事件發生」上,讓<strong>判讀與進度同步發生</strong>。手算的判讀會在第 20 輪的時候變得寬鬆,而且沒有人會察覺。</p>
+<h2 id="6-預先登記實際擋掉了什麼">6. 預先登記實際擋掉了什麼</h2>
+<p>系列進行到一半,發現了一個看起來很有鑑別力的新訊號。登記的處置是:</p>
+<blockquote>
+<p>🔴 <strong>這一條不在系列進行中加進判準。</strong>
+加一條新判準會改變什麼算失敗,<strong>那正是事前登記要防的事。</strong></p>
+</blockquote>
+<p>新訊號被列為「系列結束後」的候選,不准立刻套用。</p>
+<h3 id="61-但修壞掉的尺是允許的">6.1 但修「壞掉的尺」是允許的</h3>
+<p>同一個系列裡確實改過兩處判讀工具——因為那是<strong>同一份資料被印出兩個相反結論</strong>的缺陷:一個視圖說「在齒上」,另一個說「乾淨」。不修的話整批都用壞掉的尺去量。</p>
+<p>界線寫成一句話:</p>
+<blockquote>
+<p><strong>修壞掉的尺 ≠ 換一把尺。</strong></p>
+</blockquote>
+<p>前者是修復,後者是改變什麼算成功。判斷方法:<strong>修完之後,已經跑過的那幾輪要不要重判?</strong> 要重判就是換尺,那就該停下來重新登記。</p>
+<h2 id="7-登記本身也會有洞">7. 登記本身也會有洞</h2>
+<p>一個誠實的反例:第一批系列在<strong>第 1 輪第 2 趟</strong>就結束,36 次交接只拿到 2 次。</p>
+<p>原因不是實驗,是計畫漏了一件事:批次腳本原本<strong>任何一趟失敗就整批中止</strong>。那個行為對「找 bug」是對的——快速失敗、不浪費機時。但<strong>對「量成功率」是致命的:分母沒了。</strong></p>
+<blockquote>
+<p><strong>停止規則要跟統計目的對齊。</strong> 「快速失敗」與「累積樣本」是兩個相反的需求,而同一支腳本不會知道你這次要哪一個。</p>
+</blockquote>
+<h2 id="8-實驗紀錄的三層範本">8. 實驗紀錄的三層範本</h2>
+<p>紀錄要分三種,因為它們回答的問題不同。範本在 <a href="https://github.com/wicanr2/isaac-sim-study/tree/main/examples/templates"><code>examples/templates/</code></a>。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>檔案</th>
+<th>記什麼</th>
+<th>回答的問題</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ROUNDS.md</code></td>
+<td>每一輪改了什麼、量到什麼</td>
+<td>「這個參數試過沒有?結果是什麼?」</td>
+</tr>
+<tr>
+<td><code>rounds/NN-日期-主題.md</code></td>
+<td>一段期間的敘事</td>
+<td>「那幾天到底在幹嘛?當時怎麼想的?」</td>
+</tr>
+<tr>
+<td><code>manifests/日期-主題.md</code></td>
+<td>場景檔本身被改了什麼</td>
+<td>「這個檔案為什麼跟上週不一樣?怎麼回退?」</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="81-roundsmd-一輪一列">8.1 <code>ROUNDS.md</code> —— 一輪一列</h3>
+<p>規則只有兩條,但這兩條決定了它有沒有用:</p>
+<ul>
+<li><strong>改動欄只寫「與上一輪的差異」</strong>,不要重複全部設定</li>
+<li><strong>結果欄寫可驗證的量測值,不寫感想</strong></li>
+</ul>
+<pre><code class="language-markdown">| 輪 | 改動(與上一輪的差異) | 結果 |
+|---|---|---|
+| X0 | 基線,承載高度 1.170 | 承重比 **0.021**;被推走 1.148 m。幾何沒進去 + 被托住 |
+| X6 | 承載高度 **1.084** | ✅ 插入時位移 **0.000**、抬升 +77 mm、承重比 ≈1.0、roll 全程 −2.62 |
+| r3 | 放貨高度 **1.007**(= 1.084 − 0.077) | ✅ 第一顆推深 1.051 m、第二顆落在 **5.091**(中心 5.100,差 9 mm) |
+</code></pre>
+<p>「承重比 0.021」是可驗證的;「感覺比較穩」不是。差別在於三個月後有沒有辦法拿它跟新的一輪比較。</p>
+<p>🔴 <strong>這是編年流水帳,不是現況。</strong> 每一列寫的是那一天當下的理解,<strong>後面的輪次會推翻前面的結論,而且推翻得很頻繁</strong>。所以它一定要配一份獨立的「現況」文件,以及一張「已被推翻的斷言」表——否則讀者會拿中段的某一列當成現在的答案。</p>
+<h3 id="82-rounds-分檔-固定四個開頭欄位">8.2 <code>rounds/</code> 分檔 —— 固定四個開頭欄位</h3>
+<p>一段期間一個檔,開頭固定:</p>
+<pre><code class="language-markdown"># 0814-0815-質心診斷與首次六趟全過
+
+&gt; `ROUNDS.md` 的一段。**這是編年紀錄,寫的是當時的理解**
+&gt; —— 現況見〈一句話現狀〉,已被推翻的斷言見同檔那張表。
+
+**期間**:2026-08-14 ~ 15　**主題**:質心診斷(陰性)、首次六趟全過並錄影
+
+**這一段最重要的一件事**:🎉 六趟全過 —— 第一次完整三進三出,
+全程逐幀錄影;而質心診斷是**陰性**。
+</code></pre>
+<p>那個警語每一份都要有。<strong>單獨讀到某一份的人只會看到那一份</strong>,沒有警語他就會把當時的理解當成結論。</p>
+<p>「這一段最重要的一件事」是索引用的——十幾份分檔之後,靠它才找得回東西。</p>
+<h3 id="83-manifests-場景檔的變更軌跡">8.3 <code>manifests/</code> —— 場景檔的變更軌跡</h3>
+<p>跟 rounds 的分工很清楚:<strong>rounds 記「跑了哪一輪、量到什麼」,manifest 記「場景資產本身被改了什麼、怎麼回退」。</strong></p>
+<p>固定含六樣:</p>
+<pre><code class="language-markdown"># manifest — 20260807 地面碰撞 + 輪胎材質 + drive 解開 + 質量
+
+&gt; 工具:`scripts/convert_chassis_to_wheels.py --stage ground,c,mass`
+&gt; 計畫:docs/171 ｜ 交接:docs/172
+
+|        | sha256 前 24 |
+|--------|--------------|
+| 改動前 | `a75eec7e8be798c8cff98fde` |
+| 改動後 | **`9a7bfedac4b5a4cf9cea4b66`** |
+
+備份:`archive-20260807-ground-mass/WAREHOUSE.usd.bak-before-ground-mass`(127 MB)
+回退:`--stage ground,c,mass --revert`,或直接複製備份回原位。
+
+| prim | 舊 | 新 |
+|---|---|---|
+| `Joint/drive` 型別 | `PhysicsFixedJoint` | **`PhysicsRevoluteJoint`** |
+</code></pre>
+<p><strong>sha256 + 備份路徑 + 回退指令</strong>這三樣是重點。二進位的 USD 沒有 diff 可看,沒有這三樣就無法回答「這個檔案為什麼跟上週不一樣」。</p>
+<h2 id="9-檢查清單">9. 檢查清單</h2>
+<p><strong>探針</strong></p>
+<ul>
+<li>[ ] 閘門插在動作完成的當下,不是階段結束才驗</li>
+<li>[ ] 預期值從機構原理推導,不是從樣本統計</li>
+<li>[ ] 至少兩條互相獨立的證據鏈</li>
+<li>[ ] 偏離<strong>計入失敗</strong>,不是只印註記</li>
+<li>[ ] 對應關係用幾何判,不用命名推</li>
+<li>[ ] 查不到就明說,不填預設值</li>
+<li>[ ] <strong>跑過反對照</strong>:餵一個該失敗的情境,確認它擋得下來</li>
+<li>[ ] 加了欄位之後,驗的是「欄位裡有沒有值」</li>
+<li>[ ] n=1 校準的門檻有標出來,而且在累積分布</li>
+</ul>
+<p><strong>預先登記</strong></p>
+<ul>
+<li>[ ] 在結果出來之前寫,寫完不改</li>
+<li>[ ] 算過樣本數對應的信賴下界,知道這批能宣稱什麼</li>
+<li>[ ] 組態寫死,<strong>包含不改變的觀測條件</strong></li>
+<li>[ ] 預期結果寫成互斥分支</li>
+<li>[ ] 寫下「數字變差時怎麼讀」</li>
+<li>[ ] 停止規則事先寫死,而且<strong>與統計目的對齊</strong></li>
+<li>[ ] 判讀綁在固定工具上,不手算</li>
+<li>[ ] 中途發現的新判準列為「系列結束後」候選,不套用到進行中的系列</li>
+</ul>
+<hr />
+<p>延伸閱讀:<a href="../../common/19-tuning-experiment-methodology/">19 調參實驗的方法論</a>(檢定力、二元判準的統計陷阱)、<a href="../../common/27-failure-mode-taxonomy/">27 失效模式分類學</a>(分類是判準的下游)、<a href="../../common/29-long-run-error-budget-and-clock-drift/">29 長跑才會浮現的兩件事</a>(RTF 是未受控的變因)、<a href="../../common/20-claude-code-driven-tuning/">20 用 Claude Code 跑調參</a>。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

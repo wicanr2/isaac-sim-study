@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>27 · 失效模式分類學:把「東西壞了」變成可歸因的類別 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li><li><a href="../../common/26-forklift-physics-and-articulation/"><span class="n">26</span>從規格表到會動的叉車</a></li><li><a href="../../common/27-failure-mode-taxonomy/" class="on"><span class="n">27</span>失效模式分類學</a></li><li><a href="../../common/28-error-accumulation-and-harmful-compensation/"><span class="n">28</span>誤差怎麼累積,以及為什麼加一層補償常常讓事情更糟</a></li><li><a href="../../common/29-long-run-error-budget-and-clock-drift/"><span class="n">29</span>長跑才會浮現的兩件事:錯誤預算與時鐘分歧</a></li><li><a href="../../common/30-acceptance-probes-and-preregistration/"><span class="n">30</span>驗收探針與實驗預先登記</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-一個-bit-換不到歸因">1. 一個 bit 換不到歸因</a></li><li class="l2"><a href="#2-判準要有出處">2. 判準要有出處</a></li><li class="l2"><a href="#3-三個結構決定錯了整份統計就歪">3. 三個結構決定,錯了整份統計就歪</a></li><li class="l3"><a href="#31-一定要有待判桶而且要把內容印出來">3.1 一定要有「待判」桶,而且要把內容印出來</a></li><li class="l3"><a href="#32-只看最後一次驗收不要掃整份-log">3.2 只看最後一次驗收,不要掃整份 log</a></li><li class="l3"><a href="#33-有些維度必須合併判斷">3.3 有些維度必須合併判斷</a></li><li class="l2"><a href="#4-記帳欄位要在設計時就想好事後要分哪幾類">4. 記帳欄位要在設計時就想好事後要分哪幾類</a></li><li class="l2"><a href="#5-分好類之後能回答什麼">5. 分好類之後,能回答什麼</a></li><li class="l3"><a href="#51-驗證因果鏈共現率">5.1 驗證因果鏈:共現率</a></li><li class="l3"><a href="#52-量化一個修法的效果上限找反例">5.2 量化一個修法的效果上限:找反例</a></li><li class="l3"><a href="#53-同類內再細分看座標分布">5.3 同類內再細分:看座標分布</a></li><li class="l2"><a href="#6-驗法本身要有鑑別力">6. ⚠ 驗法本身要有鑑別力</a></li><li class="l3"><a href="#61-為了補救而加的儀器本身可能量錯東西">6.1 為了補救而加的儀器,本身可能量錯東西</a></li><li class="l2"><a href="#7-分析之前先確認那一段的前提成立">7. 分析之前,先確認那一段的前提成立</a></li><li class="l2"><a href="#8-失敗清單唯一入口">8. 失敗清單:唯一入口</a></li><li class="l2"><a href="#9-檢查清單">9. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="27-失效模式分類學把東西壞了變成可歸因的類別">27 · 失效模式分類學:把「東西壞了」變成可歸因的類別</h1>
+<p>調參跑了幾十輪,每一輪的結果記成「過」或「不過」。看起來很乾淨,而且統計起來很方便——直到你發現連續四個月都測不出任何參數有效果。</p>
+<p>原因不在參數,在那個 bit。<strong>「四個階段有沒有全過」把五種機制壓成一個 bit</strong>,而那五種機制的修法方向完全不同。用它去比較 A 組與 B 組,等於拿五種病的總死亡率去評估一種藥。</p>
+<p>這篇講怎麼把失敗拆成可歸因的類別:類別怎麼定、判準從哪來、分類器自己會踩什麼坑,以及分好類之後真正能回答哪些問題。</p>
+<blockquote>
+<p><strong>驗證狀態</strong>:內容來自一段現地場域的 Isaac Sim 6.0 調校(2026-07 至 08),分類器對 32 份實測 log 跑過。數字都是實測值;分類體系本身是為那個場景設計的,<strong>判準的具體門檻不能直接搬用</strong>,能搬的是設計方法。</p>
+</blockquote>
+<h2 id="1-一個-bit-換不到歸因">1. 一個 bit 換不到歸因</h2>
+<p>先看分類之後的樣子。32 份 log 跑完分類器:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>類別</th>
+<th>輪數</th>
+<th>是物理失敗嗎</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>未完成(中斷 / 被看門狗殺掉)</td>
+<td>12</td>
+<td>❌ <strong>不是,要單獨一類</strong></td>
+</tr>
+<tr>
+<td>橫向偏移(離目標中心 &gt; 55 mm)</td>
+<td>12</td>
+<td>✅</td>
+</tr>
+<tr>
+<td><strong>沒放下(被叉齒帶走)</strong></td>
+<td><strong>10</strong></td>
+<td>✅ <strong>主導模式</strong></td>
+</tr>
+<tr>
+<td>姿態異常</td>
+<td>7</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>暴衝</td>
+<td>6</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>深度不足(推不到底)</td>
+<td>3</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>放下了但太淺</td>
+<td>3</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table></div>
+<p>第一列就值回票價:<strong>12 輪根本不是物理失敗</strong>,是被中斷或被看門狗殺掉。用一個 bit 記錄的話,這 12 輪會被算成「不過」,混進物理失敗率裡,而它們對任何物理參數都不敏感。分母摻了三分之一的雜訊,難怪什麼都測不出來。</p>
+<p>⚠ <strong>一輪可以命中多類。</strong> 這個分類<strong>不是分割</strong>(partition),是標籤集合。硬要互斥會逼你在「橫向偏移」與「沒放下」之間二選一,而它們常常是同一次失敗的因與果。</p>
+<h2 id="2-判準要有出處">2. 判準要有出處</h2>
+<p>每一類的判準不能是「看起來像」。分類器的判準表長這樣——<strong>每一列都標明門檻是從哪一次實測定出來的</strong>:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>類別</th>
+<th>判準</th>
+<th>門檻怎麼來的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>暴衝</td>
+<td>看門狗產出的旗標檔存在</td>
+<td>獨立訊號,不掃文字</td>
+</tr>
+<tr>
+<td>橫向偏移</td>
+<td>收尾「y 離中心」的絕對值 &gt; 55 mm</td>
+<td>另一份實測分析定的鑑別門檻</td>
+</tr>
+<tr>
+<td>深度不足</td>
+<td>收尾「x 離槽位」為<strong>正</strong>(比槽位淺)</td>
+<td>推送行程分析</td>
+</tr>
+<tr>
+<td>深度過頭</td>
+<td>「x 離槽位」為<strong>負</strong></td>
+<td>實測極值 −0.481 m</td>
+</tr>
+<tr>
+<td>高度不對</td>
+<td>有「z 離承載面」</td>
+<td>—</td>
+</tr>
+<tr>
+<td>姿態異常</td>
+<td>有 roll 或 yaw 的偏差警告</td>
+<td>—</td>
+</tr>
+<tr>
+<td>未完成</td>
+<td>log 裡既沒有「停在:」也沒有「全部通過」</td>
+<td>被殺或中斷</td>
+</tr>
+</tbody>
+</table></div>
+<p>沒有出處的門檻會在半年後變成沒人敢動的魔數。標出處的成本是一行字,回報是「這個 55 mm 還適用嗎」有辦法回答。</p>
+<h2 id="3-三個結構決定錯了整份統計就歪">3. 三個結構決定,錯了整份統計就歪</h2>
+<h3 id="31-一定要有待判桶而且要把內容印出來">3.1 一定要有「待判」桶,而且要把內容印出來</h3>
+<p><strong>分類器夠不夠,看待判那堆。</strong> 裡面若有明顯該歸類的東西,就是分類器還有洞。</p>
+<p>這個分類器的正則式改了三次才收斂——中文正則抓不到英文回覆、冒號有全形半形變體、有些 log 根本不含關鍵字。每一次都是靠翻待判桶發現的。</p>
+<p>⚠ <strong>沒有待判桶的話,那 12 輪未完成會被默默算成某種物理失敗。</strong> 一個「其他」類別加上「把內容印出來」,就是這一整類錯誤的解藥。這跟<a href="../../common/19-tuning-experiment-methodology/">19 篇</a>講的是同一件事:沉默不等於乾淨。</p>
+<h3 id="32-只看最後一次驗收不要掃整份-log">3.2 只看最後一次驗收,不要掃整份 log</h3>
+<p>掃全文會把「已經通過的階段」留下的警告也算進來。一輪在階段 ① 有小警告但通過、階段 ② 才失敗,會<strong>同時命中兩類</strong>——次數因此膨脹,主因被稀釋。</p>
+<p>修法是先用一個錨點(收尾判定行)定位到最後一次驗收區塊,只在那個窗口裡抓訊號。</p>
+<p>⚠ <strong>改完之後統計數字沒變,一度被當成「改動無效」。</strong> 實查才發現是兩個效果互相抵消:27 輪照樣命中同一類,而 5 輪(沒有驗收表的未完成輪)退回全文處理。<strong>「改了沒差」要先懷疑自己的過濾器,不要直接當成結論。</strong></p>
+<h3 id="33-有些維度必須合併判斷">3.3 有些維度必須合併判斷</h3>
+<p>第一版把 <code>x</code> 偏移與 <code>z</code> 偏移各自獨立判,結果兩種修法方向完全不同的失敗被算成同一類:</p>
+<pre><code>z 明顯低於承載面(&lt; −0.2 m)  = 根本沒放下,還在叉齒上被帶走
+z 大致對、只有 x 偏          = 放下了,但位置不對
+</code></pre>
+<p>前者要改交接時機,後者要改行程。合在一起看,你會得到一個「深度過頭」類別,裡面兩種病各佔一半,而任何針對其中一種的修改在統計上都只有一半的效果——剛好落在雜訊裡。</p>
+<p><strong>判準設計時要問:這兩個訊號分開看,會不會把兩種不同的病混成一類?</strong></p>
+<h2 id="4-記帳欄位要在設計時就想好事後要分哪幾類">4. 記帳欄位要在設計時就想好事後要分哪幾類</h2>
+<p>有一次彙總表把一行警語文字當成量測值切進欄位,印出<strong>假的「有效量測 16/16」</strong>;而那張表又沒有記錄每輪的結局,於是「停在階段 ①」與「階段 ② 途中暴衝」在表上長得一模一樣。</p>
+<p>據此誤判過一次:「某臂 6 輪都停在階段 ①」——實際上其中 3 輪是暴衝,分類完全不同。</p>
+<p>修法有兩層:量測欄位要驗證型別(是數字才收),以及<strong>加一個結局欄,跑完當場寫死</strong>。事後從自由文字裡撈結局,永遠會撈到一半。</p>
+<h2 id="5-分好類之後能回答什麼">5. 分好類之後,能回答什麼</h2>
+<h3 id="51-驗證因果鏈共現率">5.1 驗證因果鏈:共現率</h3>
+<p>「沒放下」10 輪裡,<strong>8 輪同時有橫向偏移</strong>。扣掉一輪刻意把摩擦打到 0.01 的正對照,是 <strong>7/9</strong>。</p>
+<p>這支持了既有的因果假說:橫向歪掉 → 被結構卡住 → 交不出去 → 被帶走。沒有分類,這條鏈只能靠個案敘述,無法量化。</p>
+<h3 id="52-量化一個修法的效果上限找反例">5.2 量化一個修法的效果上限:找反例</h3>
+<p>有一輪的橫向滑移只有 <strong>−1 mm</strong>,幾乎為零,卻照樣失敗——棧板放在軌道上,離目標槽位 0.481 m。</p>
+<p>這是關鍵反例。它說明:<strong>即使「消除橫向滑移」完全成功,也只解決 13 個物理失敗裡的約 7 個。</strong></p>
+<p>這個數字的價值在於它會改變資源分配。沒有它,團隊會把全部機時押在滑移上,然後對著剩下的一半失敗百思不得其解。</p>
+<h3 id="53-同類內再細分看座標分布">5.3 同類內再細分:看座標分布</h3>
+<p>「放下了但太淺」那三輪的最終落點:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>輪次</th>
+<th>最終 x</th>
+<th>最終 z</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td><strong>4.618</strong></td>
+<td>1.000</td>
+</tr>
+<tr>
+<td>B</td>
+<td><strong>4.636</strong></td>
+<td>1.004</td>
+</tr>
+<tr>
+<td>C</td>
+<td><strong>4.637</strong></td>
+<td>1.015</td>
+</tr>
+<tr>
+<td>對照(通過)</td>
+<td><strong>5.089</strong></td>
+<td>0.997</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>落點散布只有 19 mm。</strong> 隨機失敗不會這樣。19 mm 的散布指向一件事:<strong>撞到某個固定結構停住了</strong>。</p>
+<p>分類讓你看得到這種簽章。混在一起的時候,這三筆會淹沒在十幾筆各式各樣的失敗裡。</p>
+<h2 id="6-驗法本身要有鑑別力">6. ⚠ 驗法本身要有鑑別力</h2>
+<p>這是整篇最貴的一條,值得單獨拉出來。</p>
+<p>當時要驗一個假說,設計的驗法是:「查那台板車的 x,若它不在預期位置附近,棧板就沒有東西可坐。」跑了,數據吻合——通過的那幾輪,板車確實推得深 0.4~0.7 m。</p>
+<p><strong>但這不能證明假說。</strong> 因為棧板若沒坐進去就不會去推板車,所以「板車推得淺」<strong>很可能是結果而不是原因</strong>。兩者共線,這個觀測在「假說為真」與「假說為假」兩個世界下長得一模一樣。</p>
+<blockquote>
+<p><strong>可複用的一條</strong>:設計驗法時要問「<strong>在假說為假的世界裡,這個觀測會不會也長成這樣</strong>」。
+會的話,它就不是驗法。</p>
+</blockquote>
+<p>當初只想著「假說為真會看到什麼」,那只做了一半。<a href="../../common/19-tuning-experiment-methodology/">19 篇</a>講指標的鑑別力,這裡講的是驗法的鑑別力——同一個病的兩個位置。</p>
+<h3 id="61-為了補救而加的儀器本身可能量錯東西">6.1 為了補救而加的儀器,本身可能量錯東西</h3>
+<p>為了解決上面那個問題,加了一個新的位置追蹤點。實測推翻:那個 prim 全程只動了 89 mm,而真正的叉齒行程是 1.2 m。</p>
+<p>原因是<strong>按名字/角色挑 prim,然後假設它回報的位置就是我要的那個面</strong>。那個 prim 是材質綁定用的(決定哪個碰撞體承載),原點固定在門架座上,不隨叉齒升降。</p>
+<p>新加的儀器沒有解決問題,只是換了一種方式量錯。這一條與<a href="../../common/22-geometry-and-measurement-discipline/">22 篇</a>的「prim 原點不是功能面」是同一個坑,只是這次它偽裝成「我加了量測所以更嚴謹了」。</p>
+<h2 id="7-分析之前先確認那一段的前提成立">7. 分析之前,先確認那一段的前提成立</h2>
+<p>有一輪被當成「放貨階段」的樣本分析了半天,後來才發現那顆棧板在該階段開始<strong>之前就已經掉在地上</strong>(整段的 z 都是 0)。那一輪的「放貨」不是正常放貨,拿它當樣本得到的任何結論都不成立。</p>
+<p><strong>分析任何一段之前,先確認那一段的前提成立。</strong> 這件事沒有人會提醒你,因為資料本身看起來很正常——有時間戳、有座標、有完整的欄位。</p>
+<h2 id="8-失敗清單唯一入口">8. 失敗清單:唯一入口</h2>
+<p>分類器處理的是單輪 log。跨輪的知識要另外存,否則同一個假說會被試三次。</p>
+<p>實作上是一份<strong>唯一的失敗清單</strong>,每次實驗失敗就往下加一列,不散在各篇進度文件裡。目的只有一個:<strong>不要重複做已經證偽的事</strong>。</p>
+<p>它的判讀規則只有一句,但這一句撐起整份表的可信度:</p>
+<blockquote>
+<p>「已證偽」= 有實測證據排除;<strong>「無歸因」= 改了但同時有別的變因,不能算證據。</strong></p>
+</blockquote>
+<p>分五節,各有各的欄位:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>節</th>
+<th>收什麼</th>
+<th>欄位</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>已證偽的假設(不要再試)</td>
+<td><code># / 假設 / 怎麼試的 / 結果 / 日期</code></td>
+</tr>
+<tr>
+<td>B</td>
+<td>已修好的真問題</td>
+<td><code># / 問題 / 修法 / 證據</code></td>
+</tr>
+<tr>
+<td>C</td>
+<td>尚未歸因的觀測</td>
+<td><code># / 觀測 / 為什麼還不能下結論</code></td>
+</tr>
+<tr>
+<td>D</td>
+<td>方法論上的坑</td>
+<td><code># / 坑 / 教訓</code></td>
+</tr>
+<tr>
+<td>E</td>
+<td>效率上的教訓</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p>C 節是最容易被跳過、也最有價值的一節:<strong>觀測到了,但還不能下結論</strong>。沒有這一節的話,那些觀測要嘛被提前寫成結論(汙染後續判斷),要嘛就消失了。</p>
+<p>D 節在實務上會長得比其他節大——方法論的坑比技術結論貴,而且會重複發生。</p>
+<h2 id="9-檢查清單">9. 檢查清單</h2>
+<ul>
+<li>[ ] 結果不是一個 bit。至少記到「哪一類失敗」</li>
+<li>[ ] 每個類別的判準都標明門檻從哪一次實測來的</li>
+<li>[ ] 有「待判」桶,而且每次都把內容印出來看</li>
+<li>[ ] 類別允許共現,但「未完成 / 被中斷」要能覆寫掉物理類別</li>
+<li>[ ] 訊號抓取限定在失敗當下的窗口,不掃整份 log</li>
+<li>[ ] 檢查有沒有兩個維度分開判會把不同的病混成一類</li>
+<li>[ ] 結局欄在跑完當場寫死,不要事後從自由文字裡撈</li>
+<li>[ ] 每個驗法都問過:<strong>假說為假的世界裡,這個觀測會不會也長成這樣</strong></li>
+<li>[ ] 分析一段資料之前,確認那一段的前提成立</li>
+<li>[ ] 有一份唯一的失敗清單,而且區分「已證偽」與「無歸因」</li>
+</ul>
+<hr />
+<p>延伸閱讀:<a href="../../common/19-tuning-experiment-methodology/">19 調參實驗的方法論</a>(指標的鑑別力、二元判準的統計陷阱)、<a href="../../common/20-claude-code-driven-tuning/">20 用 Claude Code 跑調參</a>(逐輪紀錄當跨 session 記憶)、<a href="../../common/22-geometry-and-measurement-discipline/">22 幾何的量測紀律</a>(不會報錯的錯誤查法)。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

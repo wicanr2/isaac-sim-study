@@ -6,7 +6,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 
 ## 三個入口
 
-**[共通:機制與方法論](common/)** · 19 篇
+**[共通:機制與方法論](common/)** · 23 篇
 引擎怎麼算一步、碰撞近似損掉什麼、質量該掛在哪一層、實驗怎麼設計才算數。這些在 5.1 與 6.0.1 上是同一套,因此不按版本分。
 
 **[Isaac Sim 5.1](5.1/)** · 2 篇
@@ -27,7 +27,10 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 | 正要從 5.1 升到 6.0 | [15 物理層變動](6.0.1/15-physics-backend-5.1-to-6.0/README.md) → [14 ROS 2 架構重組](6.0.1/14-ros2-bridge-6.0-architecture/README.md) |
 | 夾不住、叉不起來、轉彎會滑 | [13 接觸與抓握的第一性原理](common/13-contact-and-grasp-first-principles/README.md) |
 | 尺寸都對但件插不進去 | [22 幾何的量測紀律](common/22-geometry-and-measurement-discipline/README.md) |
-| 要跑幾十輪調參 | [19 調參實驗的方法論](common/19-tuning-experiment-methodology/README.md) |
+| 要跑幾十輪調參 | [19 調參實驗的方法論](common/19-tuning-experiment-methodology/README.md) → [30 驗收探針與預先登記](common/30-acceptance-probes-and-preregistration/README.md) |
+| 一堆輪次的結果分析不出東西 | [27 失效模式分類學](common/27-failure-mode-taxonomy/README.md) |
+| 連續搬運第二趟就歪掉,想加補償 | [28 誤差累積與「補償反而有害」](common/28-error-accumulation-and-harmful-compensation/README.md) |
+| 短測試都過,跑一小時就死 | [29 長跑才會浮現的兩件事](common/29-long-run-error-budget-and-clock-drift/README.md) |
 | 手上有一台叉車/機器人,要把物理與關節建起來 | [26 從規格表到會動的叉車](common/26-forklift-physics-and-articulation/README.md) |
 | 場域主機不能對外,資產抓不到 | [25 官方資產的預先下載與離線佈署](common/25-offline-assets-deployment/README.md) |
 
@@ -47,6 +50,8 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 - [`examples/scriptnode_udp_pose.py`](../examples/scriptnode_udp_pose.py) —— ScriptNode:UDP 收 pose 直接控制 prim 位姿
 - [`examples/scan_physics.py`](../examples/scan_physics.py) —— 掃描場景所有 **authored** 物理屬性(區分「刻意設定」與「吃預設」),跨版本/跨主機比對場景時的主力工具
 - [`examples/usd_peek.py`](../examples/usd_peek.py) —— 唯讀檢視 crate 場景裡某個 prim 的物理結構,並可把子樹匯出成 `.usda` 文字
+- [`examples/audit_asset_physics.py`](../examples/audit_asset_physics.py) —— 稽核一份 USD 有沒有**授權**質量/密度/碰撞;會一併走訪 instance prototype(否則 `Traverse()` 對 CAD 轉出的資產回 0 mesh)
+- [`examples/templates/`](../examples/templates/) —— 實驗紀錄範本:輪次表、分期敘事、場景檔 manifest、事前登記、失敗總表
 
 ## 其他
 

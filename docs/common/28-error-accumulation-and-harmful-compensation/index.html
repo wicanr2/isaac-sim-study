@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>28 · 誤差怎麼累積,以及為什麼加一層補償常常讓事情更糟 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li><li><a href="../../common/26-forklift-physics-and-articulation/"><span class="n">26</span>從規格表到會動的叉車</a></li><li><a href="../../common/27-failure-mode-taxonomy/"><span class="n">27</span>失效模式分類學</a></li><li><a href="../../common/28-error-accumulation-and-harmful-compensation/" class="on"><span class="n">28</span>誤差怎麼累積,以及為什麼加一層補償常常讓事情更糟</a></li><li><a href="../../common/29-long-run-error-budget-and-clock-drift/"><span class="n">29</span>長跑才會浮現的兩件事:錯誤預算與時鐘分歧</a></li><li><a href="../../common/30-acceptance-probes-and-preregistration/"><span class="n">30</span>驗收探針與實驗預先登記</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-誤差在哪裡產生不在你以為的那一刻">1. 誤差在哪裡產生:不在你以為的那一刻</a></li><li class="l2"><a href="#2-開環系統撐得住幾趟可以直接算">2. 開環系統撐得住幾趟,可以直接算</a></li><li class="l2"><a href="#3-補償有害三個點的實驗">3. 補償有害:三個點的實驗</a></li><li class="l2"><a href="#4-餘裕比較大應該就補得動這個直覺是錯的">4. 「餘裕比較大應該就補得動」——這個直覺是錯的</a></li><li class="l2"><a href="#5-為什麼命令補不動相對角與世界角是兩件事">5. 為什麼命令補不動:相對角與世界角是兩件事</a></li><li class="l2"><a href="#6-補償的通則它的前提會過期而它不會自己失效">6. 補償的通則:它的前提會過期,而它不會自己失效</a></li><li class="l2"><a href="#7-結論的邊界">7. 結論的邊界</a></li><li class="l2"><a href="#8-真正有效的那條路截斷傳遞不是修正誤差">8. 真正有效的那條路:截斷傳遞,不是修正誤差</a></li><li class="l2"><a href="#9-方法論推翻既有斷言之前先算清楚方向">9. 方法論:推翻既有斷言之前,先算清楚方向</a></li><li class="l2"><a href="#10-檢查清單">10. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="28-誤差怎麼累積以及為什麼加一層補償常常讓事情更糟">28 · 誤差怎麼累積,以及為什麼加一層補償常常讓事情更糟</h1>
+<p>一台車連續搬運:取貨、走、放貨、再取下一顆。第一趟乾淨俐落,第二趟就放不進去了。</p>
+<p>直覺的處理是「加一層補償」——量到歪了幾度,下次命令就先反著轉幾度。這一篇要說明的是:<strong>那層補償在相當多情況下不但無效,而且會製造一個新的失敗模式</strong>,而它失敗的樣子跟原本的問題完全不像。</p>
+<p>推導的終點是一句話:</p>
+<blockquote>
+<p><strong>能被補償的是誤差的「表現」,不是誤差的「來源」。</strong>
+補償改的是世界座標裡的角度,而決定成敗的常常是接觸面之間的相對角——那個量,命令碰不到。</p>
+<p><strong>驗證狀態</strong>:內容來自一段現地場域的 Isaac Sim 6.0 調校(2026-08)。所有數字都是實測值,連同量測條件一起列。⚠ 補償實驗的關鍵資料是 <strong>n=1 每點</strong>,能支持「非零就壞」這個定性結論,不足以支持任何定量關係——文中逐處標明。</p>
+</blockquote>
+<h2 id="1-誤差在哪裡產生不在你以為的那一刻">1. 誤差在哪裡產生:不在你以為的那一刻</h2>
+<p>先看一次完整搬運裡,被搬物與叉齒的相對角怎麼變:</p>
+<pre><code>取貨結束     rel  −90.3    ✅ 完美
+載運中       rel −100.3 → −94.8 → −79.1    ← 振盪 ±10°
+放貨第一步   rel  −82.0    ← 歪已經定型
+放貨全程     rel  −82.3    (九個步驟,一動不動)
+</code></pre>
+<p><strong>誤差不是在放貨那一刻產生的。</strong> 取貨結束時是完美的,是<strong>載運途中</strong>被注入,然後車一停,靜摩擦把它凍結在當下的相位。放貨的九個步驟裡它只動了 0.3°。</p>
+<p>這件事改變了整個排查方向。放貨放不好,直覺會去調放貨;而真正在管事的是載運段的動力學。</p>
+<p>另一個實驗把這一點釘死了:靜置 200 秒,讓它「自己回正」——<code>rel</code> 從 −82.0 只移到 −82.3。<strong>時間不會治好它。</strong></p>
+<h2 id="2-開環系統撐得住幾趟可以直接算">2. 開環系統撐得住幾趟,可以直接算</h2>
+<pre><code>撐得住幾趟 ≈ 容差 ÷ 單趟誤差
+</code></pre>
+<p>實測:單趟 yaw 誤差約 6°,容差 3° → <strong>兩趟就爆</strong>。與實測完全吻合。</p>
+<p>這條算式的用處是它會擋掉一整類無效的努力。<strong>只要單趟殘留不為零,累積就是必然</strong>——把單趟誤差從 13.0° 降到 9.9°(那次修的是根因,不是補償),分母變小了,但沒有變成零,所以連續搬運仍然會發散,只是慢一點。</p>
+<p>對照組同樣清楚:另一組批次每輪都從場景原始狀態 RESET 開始,而且目標永遠有一個方正的基準——<strong>誤差不跨趟累積,所以它一直穩</strong>。它穩不是因為物理參數比較好,是因為它根本沒有在做連續搬運。</p>
+<p>⚠ <strong>拿「會 RESET 的批次」的成功率去代表「連續搬運」的穩定度,是在測不同的東西。</strong></p>
+<h2 id="3-補償有害三個點的實驗">3. 補償有害:三個點的實驗</h2>
+<p>給放貨命令一個 yaw 偏置,看棧板最後落在哪裡。判準是落點 x:<strong>在架上是 ≈5.10,在叉齒上是 ≈3.62</strong>。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>批次</th>
+<th>命令偏置</th>
+<th>叉齒實際轉了</th>
+<th>落點 x</th>
+<th>放下了嗎</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gn0</code></td>
+<td>0°</td>
+<td>0.0°</td>
+<td><strong>5.113</strong></td>
+<td>✅</td>
+</tr>
+<tr>
+<td><code>gn4</code></td>
+<td>−4°</td>
+<td><strong>3.3°</strong></td>
+<td>3.595</td>
+<td>🔴 <strong>沒有</strong></td>
+</tr>
+<tr>
+<td><code>gn8</code></td>
+<td>−8°</td>
+<td><strong>7.1°</strong></td>
+<td>3.643</td>
+<td>🔴 <strong>沒有</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>兩件事同時成立:</p>
+<ol>
+<li><strong>補償確實被執行了。</strong> 命令 −4° 轉了 3.3°、命令 −8° 轉了 7.1°,增益約 0.86,接近線性。</li>
+<li><strong>只要非零,棧板就完全放不下去</strong>,留在叉齒上。</li>
+</ol>
+<p>第 1 點很重要,因為它排除了最省事的解釋。同一天稍早有三次是「參數讀得到、程式改到了、build 成功,只有行為沒變」——那是<a href="../../6.0.1/17-physics-parameter-tuning-6.0/">17 篇</a>講的無聲失效。<strong>這一條不是那一類:車真的轉了。</strong> 補償生效之後才產生新的失敗模式,這正是「補償反而讓事情更糟」的意思。</p>
+<p><code>gn0</code> 那一列是正對照:0° 成功,證明失敗是補償本身導致,不是放貨機構整體失靈。</p>
+<p>⚠ <strong>n=1 每點。</strong> 兩個非零點都失敗、失敗樣態相同(都留在齒上),而 0° 成功——這個對照夠支持「非零就壞」,<strong>不夠支持「增益恰為 0.86」</strong>。</p>
+<h2 id="4-餘裕比較大應該就補得動這個直覺是錯的">4. 「餘裕比較大應該就補得動」——這個直覺是錯的</h2>
+<p>先前的推測是:某些階段的插入餘裕寬得多,補償在那裡可能可行。</p>
+<p>上面那組實驗就是在<strong>最寬的情境</strong>(空通道)、用<strong>最小的角度</strong>(4°)做的。一樣失敗。</p>
+<p>推測被推翻了。而且連帶推翻了另一個更早的歸因:先前有一次補 7° 讓第三顆完全沒放成,被歸因為「那個階段間隙太窄」——<strong>窄不窄不是重點</strong>,因為在最寬的地方一樣過不去。</p>
+<p>真正的幾何差距在另一個地方,而它大到不能互相外推:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>動作</th>
+<th>移動的東西</th>
+<th>要進的開口</th>
+<th>單邊餘裕</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>放貨</strong></td>
+<td>棧板(寬 ~1.06 m)</td>
+<td>通道</td>
+<td><strong>只有幾十 mm</strong>(相鄰間隙實測 4~15 mm)</td>
+</tr>
+<tr>
+<td><strong>取貨</strong></td>
+<td>叉齒(寬 137 mm)</td>
+<td>叉孔(307 mm)</td>
+<td><strong>85 mm</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>差一個量級。<strong>同一套補償邏輯套到不同幾何餘裕的地方,結果可以完全相反</strong>——取貨端補得動,不代表放貨端補得動。</p>
+<p>歪斜的代價可以直接算:1.056 m 見方的物件轉 θ 時,掃過的包絡寬是 <code>1.056 × (cosθ + sinθ)</code>。4° 時 <strong>+71 mm</strong>、8° 時 <strong>+136 mm</strong>。而放貨端的單邊餘裕只有幾十 mm。補 4° 換來 71 mm 的額外寬度,而你只有 15 mm 可用——<strong>補償本身就是那個把它卡住的原因</strong>。</p>
+<p>(這條計算的形式與<a href="../../common/22-geometry-and-measurement-discipline/">22 篇</a>的姿態包絡是同一個:<strong>決定成敗的不是物件的尺寸,是它掃過的空間</strong>。)</p>
+<h2 id="5-為什麼命令補不動相對角與世界角是兩件事">5. 為什麼命令補不動:相對角與世界角是兩件事</h2>
+<p>補償在世界座標裡轉車身,而放貨要的也是世界角——所以理論上應該有效。它確實有效地轉了。問題在於<strong>轉了之後開口就進不去了</strong>。</p>
+<p>更根本的一層是:當摩擦把被搬物與叉齒連成近乎剛性時,<strong>兩者的相對角是旋轉不變量</strong>——車怎麼轉,相對角都不動。想靠命令把被搬物「擺正」到叉齒上,在純命令的範圍內沒有解。</p>
+<p>⚠ 這裡有一個推理範疇的陷阱,值得單獨記:曾經有一份分析用「相對角是旋轉不變量」去論證補償不可行。<strong>那句話本身沒錯</strong>(相對角確實動不了),但它講的是相對角,而放貨要的是世界角——<strong>兩者不同,所以那個論證推不出那個結論</strong>。結論碰巧對,理由完全不對。</p>
+<p><strong>理由錯的正確結論,跟錯誤結論一樣危險</strong>,因為它會在下一個情境被錯誤地套用。</p>
+<h2 id="6-補償的通則它的前提會過期而它不會自己失效">6. 補償的通則:它的前提會過期,而它不會自己失效</h2>
+<p>最一般化的一句是這條:</p>
+<blockquote>
+<p><strong>為了繞過某個問題而調的參數,根因修好之後要收回去。</strong>
+補償性的調整會在根因消失後變成新的阻礙,而且它看起來完全合理。</p>
+</blockquote>
+<p>這與<a href="../../common/23-no-shortcuts-in-physics-sim/">23 篇</a>的「捷徑的前提會過期而捷徑不會自己失效」是同一條規則的兩個面。差別在於捷徑通常有註解說明它在繞過什麼,而<strong>補償看起來像正經的控制邏輯</strong>,沒有人會想到要拆掉它。</p>
+<p>還有一個獨立的實例:某一輪的 y 方向補償補過頭 +178 mm,整輪報廢。開環系統下,<strong>每個動作只有一次機會,補過頭也沒有機會發現</strong>——沒有驗證後重試的路徑,一次錯就是全錯。</p>
+<h2 id="7-結論的邊界">7. 結論的邊界</h2>
+<p>不要把這一篇讀成「補償這個做法不可行」。實測支持的是:</p>
+<blockquote>
+<p><strong>在現行實作下,放貨端的角度補償有害。</strong></p>
+</blockquote>
+<p>還沒排除的機制、以及沒被試過的做法,都應該留在檯面上。例如:硬擋式的端擋機構試過並撤回(它把原本能過的階段打掉了),<strong>但「導引斜面」沒有試過</strong>——斜面在接觸時產生側向分力把物件<strong>推正</strong>,而不是硬擋,那是不同的機構,不該被端擋的失敗一起否定。</p>
+<p><strong>一次補償失敗,不能推廣成否定所有機構解。</strong></p>
+<h2 id="8-真正有效的那條路截斷傳遞不是修正誤差">8. 真正有效的那條路:截斷傳遞,不是修正誤差</h2>
+<p>補償想做的是「把已經歪掉的擺正」。有效的做法是另一個方向:</p>
+<blockquote>
+<p><strong>不試圖把物件擺正,而是下一趟取貨時對準它現在的樣子。</strong>
+誤差留在那裡,但不再往下傳。</p>
+</blockquote>
+<p>這一層的價值不是把東西擺正,是讓<strong>誤差不再累積</strong>。就算每次放貨都留下 8°,系統也是穩定的——因為每趟取貨都重新參照物理真值,不會第三趟就爆。</p>
+<p><strong>開環累積 vs 有界穩態</strong>,這是兩種完全不同的系統行為,而區別只在於「下一趟的參考點是什麼」:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>參考點</th>
+<th>行為</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>補償(修正誤差本身)</td>
+<td>上一趟的規劃值</td>
+<td>誤差累積,<code>容差 ÷ 單趟誤差</code> 趟後失敗</td>
+</tr>
+<tr>
+<td>重新對準(截斷傳遞)</td>
+<td>這一趟的物理真值</td>
+<td>有界,不隨趟數發散</td>
+</tr>
+</tbody>
+</table></div>
+<p>「驗證後重試」這條路在補償出局之後也要重新定義:原本的設計是「超出容差就重取重放,把上次誤差當這次的補償量」,而那個回授路徑不存在了。<strong>重試只會得到另一個隨機相位,不會收斂到「正」。</strong> 它還有一個弱版本可用——<strong>重試不是為了修角度,是為了換一次抽樣</strong>。</p>
+<h2 id="9-方法論推翻既有斷言之前先算清楚方向">9. 方法論:推翻既有斷言之前,先算清楚方向</h2>
+<p>這個專案裡最貴的一次判斷失誤不是技術的,是流程的:</p>
+<blockquote>
+<p>一度以為某個舊判決的前提已經不成立、要重測。<strong>方向搞反了</strong>:摩擦係數從 0.70 提到 1.4 讓連接<strong>更剛</strong>,那個結論只會更成立,不會被推翻。</p>
+</blockquote>
+<p>教訓寫成規則:</p>
+<blockquote>
+<p><strong>要推翻既有斷言之前,先算清楚新條件是往哪個方向推。</strong>
+看到「前提變了」就準備重測,而沒問「變的方向是強化還是削弱那個結論」。</p>
+</blockquote>
+<p>另一條同樣可複用:</p>
+<blockquote>
+<p><strong>所有以 pass/fail 為依據的證偽判決都要重看。</strong></p>
+</blockquote>
+<p>有一批實驗判「補償無效」用的是 pass/fail。改用連續量重測之後,<strong>結論碰巧一樣,但真正的因果完全不同</strong>——不是「作動器沒反應」,而是「作動器有效,但生效之後反而放不下去」。這兩件事的下一步動作完全不同:前者去查控制鏈,後者去查幾何。</p>
+<p>pass/fail 判準會把「沒生效」與「生效但有害」壓成同一個結果。<a href="../../common/27-failure-mode-taxonomy/">27 篇</a>講的是同一個病在失效分類上的樣子。</p>
+<h2 id="10-檢查清單">10. 檢查清單</h2>
+<ul>
+<li>[ ] 先量清楚誤差是在哪一段被注入的,不要對著它「表現出來」的那一段調</li>
+<li>[ ] 算過 <code>容差 ÷ 單趟誤差</code>,知道系統撐得住幾趟</li>
+<li>[ ] 分清楚「會 RESET 的批次」與「連續搬運」——前者的成功率不代表後者</li>
+<li>[ ] 加補償之前,先算它在幾何上帶來的額外包絡(<code>L × (cosθ + sinθ)</code>),跟可用餘裕比一次</li>
+<li>[ ] 補償實驗一定要有 0 值的正對照</li>
+<li>[ ] 分清楚「補償沒生效」與「補償生效但有害」——用連續量,不用 pass/fail</li>
+<li>[ ] 分清楚要改的是相對角還是世界角,命令只碰得到後者</li>
+<li>[ ] 為繞過問題而加的補償,在根因修好之後主動收回去</li>
+<li>[ ] 優先考慮「截斷傳遞」(下一趟重新對準物理真值)而不是「修正誤差」</li>
+<li>[ ] 推翻既有斷言之前,先算新條件是往強化還是削弱的方向推</li>
+</ul>
+<hr />
+<p>延伸閱讀:<a href="../../common/29-long-run-error-budget-and-clock-drift/">29 長跑才會浮現的問題</a>(誤差注入的一個根因是模擬時鐘與牆鐘分歧)、<a href="../../common/27-failure-mode-taxonomy/">27 失效模式分類學</a>、<a href="../../common/23-no-shortcuts-in-physics-sim/">23 物理模擬不可以偷懶</a>、<a href="../../common/24-nonholonomic-vehicle-control/">24 把「會瞬移的底盤」換成「真的有輪子的車」</a>。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

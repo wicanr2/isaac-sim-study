@@ -6,11 +6,11 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 
 ## 教學文件依版本分三區
 
-26 篇裡真正綁死版本的只有七篇,其餘的機制兩版共用,因此不複製成兩份。跨版本排查先看 **[5.1 ↔ 6.0.1 差異速查](docs/version-matrix.md)**。
+30 篇裡真正綁死版本的只有七篇,其餘的機制兩版共用,因此不複製成兩份。跨版本排查先看 **[5.1 ↔ 6.0.1 差異速查](docs/version-matrix.md)**。
 
 | 區 | 入口 | 篇數 | 收什麼 |
 |---|---|---|---|
-| 共通 | [`docs/common/`](docs/common/) | 19 | 機制與方法論,兩版通用 |
+| 共通 | [`docs/common/`](docs/common/) | 23 | 機制與方法論,兩版通用 |
 | 5.1 | [`docs/5.1/`](docs/5.1/) | 2 | 綁 `isaacsim.core.*` 命名空間的程式碼 |
 | 6.0.1 | [`docs/6.0.1/`](docs/6.0.1/) | 5 | 6.0.x 專屬的架構、後端與調參 |
 
@@ -40,6 +40,10 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 | [24](docs/common/24-nonholonomic-vehicle-control/README.md) | **把「會瞬移的底盤」換成「真的有輪子的車」** | 位置控制底盤與輪系底盤是**兩個不同的系統**,中間有一條**順序不能顛倒的前提鏈**,而每一環沒滿足時的症狀**都不會指向那一環**;① 車重到不了輪子(地面無碰撞 / `disableGravity` **文件寫 3 個實查 8 個** / 底盤沒有垂直自由度 —— 三者是同一件事的三個半,**分開做都是 no-op 也分不出誰有效**;μ 掃 250 倍位移完全平坦;判別要看垂直自由度**會不會回彈**,靜態值同時相容於兩個世界;⚠ 量到「輪胎抵抗 15 kN」是**穿透回復力**不是輪重);② 算清楚馬達扭力 vs 抓地力誰是限制(5 kN vs 27 kN,餘裕 5.4 倍);③ 轉向符號用資料驗(**量級 0.94 對、符號 73% 反** = 只有符號錯;翻號後轉向中位 65.1°→2.3°),而且**符號會隨行進方向再翻一次**(正轉 9% vs 反轉 97% 相反);④ 追蹤參考點要是**不側滑的固定軸**(車體原點離它 0.85 m → 半徑大 16.7%、偏航差 31°,看起來像軸距錯;**後處理路徑的三種做法全錯**,正解是在固定軸座標裡規劃);⑤ pure pursuit 三前提(引導點按**弧長**取、保證在前方、`Ld` ≤ 曲率半徑)+ 規劃要留轉向餘裕 + **行進方向整段鎖定**(逐步重判會讓倒車路徑被自己切成前進);⑥ 到位判定用弧長不用歐氏距離(Brockett:**症狀隨控制器變好而惡化** —— 從繞圈變成追著後退的點跑出場景);工程紀律:幾何做成**離線可測的純函式**(五個 bug 全是純幾何錯)、自測釘住踩過的坑、**指標本身會騙人**(`cross` 對航向盲、log 少乘 `sign(v)`)、事後讀狀態讀不到真相(中止會歸零) |
 | [25](docs/common/25-offline-assets-deployment/README.md) | **官方資產的預先下載與離線佈署** | 場域主機不能對外時,資產只是四條對外連線裡的一條(asset root / extension registry / 容器映像 / telemetry),把資產搬到本地卻仍連不上,通常是撞到另外三條;資產包分片數隨版本不同(5.1 三片、6.0.1 五片)且要**逐片**驗 MD5;⚠ **檔名帶修訂號而目錄名不帶**——6.0.1 的包要落在 `Isaac/6.0` 底下;asset root 四層優先序裡**環境變數 `ISAACSIM_ASSET_ROOT` 蓋過命令列**,「參數寫了卻還在往外連」先查它;⚠ 離線拿不到 extension 會表現成 `ModuleNotFoundError` 而不是網路錯誤;驗收唯一有效的方式是**把出口斷掉再跑一次**,而且看行為不看設定回讀 |
 | [26](docs/common/26-forklift-physics-and-articulation/README.md) | **從規格表到會動的叉車:物理參數與 articulation 的非 GUI 建法** | 把 VDI 2198 的欄位編號**逐欄對到 USD 屬性**,並標明貼在 prim 樹的哪一層(以 Linde R16 實抽值走完整流程);三個要換算而不是直接填的欄位——軸荷推質心(`(1280/3470)×1380 ≈ 509 mm`,⚠ 填之前先加總比對自重,型錄標籤可能互換)、牽引力**乘輪半徑才是力矩**、車速除輪半徑才是角速度;離線寫檔 vs runtime patch 的取捨(後者**不是所有屬性都吃**,踩過 40 輪實驗變因從未被施加);articulation 的兩條路(在匯入的 USD 上補 / 從零建)與四個不報錯的坑:`body0` 是父 `body1` 是子(**PhysX 不在乎、Newton 硬性要求**)、joint 都要在 `ArticulationRootAPI` 底下、動態剛體不得零質量、⚠ **油壓缸照搬會變成閉合運動鏈**(Newton 明確不支援);`solverVelocityIterationCount` 預設 1 而官方建議 16;驗收的三個叉車專屬行為檢查(飽和行為要**故意去撞上限**才驗得到) |
+| [27](docs/common/27-failure-mode-taxonomy/README.md) | **失效模式分類學** | 把「東西壞了」變成可歸因的類別:一個 bit 換不到歸因(32 輪裡 12 輪根本不是物理失敗);判準要標門檻出處;**待判桶是分類器的自我檢驗**;只看失敗當下的窗口不掃全 log;x 與 z 分開判會把兩種病混成一類;⚠ **驗法要有鑑別力**——問「假說為假的世界裡這個觀測會不會也長成這樣」;分好類才算得出「消除滑移只解決 7/13」 |
+| [28](docs/common/28-error-accumulation-and-harmful-compensation/README.md) | **誤差累積與「補償反而有害」** | 誤差在載運途中被注入、車一停被靜摩擦凍結(放貨九步只動 0.3°);`容差 ÷ 單趟誤差` 算得出撐幾趟;⚠ **補償被執行了(增益 0.86)卻讓事情更糟**——0° 成功、−4°/−8° 全部留在齒上;歪 4° 換來 71 mm 額外包絡而餘裕只有 15 mm;相對角與世界角是兩件事;正解是**截斷傳遞**而不是修正誤差;推翻斷言前先算新條件往哪個方向推 |
+| [29](docs/common/29-long-run-error-budget-and-clock-drift/README.md) | **長跑才會浮現的兩件事** | PhysX 錯誤上限預設 1000,**填滿它的是無害的 API 警告**(951 筆佔 86%);⚠ 物理死了而容器/log/探針/畫面全部正常,唯一有鑑別力的是模擬時鐘有沒有前進;修掉一類不夠要看總量;控制端走牆鐘而物理 RTF 0.21 → 軌跡被 3.5 倍速播放,四個症狀同一個原因;降速沒用因為根因是比例;**RTF 由機器負載主導(探針只佔 9%)**,修好之前所有 A/B 都被汙染 |
+| [30](docs/common/30-acceptance-probes-and-preregistration/README.md) | **驗收探針與實驗預先登記** | 預期落點由機構原理推導不是靠樣本統計;兩條互相獨立的證據鏈;⚠ **只跑正對照不算驗過**——永遠回 ✅ 的閘門與正確的閘門輸出相同;表頭有 64 欄而 13632 格全是 nan;樣本數決定能問什麼(6 輪全過的整輪下界只有 61%,要 ≳90% 得跑 29 輪);組態連**不改變的觀測條件**都寫死;**修壞掉的尺 ≠ 換一把尺**;停止規則要跟統計目的對齊;附三層紀錄範本 |
 
 
 ### Isaac Sim 5.1
@@ -93,6 +97,8 @@ extension 架構重組、PhysX 換代(107→110)與 Newton 後端、從 5.1 搬�
 
 - [`examples/scriptnode_udp_pose.py`](examples/scriptnode_udp_pose.py) — ScriptNode:UDP 收 pose 直接控制 prim 位姿(實戰使用過的完整版)
 - [`examples/scan_physics.py`](examples/scan_physics.py) — 掃描場景所有 **authored** 物理屬性(區分「刻意設定」與「吃預設」),並列出各 prim 的 `apiSchemas`。跨版本/跨主機比對場景時的主力工具
+- [`examples/audit_asset_physics.py`](examples/audit_asset_physics.py) — 稽核一份 USD 有沒有**授權**質量/密度/碰撞近似;會一併走訪 instance prototype(否則 `Traverse()` 對 CAD 轉出的資產回 0 mesh)
+- [`examples/templates/`](examples/templates/) — 實驗紀錄範本:輪次表、分期敘事、場景檔 manifest、事前登記、失敗總表(用法見 [30 篇](docs/common/30-acceptance-probes-and-preregistration/README.md) §8)
 - [`examples/usd_peek.py`](examples/usd_peek.py) — 唯讀檢視 crate 場景裡某個 prim 的物理結構(貼了哪些 API、質量、碰撞近似、bbox),並可把子樹匯出成 `.usda` 文字。搭配 [16 篇](docs/6.0.1/16-model-tuning-for-6.0/README.md)
 
 ## 其他

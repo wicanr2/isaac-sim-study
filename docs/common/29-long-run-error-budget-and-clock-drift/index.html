@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>29 · 長跑才會浮現的兩件事:錯誤預算與時鐘分歧 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/" class="on">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">共通</div><ul class="side-l"><li><a href="../../common/01-install-and-run-modes/"><span class="n">01</span>安裝與執行模式</a></li><li><a href="../../common/02-python-no-ui/"><span class="n">02</span>不碰 UI</a></li><li><a href="../../common/03-model-import/"><span class="n">03</span>模型檔案格式與匯入:以 USD 為中心</a></li><li><a href="../../common/04-physics-world/"><span class="n">04</span>建立物理世界</a></li><li><a href="../../common/05-ros2-bridge/"><span class="n">05</span>ROS2 橋接:讓外部系統控制模擬</a></li><li><a href="../../common/06-webrtc-streaming/"><span class="n">06</span>WebRTC 串流與多 client 觀看</a></li><li><a href="../../common/09-physics-simulation-fundamentals/"><span class="n">09</span>物理模擬基礎</a></li><li><a href="../../common/10-scene-physics-authoring/"><span class="n">10</span>場景資產的物理結構</a></li><li><a href="../../common/12-long-run-operations/"><span class="n">12</span>長跑維運:狀態分歧、看門狗分層與靜默失敗</a></li><li><a href="../../common/13-contact-and-grasp-first-principles/"><span class="n">13</span>接觸與抓握的第一性原理</a></li><li><a href="../../common/18-finding-physical-parameters/"><span class="n">18</span>建模擬場域時,物理參數要去哪裡找</a></li><li><a href="../../common/19-tuning-experiment-methodology/"><span class="n">19</span>調參實驗的方法論:讓每一輪機時都產生證據</a></li><li><a href="../../common/20-claude-code-driven-tuning/"><span class="n">20</span>用 Claude Code 跑模擬調參</a></li><li><a href="../../common/21-cad-asset-reading-and-conversion/"><span class="n">21</span>CAD 資產的判讀與轉換</a></li><li><a href="../../common/22-geometry-and-measurement-discipline/"><span class="n">22</span>幾何的量測紀律:尺寸都對,件還是插不進去</a></li><li><a href="../../common/23-no-shortcuts-in-physics-sim/"><span class="n">23</span>物理模擬不可以偷懶</a></li><li><a href="../../common/24-nonholonomic-vehicle-control/"><span class="n">24</span>把「會瞬移的底盤」換成「真的有輪子的車」</a></li><li><a href="../../common/25-offline-assets-deployment/"><span class="n">25</span>官方資產的預先下載與離線佈署</a></li><li><a href="../../common/26-forklift-physics-and-articulation/"><span class="n">26</span>從規格表到會動的叉車</a></li><li><a href="../../common/27-failure-mode-taxonomy/"><span class="n">27</span>失效模式分類學</a></li><li><a href="../../common/28-error-accumulation-and-harmful-compensation/"><span class="n">28</span>誤差怎麼累積,以及為什麼加一層補償常常讓事情更糟</a></li><li><a href="../../common/29-long-run-error-budget-and-clock-drift/" class="on"><span class="n">29</span>長跑才會浮現的兩件事:錯誤預算與時鐘分歧</a></li><li><a href="../../common/30-acceptance-probes-and-preregistration/"><span class="n">30</span>驗收探針與實驗預先登記</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-physx-的錯誤上限填滿它的多半是無害的警告">1. PhysX 的錯誤上限:填滿它的多半是無害的警告</a></li><li class="l3"><a href="#11-症狀完全不像模擬停了">1.1 症狀完全不像「模擬停了」</a></li><li class="l3"><a href="#12-填滿配額的是什麼">1.2 填滿配額的是什麼</a></li><li class="l3"><a href="#13-是探針造成的一半對一半被量測否掉">1.3 「是探針造成的」——一半對,一半被量測否掉</a></li><li class="l3"><a href="#14-治本的路走不通所以繞過">1.4 治本的路走不通,所以繞過</a></li><li class="l3"><a href="#15-誠實標註">1.5 誠實標註</a></li><li class="l3"><a href="#16-為什麼短測試碰不到">1.6 為什麼短測試碰不到</a></li><li class="l2"><a href="#2-模擬時鐘與牆鐘分歧">2. 模擬時鐘與牆鐘分歧</a></li><li class="l3"><a href="#21-三個各自合理的事實湊起來是災難">2.1 三個各自合理的事實,湊起來是災難</a></li><li class="l3"><a href="#22-症狀清單每一項都會被誤診成別的東西">2.2 症狀清單:每一項都會被誤診成別的東西</a></li><li class="l3"><a href="#23-為什麼降速沒有用">2.3 為什麼降速沒有用</a></li><li class="l3"><a href="#24-rtf-是個未受控的變因">2.4 RTF 是個未受控的變因</a></li><li class="l3"><a href="#25-三個方案只有一個是解">2.5 三個方案,只有一個是解</a></li><li class="l3"><a href="#26-換成模擬時鐘之後一定要有牆鐘逃生閘">2.6 🔴 換成模擬時鐘之後,一定要有牆鐘逃生閘</a></li><li class="l3"><a href="#27-誠實標註">2.7 誠實標註</a></li><li class="l2"><a href="#3-這兩件事給長跑的一般教訓">3. 這兩件事給長跑的一般教訓</a></li><li class="l2"><a href="#4-檢查清單">4. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="29-長跑才會浮現的兩件事錯誤預算與時鐘分歧">29 · 長跑才會浮現的兩件事:錯誤預算與時鐘分歧</h1>
+<p>開發期間跑 20 到 30 分鐘的短輪,一切正常。等到要跑完整流程、一輪 80 分鐘,連續三輪死在同一個地方——而且<strong>死法看起來完全不像同一件事</strong>。</p>
+<p>這一篇講兩個只在長跑才會浮現的機制。它們的共同點是:短測試在結構上就碰不到,所以不管你跑幾次短測試,都不會發現它們存在。</p>
+<blockquote>
+<p><strong>驗證狀態</strong>:內容來自一段現地場域的 Isaac Sim 6.0 調校(2026-08)。錯誤上限那一段有 Isaac 自己的 log 原句佐證;⚠ <strong>「哪些錯誤計入、計數何時重置」沒有查證</strong>,「這些錯誤無害」也<strong>沒有被獨立驗證</strong>——原始紀錄怎麼標,這裡就怎麼標。時鐘那一段的換算式<strong>只在一個工作點驗過</strong>。</p>
+</blockquote>
+<h2 id="1-physx-的錯誤上限填滿它的多半是無害的警告">1. PhysX 的錯誤上限:填滿它的多半是無害的警告</h2>
+<p>三輪長跑(80、77、73 分鐘)死在同一件事。Isaac 印的是:</p>
+<pre><code>PhysX error: Exceeding maximum number of PhysX errors (1000).
+[omni.physxui.scripts.extension] PhysX has reported too many errors,
+                                 simulation has been stopped.
+</code></pre>
+<p><strong>這不是物理問題。</strong> PhysX 有一個「累計錯誤筆數上限」,預設 1000,滿了就把模擬停掉。它算的是<strong>筆數</strong>,不管那些錯誤有多無害。</p>
+<h3 id="11-症狀完全不像模擬停了">1.1 症狀完全不像「模擬停了」</h3>
+<p>這是最貴的部分:</p>
+<blockquote>
+<p>容器活著、還在輸出 log、UDP 探針照樣回應、畫面也還在。<strong>只有物理不動。</strong></p>
+</blockquote>
+<p>其中一輪因此讓控制端對著已經死掉的物理<strong>跑了 82 分鐘</strong>,每一步都「成功」送出、每一步都沒有效果。</p>
+<p>會發現是因為控制端有一道獨立的檢查:</p>
+<pre><code>PACE_SIM_DEAD 模擬時鐘連續 3 次沒有前進(卡在 855.533)
+</code></pre>
+<p>⚠ <strong>判「還活著」不能看容器、log、探針回應或畫面</strong>,這四個在物理死掉之後全部照常。唯一有鑑別力的訊號是<strong>模擬時鐘有沒有前進</strong>。這與<a href="../../common/12-long-run-operations/">12 篇</a>的靜默失敗是同一個家族,只是這次連「畫面還在動」都不能當證據。</p>
+<h3 id="12-填滿配額的是什麼">1.2 填滿配額的是什麼</h3>
+<p>死亡前的統計窗口裡:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>錯誤</th>
+<th>筆數</th>
+<th>佔比</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PxArticulationLink::getGlobalPose() not allowed while simulation is running</code></td>
+<td><strong>951</strong></td>
+<td><strong>86%</strong></td>
+</tr>
+<tr>
+<td>其他</td>
+<td>157</td>
+<td>14%</td>
+</tr>
+<tr>
+<td><strong>總計</strong></td>
+<td><strong>1108</strong></td>
+<td>← 上限 1000</td>
+</tr>
+</tbody>
+</table></div>
+<p>這些是 <strong>API 檢查的警告</strong>(讀寫順序不對),值照樣拿得到、資料一直合理。<strong>把它當成「停掉模擬」的門檻才是問題。</strong></p>
+<p>🔑 <strong>修掉任何一類都不夠,要看總量。</strong> 先前修掉另一類(非剛體查詢),把它從約 36,000 筆壓到 104 筆——結果換 articulation 這一類自己撐到上限。<strong>配額是共用的</strong>,你只是把誰先撞線換了一個。</p>
+<h3 id="13-是探針造成的一半對一半被量測否掉">1.3 「是探針造成的」——一半對,一半被量測否掉</h3>
+<p>非剛體那一類確實是探針驅動的,正對照很乾淨:</p>
+<pre><code>沒有場景記錄探針在跑 → 0 筆 / 60s
+有                    → 468 筆 / 60s
+</code></pre>
+<p>但 articulation 這一類不是。把取樣間隔從 11.8 秒拉到 30.0 秒:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>改前</th>
+<th>改後</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>取樣次數 / 10 分</td>
+<td>51</td>
+<td><strong>22</strong>(減半)</td>
+</tr>
+<tr>
+<td>articulation 錯誤 / 10 分</td>
+<td>131</td>
+<td><strong>129</strong>(不變)</td>
+</tr>
+<tr>
+<td>速率</td>
+<td>13.1 筆/分</td>
+<td><strong>13.4 筆/分</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>取樣次數減半而錯誤速率不變,<strong>「探針驅動」的假說在這一類上被推翻</strong>。</p>
+<p>這一步值得學:同一個現象的兩個來源,一個是探針造成的、一個不是,而<strong>如果只做了第一個正對照就下結論,會把整個修法方向弄錯</strong>。</p>
+<h3 id="14-治本的路走不通所以繞過">1.4 治本的路走不通,所以繞過</h3>
+<p>想改從 Fabric 讀世界變換(那在模擬進行中是合法的)。實測:</p>
+<pre><code>probe_pose target=/World/RT-A/main/fork_liftA1 → HasWorldXform=False
+probe_pose target=/World/RT-A/main/fork_tilt   → HasWorldXform=False
+</code></pre>
+<p>這個場景的 Fabric 根本沒有替那些 prim 填世界變換。<strong>死路,標記起來不要再試。</strong></p>
+<p>最後採用的是提高上限本身:</p>
+<pre><code>--/physics/maxNumberOfPhysXErrors=200000      # 預設 1000
+</code></pre>
+<p>(對應容器內 <code>omni/physx/bindings/_physx.pyi</code> 的 <code>SETTING_MAX_NUMBER_OF_PHYSX_ERRORS</code>。)</p>
+<p>以實測的 13.4 筆/分算,200000 等於 <strong>250 小時</strong>,真正失控時仍然留了後備。驗收方式是跑一輪 80 分鐘、確認全程 0 筆 <code>too many errors</code> 且走到最後階段——<strong>做到了</strong>。</p>
+<p>⚠ <strong>提高上限的副作用:原本那個「模擬死掉」的訊號不見了。</strong> 判準必須改用模擬時鐘有沒有前進。<strong>繞過一個問題的同時要問:我剛剛拆掉了哪個警報?</strong></p>
+<h3 id="15-誠實標註">1.5 誠實標註</h3>
+<ul>
+<li>「總錯誤達 1000 → 停掉模擬」是 <strong>Isaac 自己講的</strong>(log 原句),不是推論。但<strong>哪些錯誤計入、計數何時重置沒有查證</strong>;現有證據只支持「場景重載之後可以繼續跑」。</li>
+<li>⚠ <strong>「這些錯誤無害」沒有被獨立驗證。</strong> 論據是「值照樣拿得到、資料一直合理」與「PhysX 自己把它歸類為 API 檢查」,不是逐筆比對過。若之後出現無法解釋的位姿雜訊,<strong>這裡要重新懷疑</strong>。</li>
+<li>13.4 筆/分是<strong>單一組態下</strong>的量測。掛更多探針會更高。200000 的餘裕很大,但<strong>換組態時要重量一次</strong>。</li>
+</ul>
+<h3 id="16-為什麼短測試碰不到">1.6 為什麼短測試碰不到</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>原因</th>
+<th>說明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>只殺長跑</strong></td>
+<td>短輪(20~30 分)累積不到 1000,開發期間從來不會遇到</td>
+</tr>
+<tr>
+<td><strong>失敗長得像物理失敗</strong></td>
+<td>停在某個動作組、等待逾時——看起來像參數沒調對</td>
+</tr>
+<tr>
+<td><strong>錯誤被歸類為「無害的雜訊」</strong></td>
+<td>既有文件寫「不是物理訊號,是量測工具的雜訊」。那句是對的,<strong>但漏了下半句:雜訊照樣計入上限</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>第三條最值得記:<strong>一個正確的判斷可以因為漏了半句而變成陷阱</strong>。「這些訊息無害」與「這些訊息不會造成後果」是兩件事。</p>
+<h2 id="2-模擬時鐘與牆鐘分歧">2. 模擬時鐘與牆鐘分歧</h2>
+<p>第二個機制更隱蔽,因為它不會讓任何東西停下來——它只是讓<strong>物理跑得跟你以為的不一樣</strong>。</p>
+<h3 id="21-三個各自合理的事實湊起來是災難">2.1 三個各自合理的事實,湊起來是災難</h3>
+<pre><code>控制端 use_sim_time = False   → 它所有的計時器都是牆鐘
+Isaac 沒有發布 /clock          → ROS 端根本拿不到模擬時間(實測 topic 不存在)
+Isaac 的 real-time factor 0.21 → 模擬時間比牆鐘慢約 5 倍
+</code></pre>
+<p>控制端照<strong>牆鐘</strong>把軌跡串流出去:384 個點 / 12.77 秒 = 30.1 Hz,穩定得很。</p>
+<p>但同一段時間裡,<strong>物理只前進了 <code>12.77 × 0.21 ≈ 2.7 秒</code></strong>。那條路徑長約 3.7 m,所以在模擬世界裡,車速是 <strong>1.4 m/s</strong>——而規劃器宣告的是 0.40。</p>
+<p><strong>軌跡被以 3.5 倍速播放,而兩邊都沒有報錯</strong>,因為兩邊各自都是對的:控制端按時發點,模擬器按步演算,沒有人負責檢查這兩個節拍是不是同一個。</p>
+<h3 id="22-症狀清單每一項都會被誤診成別的東西">2.2 症狀清單:每一項都會被誤診成別的東西</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>量到的</th>
+<th>宣告值</th>
+<th>倍數</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>叉齒速度峰值 4.35 m/s</td>
+<td>0.45</td>
+<td>9.7×</td>
+</tr>
+<tr>
+<td>沿齒加速度峰值 164 m/s²</td>
+<td>門檻 13.73</td>
+<td>12×</td>
+</tr>
+<tr>
+<td>相鄰兩個物理步的步距差 5.3 → 73 mm</td>
+<td>—</td>
+<td>14×</td>
+</tr>
+<tr>
+<td>角速度峰值 97°/s</td>
+<td>30</td>
+<td>3.2×</td>
+</tr>
+</tbody>
+</table></div>
+<p>這四項如果分開看,會分別被歸因成「規劃器有 bug」「摩擦不夠」「CCD 沒開」「轉向增益太大」。<strong>它們是同一個原因。</strong></p>
+<p>換算式在一個工作點上驗過:暴衝窗的 RTF 是 0.17,預測速度 <code>0.40 / 0.17 = 2.35 m/s</code>,實測 <strong>2.2 m/s</strong>。</p>
+<p>⚠ <strong>只在一個工作點驗過。</strong> 要當定律用,得掃至少三個 RTF。</p>
+<h3 id="23-為什麼降速沒有用">2.3 為什麼降速沒有用</h3>
+<p>直覺的處置是把命令速度調低。實際:把 <code>max_velocity</code> 從 0.45 降到 0.22,只把 2.35 m/s 降到 1.18——<strong>仍然是宣告值的 2.6 倍</strong>,而且行程時間變長,暴露在這個問題下的時間反而更久。</p>
+<p><strong>根因是比例失調,不是速度設定值。</strong> 對著一個比例問題調分子,永遠只能改善那個比例的絕對值,改不掉比例本身。</p>
+<h3 id="24-rtf-是個未受控的變因">2.4 RTF 是個未受控的變因</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>情境</th>
+<th>RTF</th>
+<th>對應車速</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>引擎閒置</td>
+<td><strong>0.71</strong></td>
+<td>0.56 m/s</td>
+</tr>
+<tr>
+<td>跑批次(一個場景記錄 + 看門狗 + 接觸探針)</td>
+<td><strong>0.21</strong></td>
+<td>1.9 m/s</td>
+</tr>
+<tr>
+<td>批次中的 30 秒窗(n=50)</td>
+<td><strong>0.00 ~ 0.56</strong></td>
+<td>變動超過 3 倍</td>
+</tr>
+</tbody>
+</table></div>
+<p>🔴 <strong>「探針壓低 RTF」這個歸因被量測否掉了。</strong> 同一台、同樣閒置,只差一個場景記錄探針:</p>
+<pre><code>A  只有接觸探針             RTF 0.258
+B  接觸探針 + 場景記錄      RTF 0.234     → 只吃掉 9%
+</code></pre>
+<p>而同樣「閒置 + 只有接觸探針」,剛重啟引擎時量到 <strong>0.707</strong>、跑完一輪批次後量到 <strong>0.258</strong>。當下的 load average 是 14.85,模擬進程 415% CPU、串流轉發 271% CPU(headless 瀏覽器編碼),<strong>GPU 只有 20%——機器是 CPU 綁住的</strong>。</p>
+<p><strong>RTF 由機器整體負載主導,不是掛了幾支探針。</strong> 這讓問題更難繞過:負載不是能靠「少量測」控制的東西。</p>
+<p>⚠ 這一條直接影響實驗設計:<strong>在時鐘節拍修好之前,任何物理參數的 A/B 比較都混著 RTF 這個未受控的變因。</strong> 兩組跑在不同的機器負載下,比出來的差異可能完全不是參數造成的。</p>
+<h3 id="25-三個方案只有一個是解">2.5 三個方案,只有一個是解</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>方案</th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>少掛探針把 RTF 拉高</td>
+<td>🔴 <strong>已量測否決</strong>(探針只佔 9%)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Isaac 發 <code>/clock</code> + 控制端 <code>use_sim_time=True</code></td>
+<td>🔴 <strong>讀碼後證偽:單獨做完全沒有作用</strong></td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>把串流迴圈的節拍換成模擬時鐘</strong></td>
+<td>✅ 有效</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠ <strong>#2 不是白做——它是 #3 的前提。</strong> <code>/clock</code> 有在發、<code>use_sim_time=true</code>,<code>get_clock()</code> 才會回模擬時間。只是<strong>單獨做不會改變任何行為</strong>,因為串流迴圈根本沒在問時鐘。</p>
+<p>這是一個常見的誤判形狀:<strong>做了一件正確且必要的事,行為沒變,於是把它當成無效而撤掉</strong>——結果把後面那一步的地基也拆了。</p>
+<h3 id="26-換成模擬時鐘之後一定要有牆鐘逃生閘">2.6 🔴 換成模擬時鐘之後,一定要有牆鐘逃生閘</h3>
+<p>模擬時間只在模擬器步進時前進。<strong>模擬一暫停就永遠等不到</strong>——沒有逃生閘的話會<strong>無聲地卡死在串流迴圈裡</strong>,而節點看起來一切正常。</p>
+<p>實作是一個逾時上限(用過 10.0 秒):超過就印警告並改用牆鐘繼續。</p>
+<p>換句話說,§1 的錯誤上限問題與這裡是互相咬合的:<strong>物理死掉 → 模擬時鐘不前進 → 用模擬時鐘節拍的控制端會卡死</strong>。同一個系統裡,兩個獨立的長跑機制在同一個點交會。</p>
+<h3 id="27-誠實標註">2.7 誠實標註</h3>
+<ul>
+<li>換算式「速度 = 命令速度 ÷ RTF」<strong>只在一個工作點驗過</strong>。</li>
+<li><strong>RTF 是自己用 <code>t_wall</code> 與 <code>t_sim</code> 相除算的</strong>,<code>t_sim</code> 取自 timeline。若 timeline 時間與 PhysX 實際步進不完全一致,這個比值會有偏差。<strong>沒有第二個獨立來源驗證過。</strong></li>
+<li><strong>還有其他迴圈沒改</strong>:只改了載運段的串流迴圈,叉齒動作仍是牆鐘節拍。</li>
+<li>RTF 0.21 與 0.71 之間<strong>變的不只一項</strong>,沒有做到只改一個變因,所以只能說「RTF 會在這個範圍變動」,不能歸因到其中任何一項。</li>
+<li><strong>歷史批次沒有記模擬時間</strong>,所以不能回推它們當時的 RTF——「舊資料跨日期不可比」目前<strong>無法驗證,只是合理的懷疑</strong>。</li>
+</ul>
+<h2 id="3-這兩件事給長跑的一般教訓">3. 這兩件事給長跑的一般教訓</h2>
+<p><strong>① 短測試的覆蓋範圍有結構性的洞。</strong> 累積型的失效(配額、記憶體、誤差)在短輪裡不存在,不是機率低,是<strong>在結構上不可能出現</strong>。要驗長跑就得跑長跑,沒有替代品。</p>
+<p><strong>② 「活著」的判準要挑最難偽裝的那一個。</strong> 容器、log、探針回應、畫面全部可以在物理死掉之後照常。挑判準時問:<strong>這個訊號在壞掉的世界裡會不會也長成這樣?</strong>(<a href="../../common/27-failure-mode-taxonomy/">27 篇</a> §6 是同一條規則。)</p>
+<p><strong>③ 繞過一個問題時,清點自己拆掉了哪些警報。</strong> 把錯誤上限提高到 200000 之後,「模擬停止」這個訊號消失了,必須另外補一個。</p>
+<p><strong>④ 「無害」不等於「沒有後果」。</strong> 那 951 筆警告確實無害,而它們照樣把模擬停掉了。</p>
+<p><strong>⑤ 未受控的變因會汙染所有 A/B。</strong> RTF 由機器負載主導,而機器負載不在實驗設計裡——所有在它修好之前做的參數比較,證據等級都要降一級。</p>
+<h2 id="4-檢查清單">4. 檢查清單</h2>
+<ul>
+<li>[ ] 長跑之前,確認「還活著」的判準是<strong>模擬時鐘有沒有前進</strong>,不是容器/log/畫面</li>
+<li>[ ] 知道 PhysX 錯誤上限預設 1000,而且<strong>無害的 API 警告照樣計入</strong></li>
+<li>[ ] 量過自己這個組態的錯誤速率(筆/分),換組態要重量</li>
+<li>[ ] 提高上限之後,補上替代的死亡偵測</li>
+<li>[ ] 修掉一類錯誤之後<strong>重看總量</strong>,不要以為問題解決了</li>
+<li>[ ] 控制端的節拍源與模擬器的時間源是同一個;若不是,先量 RTF</li>
+<li>[ ] 改用模擬時鐘節拍時,一定有牆鐘逃生閘</li>
+<li>[ ] 做 A/B 之前,確認 RTF(或等價的負載指標)沒有在兩組之間漂移</li>
+</ul>
+<hr />
+<p>延伸閱讀:<a href="../../common/12-long-run-operations/">12 長跑維運</a>(狀態分歧、看門狗分層、靜默失敗)、<a href="../../common/28-error-accumulation-and-harmful-compensation/">28 誤差累積與補償</a>(時鐘分歧正是誤差注入的根因之一)、<a href="../../common/19-tuning-experiment-methodology/">19 調參實驗的方法論</a>、<a href="../../common/27-failure-mode-taxonomy/">27 失效模式分類學</a>。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

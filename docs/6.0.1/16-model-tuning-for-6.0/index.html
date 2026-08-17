@@ -86,7 +86,7 @@ bbox 最長邊 = 1.079 m
 <p>場景檔動輒上百 MB、跑在遠端 GPU 機器上,開 GUI 拖來拖去不現實。有三條路。</p>
 <h3 id="21-為什麼-vs-code-直接打不開">2.1 為什麼 VS Code 直接打不開</h3>
 <p>先看檔案的前 16 個位元組:</p>
-<pre><code class="language-bash">$ head -c 16 AISHOW_isaac60.usd | xxd
+<pre><code class="language-bash">$ head -c 16 WAREHOUSE_isaac60.usd | xxd
 00000000: 5058 522d 5553 4443 0008 0000 0000 0000  PXR-USDC........
 </code></pre>
 <p><code>PXR-USDC</code> 是 <strong>crate 格式</strong>的檔頭——USD 的<strong>二進位</strong>序列化格式。副檔名雖然是 <code>.usd</code>,內容不是文字。用編輯器打開只會看到亂碼。</p>
