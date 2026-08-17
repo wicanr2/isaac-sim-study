@@ -37,7 +37,7 @@ Isaac Sim 用一個 Physics Scene prim 定義這個切法:**Simulation Steps per
 
 官方機制(PhysX SDK [Rigid Body Dynamics — Sleeping](https://nvidia-omniverse.github.io/PhysX/physx/5.4.1/docs/RigidBodyDynamics.html)):每個動態剛體有一個 **wake counter**,動能低於 `sleepThreshold`(質量正規化)的每一步,counter 扣掉一個 timestep;**只要有一步高於門檻,counter 整個重置**,從頭數起。counter 歸零才「有資格」睡,實際入睡還要等同島(接觸相連的一組剛體)都準備好。喚醒則需要外來的接觸或力把動能推回門檻之上——**已睡著的剛體,鄰近的活動若沒有實際碰到它,不會吵醒它**。
 
-兩個直接推論,都有實測對應(來源:isaac-sim-60-tuning docs/148、151):
+兩個直接推論,都有實測對應(來源:內部調校專案 docs/148、151):
 
 - **貼得極近的接觸對可能永遠睡不著。** 兩個間隙只有幾 mm 的剛體,接觸求解的微小殘餘
   讓它們持續「抖動」——位置靜止到毫米級、姿態只變 0.0x°,但角速度在 0.07~1 rad/s
@@ -83,7 +83,7 @@ force = stiffness * (targetPosition - position) + damping * (targetVelocity - ve
   **加速度**——增益的效果與質量無關。同一組增益數字,兩種 type 的行為差一個質量倍數;
   對照別人的增益值之前先確認 type 一致。
 
-**耦合陷阱:maxForce 不能單獨砍**(實測,來源 isaac-sim-60-tuning docs/158)。增益是在「力無上限」的前提下調出來的;只把 `maxForce` 砍到 1/30,阻尼項跟著被截斷,控制器失去煞停能力,定位收不斂而逾時——而且症狀出現在**移動階段**,很容易誤判成路徑或容差問題。要縮放一個軸的「力氣」,`stiffness`、`damping`、`maxForce` **三者同乘一個係數**:因為 `a = F/m`,等比例縮放等於把該軸的加速度能力均勻縮小,速度剖面形狀不變(實測 ×1/10 功能完整,時間線與基線重合)。這是柵欄原則的量化版:改 A 之前先問 A 的現值是在什麼前提下調出來的。
+**耦合陷阱:maxForce 不能單獨砍**(實測,來源:內部調校專案 docs/158)。增益是在「力無上限」的前提下調出來的;只把 `maxForce` 砍到 1/30,阻尼項跟著被截斷,控制器失去煞停能力,定位收不斂而逾時——而且症狀出現在**移動階段**,很容易誤判成路徑或容差問題。要縮放一個軸的「力氣」,`stiffness`、`damping`、`maxForce` **三者同乘一個係數**:因為 `a = F/m`,等比例縮放等於把該軸的加速度能力均勻縮小,速度剖面形狀不變(實測 ×1/10 功能完整,時間線與基線重合)。這是柵欄原則的量化版:改 A 之前先問 A 的現值是在什麼前提下調出來的。
 
 **實戰坑(對應公式直接推出來,不是巧合)**:一個 joint 若沒設 stiffness/damping(兩者皆 0),上式恆為 0——對它送 `apply_action` 位置目標形同沒發生,**不報錯,但也絕不會動**。這是「命令發了、車不動」最常見的暗坑,10 次有 8 次是漏設這組增益([04 篇](../../common/04-physics-world/README.md#4-關節控制-api兩種語意別混用)已從 API 層面提過,這裡補上它背後的公式解釋:不是 bug,是 F=0 的必然結果)。
 
@@ -117,7 +117,7 @@ PhysX 官方文件(Rigid Body Dynamics)區分兩種操作:
 
 ## 7. 案例一:穿模真根因(teleport 掛載 vs PD 物理叉取)
 
-2026-07-23 對照兩套環境找出的根因(詳見 [logistical-expo 95 篇](../../../../2026-logistical-expo/docs/circ-ai-isaac-ros/95-circai-newhost-clipping-rootcause.md)):同一族 AMR 與棧板資產,一邊叉取正常、一邊視覺穿模,兩邊 Physics Scene 設定同構(都開 CCD),棧板都有 RigidBodyAPI + SDF collider——**碰撞設定不是差異來源**。真正的差異是驅動方式:
+2026-07-23 對照兩套環境找出的根因(詳見 內部案例紀錄 95(未公開)):同一族 AMR 與棧板資產,一邊叉取正常、一邊視覺穿模,兩邊 Physics Scene 設定同構(都開 CCD),棧板都有 RigidBodyAPI + SDF collider——**碰撞設定不是差異來源**。真正的差異是驅動方式:
 
 | | 不穿模的一邊 | 穿模的一邊 |
 |---|---|---|
@@ -130,7 +130,7 @@ PhysX 官方文件(Rigid Body Dynamics)區分兩種操作:
 
 ## 8. 案例二:目的地無效 → NaN → AMR 暴走
 
-2026-07-19 實測(詳見 [logistical-expo 88 篇](../../../../2026-logistical-expo/docs/circ-ai-isaac-ros/88-milestone-20260719-physical-ai-safe-endpoints.md)):派工目的地若不在系統已知的座標表裡,驅動/伺服計算出 NaN 或極巨值,而**驅動路徑走的正是 §6 的 teleport(`set_joint_positions` 每步覆寫)**——沒有一層「合理範圍檢查」擋在 teleport 前面,壞值直接被寫進關節狀態,AMR 與棧板瞬間出現在座標 `[-4806, 12908]` 這種顯然不合理的位置。這不是一個獨立的「隨機 bug」,是 §6 機制的直接後果:teleport 本身就不做合理性檢查,寫什麼就是什麼。
+2026-07-19 實測(詳見 內部案例紀錄 88(未公開)):派工目的地若不在系統已知的座標表裡,驅動/伺服計算出 NaN 或極巨值,而**驅動路徑走的正是 §6 的 teleport(`set_joint_positions` 每步覆寫)**——沒有一層「合理範圍檢查」擋在 teleport 前面,壞值直接被寫進關節狀態,AMR 與棧板瞬間出現在座標 `[-4806, 12908]` 這種顯然不合理的位置。這不是一個獨立的「隨機 bug」,是 §6 機制的直接後果:teleport 本身就不做合理性檢查,寫什麼就是什麼。
 
 事故收斂成一組**應用層的安全邊界**(而非物理層修正):目的端點必須在已知座標表內、來源棧板必須是地面儲位(而非貨架高處,見 [95 篇]對貨架取貨發散的補充分析)。物理層的「壞值被無條件寫入」機制沒有改變,是在其上游擋住壞值進入的可能性。
 
@@ -140,7 +140,7 @@ PhysX 官方文件(Rigid Body Dynamics)區分兩種操作:
 
 <p align="center"><img src="../../img/teleport-vs-native-reset.svg" width="820" alt="teleport 只改 USD authored 這層;native reset 連 solver 內部狀態一起換新"></p>
 
-2026-07-20 實測(詳見 [logistical-expo 91 篇](../../../../2026-logistical-expo/docs/circ-ai-isaac-ros/91-native-timeline-reset.md)):在 §8 暴走事故之後,AMR 的 `world_x` 關節值曾發散到 `-3,003,834,112`;當時 reset 只做「棧板/關節 teleport 回零」,連按多次 **RESET 仍停在天文數字量級**,正是上面這個機制的直接證據。
+2026-07-20 實測(詳見 內部案例紀錄 91(未公開)):在 §8 暴走事故之後,AMR 的 `world_x` 關節值曾發散到 `-3,003,834,112`;當時 reset 只做「棧板/關節 teleport 回零」,連按多次 **RESET 仍停在天文數字量級**,正是上面這個機制的直接證據。
 
 修法對齊官方的物理世界重置語意——`omni.timeline` 的 **STOPPED → PLAYING** 狀態轉換(對應 [04 篇](../../common/04-physics-world/README.md#2-模擬狀態playing-才有物理)提過的「timeline 三態」,以及 ROS2 `simulation_interfaces/srv/SetSimulationState` 標準服務的等價操作):
 
@@ -169,4 +169,4 @@ PhysX 官方文件(Rigid Body Dynamics)區分兩種操作:
 
 - 官方:[Physics Simulation Fundamentals](https://docs.isaacsim.omniverse.nvidia.com/4.5.0/physics/simulation_fundamentals.html)、[Articulation and Robot Simulation Stability Guide](https://docs.omniverse.nvidia.com/kit/docs/omni_physics/latest/dev_guide/guides/articulation_stability_guide.html)、[Tuning Joint Drive Gains](https://docs.isaacsim.omniverse.nvidia.com/4.5.0/robot_setup/joint_tuning.html)、[PhysX Rigid Body Dynamics](https://nvidia-omniverse.github.io/PhysX/physx/5.4.1/docs/RigidBodyDynamics.html)、[PhysX Joints](https://nvidia-omniverse.github.io/PhysX/physx/5.4.1/docs/Joints.html)、[PhysX Articulations](https://nvidia-omniverse.github.io/PhysX/physx/5.5.0/docs/Articulations.html)
 - 前篇:[04 建立物理世界](../../common/04-physics-world/README.md)(Stage/物理場景/虛擬關節建模法)
-- 內部案例全文(本機唯讀,含更多現場細節與 log):[logistical-expo 88](../../../../2026-logistical-expo/docs/circ-ai-isaac-ros/88-milestone-20260719-physical-ai-safe-endpoints.md)、[91](../../../../2026-logistical-expo/docs/circ-ai-isaac-ros/91-native-timeline-reset.md)、[95](../../../../2026-logistical-expo/docs/circ-ai-isaac-ros/95-circai-newhost-clipping-rootcause.md)
+- 內部案例全文(本機唯讀,含更多現場細節與 log):內部案例 88、91、95

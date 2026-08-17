@@ -13,7 +13,7 @@
 所以任何鋼構件如果沒有授權 `physics:mass` 或 `physics:density`,
 **會比真實輕約 7.9 倍**(鋼 7850 / 水 1000)。
 
-實例:東京場景的 push-back 板車自動算成 **9.4 kg**,
+實例:現地場域那個場景的 push-back 板車自動算成 **9.4 kg**,
 比它載的棧板(20 kg)還輕 —— 真實世界正好相反。用鋼密度重算是 **73.6 kg**。
 
 > 這種錯**不會有任何警告**,場景照樣跑,只是行為不對
@@ -49,7 +49,7 @@ NVIDIA Warehouse 資產包(24 GB):
 > 因為它們是要被模擬的。**「資產包的用途」決定它有沒有物理** ——
 > 視覺/場景佈置用的沒有,機器人/可互動物件才有。
 
-工具:[`audit_asset_physics.py`](../../../../isaac-sim-60-tuning/scripts/audit_asset_physics.py)
+工具:[`examples/audit_asset_physics.py`](../../../examples/audit_asset_physics.py)
 —— 給它一個 USD,列出哪些 prim 有 RigidBody/Mass/Collision API 與 authored 值。
 
 ## 3. ⚠ 規格書的最大陷阱:載重能力 ≠ 自重
@@ -88,7 +88,7 @@ NVIDIA Warehouse 資產包(24 GB):
 
 ⚠ **體積要用世界座標算**,而且要確認網格是**封閉**的
 (不封閉的話有號體積無意義)。工具:
-[`estimate_trolley_mass.py`](../../../../isaac-sim-60-tuning/scripts/estimate_trolley_mass.py)。
+一支「幾何 × 材料密度」的估算腳本(未公開,做法見本節)。
 
 ⚠ **釐清「材料體積」還是「包絡體積」**:
 - 焊接鋼構的網格若是實心桿件建模 → 體積 ≈ 材料體積 ✅
@@ -158,7 +158,7 @@ export LD_LIBRARY_PATH=${USDLIB}bin:$LD_LIBRARY_PATH
 
 - [`10` 場景物理授權](../../common/10-scene-physics-authoring/README.md)
 - [`17` 6.0 物理調參](../../6.0.1/17-physics-parameter-tuning-6.0/README.md)
-- 專案實例:`isaac-sim-60-tuning` 的 `docs/142`(場景物理快照)、`docs/144`(保真度實驗設計)
+- 專案實例:內部調校專案的 `docs/142`(場景物理快照)、`docs/144`(保真度實驗設計)
 
 ## 子頁
 

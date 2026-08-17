@@ -29,7 +29,7 @@
 
 這些機轉都是**通用行為**,官方文件沒有把它們特別框成「5.1 場景的問題」,但和「換了新版本後這個場景就爆記憶體」的體感描述吻合,值得列入風險清單:
 
-1. **GPU VRAM——texture streaming 預算**:Performance Optimization Handbook 明載預設值 `Texture Streaming Budget = 0.6`(GPU 記憶體容量的 60%),可調路徑 `/rtx-transient/resourcemanager/texturestreaming/memoryBudget`。手冊也明說「關掉 texture streaming 雖然可能有效能好處,但會增加 GPU 記憶體用量,記憶體吃緊時可能造成當機」。**如果場景材質量隨版本演進變大(見第 3 節,SHOWCASE_600.usd 比舊版 SHOWCASE.usd 大近一倍),在小 VRAM 卡上更容易先撞到這個預算上限。**
+1. **GPU VRAM——texture streaming 預算**:Performance Optimization Handbook 明載預設值 `Texture Streaming Budget = 0.6`(GPU 記憶體容量的 60%),可調路徑 `/rtx-transient/resourcemanager/texturestreaming/memoryBudget`。手冊也明說「關掉 texture streaming 雖然可能有效能好處,但會增加 GPU 記憶體用量,記憶體吃緊時可能造成當機」。**如果場景材質量隨版本演進變大(見第 3 節,WAREHOUSE_600.usd 比舊版 WAREHOUSE.usd 大近一倍),在小 VRAM 卡上更容易先撞到這個預算上限。**
 2. **Host RAM——重複開關 stage 的累積成長**:同一份手冊建議在「stage 反覆載入/卸載」的場景下,用 `GLIBC_TUNABLES=glibc.malloc.arena_max=1:glibc.malloc.mmap_max=0:glibc.malloc.mmap_threshold=2147483647` 調整 glibc 配置器行為——暗示官方已知反覆開關場景會有記憶體不會完全歸還作業系統的現象。若實際操作流程是在同一個 6.0.1 process 裡反覆開關/重載 5.1 場景做比對測試,這條路徑值得優先排查。
 3. **大型/複雜 USD 匯入本身就有已知的規模上限**(與 5.1→6.0 無關,是 USD 匯入管線的既有限制):GitHub issue [`isaac-sim/IsaacSim#491`](https://github.com/isaac-sim/IsaacSim/issues/491) 回報 Isaac Sim 5.1 載入超大 USD(Disney *Moana Island* 場景)時,32 核心全滿、卡 10–20 分鐘後 segfault,即使當下還有 20GB+ VRAM、50GB+ RAM 可用——顯示匯入路徑本身在極端規模下有非記憶體不足導致的 crash 模式(CPU-bound 處理 + 某種資源上限),版本迭代之間都可能重現,不是 6.0 特有。
 4. **SDF collision 重新 cook 的成本**:官方論壇與文件確認 SDF mesh collider 比 convex hull **慢約 20 倍**,且 convex decomposition 對高長寬比 mesh 可能觸發 GPU 不相容 → CPU fallback。若 5.1 場景的 collision 是用 5.1 當時的 cook 結果快取,搬到 6.0.1 若判定快取失效需要重新 cook,短時間 CPU/記憶體尖峰是合理推測(**推測,未找到官方文字明確描述「6.0 一定會重 cook 舊快取」**)。
@@ -37,21 +37,21 @@
 
 ## 3. 我們自己的證據(本地一手資料)
 
-### 3.1 AWS 遷移紀錄(`70-aws-tokyo-isaac-601-runbook.md`):真實發生的「不相容」是功能性斷裂,不是 OOM
+### 3.1 雲端遷移紀錄(內部 runbook):真實發生的「不相容」是功能性斷裂,不是 OOM
 
-這份 runbook 記錄了 2026-07-18/19 把 本機 on-prem 環境的 5.1 場景資產搬到 AWS Tokyo、用 Isaac Sim 6.0.1 跑通的全程。兩個關鍵發現:
+這份 runbook 記錄了 2026-07-18/19 把地端環境的 5.1 場景資產搬到雲端 GPU 執行個體、用 Isaac Sim 6.0.1 跑通的全程。兩個關鍵發現:
 
 - **改用 6.0.1 的原因跟 OOM 無關,是 driver ABI 不相容**:本機 on-prem 環境(driver 555,舊)上 Isaac 5.1 穩定;AWS g6e 預裝 driver 595(新)配 5.1 會讓 RTX OptiX 外掛在啟動場景 DB 時 **segfault**(每次約 65 秒必掛,`make_fcontext` backtrace)。換成 6.0.1(相容新 driver 595)後同機測試 216 秒無 crash。**這是「Isaac Sim 執行檔版本 × GPU driver 版本」的相容性問題,不是「5.1 存的 USD 檔案在 6.0.1 裡讀出問題」——容易被混為一談,值得向觀察者追問時明確區分:實際看到的是啟動就崩潰(疑似 driver/ABI),還是場景載入到一半記憶體飆升(疑似本篇談的 VRAM/RAM 議題)。**
-- **即使場景檔已經是「6.0 調整版」(`SHOWCASE_600.usd`),場景內建的 ROS2 OmniGraph 節點仍是 5.1 時代格式**,在 6.0.1 下出現兩層問題(§7.1):`ROS2PublishTransformTree` 用 deprecated 的 `targetPrims`(6.0 應改用 `IsaacComputeTransformTree` 的 `parentFrames`/`childFrames`)導致 `[PoseTree] getObjectType eInvalid` 洪水式報錯;更關鍵的是 **headless streaming/`--exec` 模式下,OmniGraph action graph 完全不會被主更新迴圈 tick**,訂閱節點註冊了但 compute 從不執行,`/joint_states` 永遠空。這是實測到的、確鑿的「5.1 格式內容在 6.0.1 執行環境下失效」案例——但症狀是**功能斷裂(拿不到資料、任務中止)**,run 過程中沒有記錄到 OOM 或記憶體異常。最終繞過方式是完全放棄場景內建 OmniGraph、改走 UDP bridge(§7.2)。
+- **即使場景檔已經是「6.0 調整版」(`WAREHOUSE_600.usd`),場景內建的 ROS2 OmniGraph 節點仍是 5.1 時代格式**,在 6.0.1 下出現兩層問題(§7.1):`ROS2PublishTransformTree` 用 deprecated 的 `targetPrims`(6.0 應改用 `IsaacComputeTransformTree` 的 `parentFrames`/`childFrames`)導致 `[PoseTree] getObjectType eInvalid` 洪水式報錯;更關鍵的是 **headless streaming/`--exec` 模式下,OmniGraph action graph 完全不會被主更新迴圈 tick**,訂閱節點註冊了但 compute 從不執行,`/joint_states` 永遠空。這是實測到的、確鑿的「5.1 格式內容在 6.0.1 執行環境下失效」案例——但症狀是**功能斷裂(拿不到資料、任務中止)**,run 過程中沒有記錄到 OOM 或記憶體異常。最終繞過方式是完全放棄場景內建 OmniGraph、改走 UDP bridge(§7.2)。
 - **AWS 這次的硬體是 L40S 48GB VRAM / 16 vCPU / 124GB RAM**,遠高於一般工作站等級的 GPU。整份 runbook 沒有任何一行記到 VRAM/host RAM 用量數字或 OOM 錯誤——但這代表的是「在資源寬裕的機器上沒撞到」,不能反推「5.1 場景在 6.0.1 上不會 OOM」;VRAM 較小的機器風險仍未被這份紀錄排除。
 
-> **註記**:調查前流傳的一則說法是「AWS 那次 runbook 有記到 HUD 讀數:GPU 2.1GiB used / Process Memory 7.9GiB,可當 6.0-native 場景的記憶體 baseline」。實際查證後**在 `70-aws-tokyo-isaac-601-runbook.md` 與 `86-topdown-noise-ceiling-rootcause.md` 全文、以及同目錄其他內部 isaac-ros 文件都沒有找到這組數字**(已用 `grep -i` 對 "GiB"/"memory"/"HUD"/"OOM" 全文搜尋確認)。這組數據可能來自其他未留存的 session 輸出,或是誤記——本報告不採用,如需要應向提供者確認出處後再補。
+> **註記**:調查前流傳的一則說法是「那次遷移 runbook 有記到 HUD 讀數:GPU 2.1GiB used / Process Memory 7.9GiB,可當 6.0-native 場景的記憶體 baseline」。實際查證後**在該 runbook 與同批的另一份根因分析全文、以及同目錄其他內部文件都沒有找到這組數字**(已用 `grep -i` 對 "GiB"/"memory"/"HUD"/"OOM" 全文搜尋確認)。這組數據可能來自其他未留存的 session 輸出,或是誤記——本報告不採用,如需要應向提供者確認出處後再補。
 
-### 3.2 本機資產庫兩版場景比對:`SHOWCASE.usd`(5.1 時代)vs `SHOWCASE_600.usd`(6.0 用,今日更新)
+### 3.2 本機資產庫兩版場景比對:`WAREHOUSE.usd`(5.1 時代)vs `WAREHOUSE_600.usd`(6.0 用,今日更新)
 
-路徑:本機資產備份目錄下 `.../isaac-assets-backup/usd_model/MR1533/`(內部路徑,詳細位置略)。
+路徑:地端資產備份目錄下該車型的 USD 目錄(內部路徑,略)。
 
-| | `SHOWCASE.usd` | `SHOWCASE_600.usd` |
+| | `WAREHOUSE.usd` | `WAREHOUSE_600.usd` |
 |---|---|---|
 | 檔案大小 | 84 MB(2026-07-01 存檔) | 158 MB(2026-07-20 存檔,約 1.9 倍) |
 | USD crate 版本(`file` 指令判讀) | `USD crate, version 0.9.0` | `USD crate, version 0.9.0`(**相同**,binary crate 格式本身沒有升版) |
@@ -94,16 +94,16 @@
 
 - [ ] `nvidia-smi --query-gpu=memory.used --format=csv -l 1` 連續觀察載入過程,記錄 VRAM 曲線是否單調爬升不回落(streaming budget 逼近上限的訊號)。
 - [ ] host 端 `ps -o rss` 或 `/proc/<pid>/status` 的 `VmRSS`,同樣連續觀察,對照官方「重複載入累積不歸還」的已知模式。
-- [ ] Isaac log 過濾 `getObjectType eInvalid`、`Failed to open`、`deprecated` 等關鍵字(對照本篇 3.1 節 doc 70 §7.1 的實際案例字串)。
+- [ ] Isaac log 過濾 `getObjectType eInvalid`、`Failed to open`、`deprecated` 等關鍵字(對照本篇 3.1 節 內部 runbook §7.1 的實際案例字串)。
 - [ ] `omni.hydra` warning(尤其 mesh/primvar buffer 大小不符,doc 86 §「順帶發現」已記錄過一例,USD 資料本身有缺陷但非阻斷)。
 - [ ] physics 相關 warning:collision cook 是否在載入時觸發重新計算(log 中找 `cooking`/`SDF`/`convex` 字樣)。
 - [ ] `/rtx-transient/resourcemanager/texturestreaming` 相關 log 是否出現預算超限訊息。
-- [ ] 若場景含 OmniGraph ROS2 節點:用 `ros2 topic echo` 實測資料是否真的持續進來,而非只看 `ros2 topic list` 存在就判定正常(doc 70 §7.1 的教訓)。
+- [ ] 若場景含 OmniGraph ROS2 節點:用 `ros2 topic echo` 實測資料是否真的持續進來,而非只看 `ros2 topic list` 存在就判定正常(內部 runbook §7.1 的教訓)。
 
 ## 相關
 
 - 本 repo [01 篇](../../common/01-install-and-run-modes/README.md) §3 — 版本與 GPU 驅動相依性(driver ABI 不相容 segfault 案例,與本篇 3.1 節同源但角度不同)。
-- 內部 runbook `70-aws-tokyo-isaac-601-runbook.md` §0、§7 — AWS 遷移實戰(本篇 3.1 節引用)。
+- 內部遷移 runbook(未公開)—— 雲端遷移實戰(本篇 3.1 節引用)。
 - 內部 runbook `86-topdown-noise-ceiling-rootcause.md` — 6.0.1 場景渲染排錯案例,方法論(唯讀排查、證據鏈)可參考,但與 OOM 主題無直接關聯。
 
 > 建立 2026-07-20。查證方法:官方 Isaac Sim release notes(6.0.0/6.0.1)+ NVIDIA 官方文件(Performance Optimization Handbook、Newton Physics Backend)+ `isaac-sim/IsaacSim`、`isaac-sim/IsaacLab` GitHub issues/discussions + 本機 USD 檔案二進位比對 + 內部 AWS 遷移 runbook。同事的 OOM 觀察本次未直接重現。

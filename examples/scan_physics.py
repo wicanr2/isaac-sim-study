@@ -5,19 +5,23 @@
 才知道哪些是刻意設定、哪些是吃預設。
 
 用法: scan_physics.py <scene.usd> [prim_path ...]
-不給 prim_path 時掃預設的一組關鍵 prim。
+不給 prim_path 時掃底下 DEFAULT_TARGETS 那組。
+
+⚠ DEFAULT_TARGETS 是某個特定場景的 prim 路徑,**換場景一定要改**。
+留著是為了示範「要掃哪幾層」:場景層(PhysicsScene)、車體根、
+articulation 底下的作動件、物理材質、被搬物的每一層。
 """
 import sys
 
 from pxr import Usd
 
 DEFAULT_TARGETS = [
-    "/World/AMR_MR1533/PhysicsScene",
-    "/World/AMR_MR1533",
-    "/World/AMR_MR1533/main",
-    "/World/AMR_MR1533/main/fork_liftA1",
-    "/World/AMR_MR1533/main/fork_tilt",
-    "/World/AMR_MR1533/main/fork_tilt/fork_tilt_01",
+    "/World/RT_A/PhysicsScene",
+    "/World/RT_A",
+    "/World/RT_A/main",
+    "/World/RT_A/main/fork_liftA1",
+    "/World/RT_A/main/fork_tilt",
+    "/World/RT_A/main/fork_tilt/fork_tilt_01",
     "/World/PhysicsMaterials/high_friction_fork_pallet",
     "/target_pallet",
     "/target_pallet/target_pallet",

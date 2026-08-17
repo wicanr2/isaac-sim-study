@@ -66,7 +66,7 @@ bbox 最長邊 = 1.079 m
 先看檔案的前 16 個位元組:
 
 ```bash
-$ head -c 16 AISHOW_isaac60.usd | xxd
+$ head -c 16 WAREHOUSE_isaac60.usd | xxd
 00000000: 5058 522d 5553 4443 0008 0000 0000 0000  PXR-USDC........
 ```
 

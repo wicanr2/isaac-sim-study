@@ -112,4 +112,4 @@ agent 印了「✅ 已修正」不代表修正發生了。一天之內的四個�
 
 ---
 
-*來源:[isaac-sim-60-tuning](https://github.com/wicanr2/isaac-sim-60-tuning) 的 ROUNDS.md 與 FAILURES.md(方法論條目)、以及同專案的批次腳本(`run_*_interleaved.sh` 的閘門結構)。本篇不含任何特定主機或憑證資訊。*
+*來源:內部調校專案(未公開) 的 ROUNDS.md 與 FAILURES.md(方法論條目)、以及同專案的批次腳本(`run_*_interleaved.sh` 的閘門結構)。本篇不含任何特定主機或憑證資訊。*
