@@ -4,7 +4,7 @@
 
 差別幾乎全在 prim 階層怎麼切、質量怎麼配、以及物理材質有沒有真的綁上去。這三件事的共同特徵是:**設錯不會報錯**,只會在動力學行為上表現成一堆看似無關的症狀。
 
-官方文件:[OpenUSD UsdShadeMaterialBindingAPI](https://openusd.org/dev/api/class_usd_shade_material_binding_a_p_i.html)、[UsdShade Material Assignment 白皮書](https://openusd.org/release/wp_usdshade.html)、[UsdPhysics schema](https://openusd.org/dev/api/usd_physics_page_front.html)、[Rigid Body Physics in USD 提案](https://openusd.org/release/wp_rigid_body_physics.html)。API 版本以 Isaac Sim 4.5–5.1.x 為準。
+官方文件:[OpenUSD UsdShadeMaterialBindingAPI](https://openusd.org/dev/api/class_usd_shade_material_binding_a_p_i.html)、[UsdShade Material Assignment 白皮書](https://openusd.org/release/wp_usdshade.html)、[UsdPhysics schema](https://openusd.org/dev/api/usd_physics_page_front.html)、[Rigid Body Physics in USD 提案](https://openusd.org/release/wp_rigid_body_physics.html)。本篇的機制敘述兩版通用;貼出的 API 名稱以 Isaac Sim 4.5–5.1.x 為準(6.0 的命名空間變動見 [版本速查表](../../version-matrix.md))。
 
 ## 1. 根本問題:剛體不是「一個物件」,是「一組碰撞體的剛性集合」
 

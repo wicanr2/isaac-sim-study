@@ -15,7 +15,7 @@
 | 5.1 場景搬進新版的記憶體風險 | — | 有 OOM/異常的現場觀察,機轉分「官方出處」與「推測」兩級,尚未直接重現 | [08](6.0.1/08-migration-5.1-to-6.0-oom-risk/README.md) |
 | 官方資產包分片數 | 3 片 | 5 片 | [25 §2](common/25-offline-assets-deployment/README.md) |
 | 資產解壓後的目錄 | `Assets/Isaac/5.1` | `Assets/Isaac/6.0`(**不是 `6.0.1`**,檔名帶修訂號而目錄名不帶) | [25 §3](common/25-offline-assets-deployment/README.md) |
-| 離線環境的 extension registry | 需自行關掉 | 官方文件稱由 Kit SDK 自動管理(本 repo 未實測) | [25 §5](common/25-offline-assets-deployment/README.md) |
+| 離線環境的 extension registry | 沒有自動管理的保證,需自行處理 | 官方文件稱由 Kit SDK 自動管理(本 repo 未實測) | [25 §5](common/25-offline-assets-deployment/README.md) |
 
 ## 這張表怎麼用
 

@@ -42,7 +42,7 @@ api.CreateMaxLinearVelocityAttr().Set(30.0)
 
 ## 2. 五個生效條件
 
-一個屬性設下去卻沒作用,幾乎都是踩到這四條之一。四條都**不報錯**。
+一個屬性設下去卻沒作用,幾乎都是踩到這五條之一。五條都**不報錯**。
 
 ### 2.1 條件一:貼在有對應 API 的 prim 上
 
@@ -96,6 +96,23 @@ physxCollision:restOffset         預設 -inf
 
 只查檔案會漏掉 patch;只查 runtime 會分不清「原本就這樣」和「腳本改的」。
 
+### 2.4 條件四:combine mode —— 兩側材質怎麼合成
+
+摩擦與彈性是**兩個接觸面**材質合成的結果,合成方式由 combine mode 決定。**同一個綁定狀態,不同 mode 給出完全不同的有效值。**
+
+| `frictionCombineMode` | 合成 | 一側 μ=5.0、另一側預設 0.5 |
+|---|---|---|
+| `average`(**schema 預設**) | 平均 | 2.75 |
+| `min` | 取小 | **0.5 —— 綁了等於沒綁** |
+| `max` | 取大 | **5.0 —— 單側綁定就足夠** |
+| `multiply` | 相乘 | 2.5 |
+
+`restitutionCombineMode`、`dampingCombineMode` 同理,預設都是 `average`。
+
+**所以「只有一側綁了物理材質」這件事本身不足以下任何結論。** 必須先讀 combine mode。
+
+---
+
 ### 2.5 條件五:**runtime 寫入不一定會被採用,而且剛體與關節不一樣**
 
 §2.3 說「啟動腳本可以在場景載入後改任何屬性」。**那句要加一個但書:寫得進去,不代表 PhysX 會收下。**
@@ -139,26 +156,11 @@ physxCollision:restOffset         預設 -inf
 而那個變因**從頭到尾沒有真的施加過**。四小時的資料全部無效,
 而且過程中沒有任何錯誤訊息。
 
-### 2.4 條件四:combine mode —— 兩側材質怎麼合成
-
-摩擦與彈性是**兩個接觸面**材質合成的結果,合成方式由 combine mode 決定。**同一個綁定狀態,不同 mode 給出完全不同的有效值。**
-
-| `frictionCombineMode` | 合成 | 一側 μ=5.0、另一側預設 0.5 |
-|---|---|---|
-| `average`(**schema 預設**) | 平均 | 2.75 |
-| `min` | 取小 | **0.5 —— 綁了等於沒綁** |
-| `max` | 取大 | **5.0 —— 單側綁定就足夠** |
-| `multiply` | 相乘 | 2.5 |
-
-`restitutionCombineMode`、`dampingCombineMode` 同理,預設都是 `average`。
-
-**所以「只有一側綁了物理材質」這件事本身不足以下任何結論。** 必須先讀 combine mode。
-
----
-
 ## 3. 完整參數表(Isaac Sim 6.0.1 / PhysX 110.1.13)
 
 只列與剛體搬運相關的類別。預設值全部來自實機的 `generatedSchema.usda`。
+
+**這張表對 5.1 同樣成立,只有一行例外。** [15 篇 §4.5](../15-physics-backend-5.1-to-6.0/README.md)逐項比對過兩版 `PhysxSchema/resources/generatedSchema.usda` 裡所有帶預設值的屬性(107.3.26 共 235 條、110.1.13 共 190 條),**同名屬性的預設值只有 `physxJoint:maxJointVelocity` 一項不同**(5.x `1000000` → 6.0 `inf`)。標題掛 6.0.1 是因為這些數字抽自 6.0.1 實機 schema,不是因為它們只在 6.0 成立——5.1 的讀者除了那一行之外可以直接照用。
 
 ### 3.1 `PhysxSceneAPI` — 場景層(貼在 PhysicsScene 上)
 
@@ -299,7 +301,7 @@ GPU 容量類(場景大時才需要動):`gpuCollisionStackSize` 64MB、`gpuHeapC
 | 3 | 對跑著的模擬用探針讀回 | 證明**載入後仍是這個值**(排除 runtime patch 覆蓋) |
 | 4 | **設極端值,行為有可觀察的差異** | **證明它真的參與計算** |
 
-**只有第 4 項能證明生效。** 前三項都可能踩到 §2 的四個條件之一。
+**只有第 4 項能證明生效。** 前三項都可能踩到 §2 的五個條件之一。
 
 第 4 項的操作:選一個**方向明確**的極端值(例如把 `maxLinearVelocity` 從 30 設成 0.1),跑同一段模擬,量同一個數字。有差 → 生效;沒差 → 這個參數對當前情境無作用,或設定沒被採用。
 

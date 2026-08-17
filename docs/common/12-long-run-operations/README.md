@@ -6,7 +6,7 @@
 
 官方規格:[Identifiers for WebRTC's Statistics API(W3C)](https://www.w3.org/TR/webrtc-stats/)。
 
-本篇延伸閱讀:[06 篇](../../common/06-webrtc-streaming/README.md)(WebRTC 單 client 限制與 relay 分流)、[09 篇 §7](../../common/09-physics-simulation-fundamentals/README.md)(reset 到底重置了什麼)、[11 篇](../../5.1/11-live-pose-and-accuracy/README.md)(漂移量測)。
+本篇延伸閱讀:[06 篇](../../common/06-webrtc-streaming/README.md)(WebRTC 單 client 限制與 relay 分流)、[09 篇 §9](../../common/09-physics-simulation-fundamentals/README.md#9-案例三reset-為什麼有時候救不回teleport-only-vs-物理世界原生重置)(reset 到底重置了什麼)、[11 篇](../../5.1/11-live-pose-and-accuracy/README.md)(漂移量測)。
 
 ## 1. 根本問題:狀態不只存在於模擬器裡
 

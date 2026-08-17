@@ -24,6 +24,10 @@
 
 接 ROS 2 或要遠端看畫面,另外讀 [05 ROS2 橋接](../common/05-ros2-bridge/README.md) 與 [06 WebRTC 串流](../common/06-webrtc-streaming/README.md),兩篇的實測都在 5.1 上做的。
 
+## 參數預設值查哪裡
+
+[6.0.1 區的 17 篇](../6.0.1/17-physics-parameter-tuning-6.0/README.md) 有一張七類物理屬性的完整預設值表。它標的是 6.0.1,但那是抽取來源而不是適用範圍——兩版 schema 逐項比對後,同名屬性的預設值**只有 `physxJoint:maxJointVelocity` 一項不同**(5.1 是 `1000000`,6.0 改成 `inf`)。5.1 要查預設值直接看那一篇,記得把那一行換回來。
+
 ## 準備升到 6.0
 
 先讀 [15 物理層變動](../6.0.1/15-physics-backend-5.1-to-6.0/README.md) 與 [14 ROS 2 Bridge 架構重組](../6.0.1/14-ros2-bridge-6.0-architecture/README.md),再看 [08 遷移風險調查](../6.0.1/08-migration-5.1-to-6.0-oom-risk/README.md)。整區入口在 [6.0.1](../6.0.1/)。

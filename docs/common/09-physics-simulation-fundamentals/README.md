@@ -2,7 +2,7 @@
 
 [04 篇](../../common/04-physics-world/README.md)講了「怎麼把場景變成能跑物理的世界」——加 Physics Scene、剛體、articulation。本篇往下一層,講**物理引擎內部怎麼算**:一步要花多少真實時間、碰撞怎麼判定、關節怎麼被馬達拉住、疊代求解器在解什麼、以及「重置」到底重置了什麼。這些機制平時不需要懂,但一旦系統出現「暴走」「穿模」「reset 按了沒用」這類症狀,答案幾乎都藏在這幾個機制裡——本篇把三個實戰事故接回對應章節,而不是憑空講理論。
 
-官方文件:[Physics Simulation Fundamentals(4.5.0)](https://docs.isaacsim.omniverse.nvidia.com/4.5.0/physics/simulation_fundamentals.html);延伸:[Articulation and Robot Simulation Stability Guide](https://docs.omniverse.nvidia.com/kit/docs/omni_physics/latest/dev_guide/guides/articulation_stability_guide.html)、[Tuning Joint Drive Gains](https://docs.isaacsim.omniverse.nvidia.com/4.5.0/robot_setup/joint_tuning.html)、[PhysX Rigid Body Dynamics](https://nvidia-omniverse.github.io/PhysX/physx/5.4.1/docs/RigidBodyDynamics.html)、[PhysX Joints](https://nvidia-omniverse.github.io/PhysX/physx/5.4.1/docs/Joints.html)。API 版本以 Isaac Sim 4.5–5.1.x 為準(與本 repo 其他篇一致);6.0 起引入的 Newton 後端另行標註,不假設兩者行為相同。
+官方文件:[Physics Simulation Fundamentals(4.5.0)](https://docs.isaacsim.omniverse.nvidia.com/4.5.0/physics/simulation_fundamentals.html);延伸:[Articulation and Robot Simulation Stability Guide](https://docs.omniverse.nvidia.com/kit/docs/omni_physics/latest/dev_guide/guides/articulation_stability_guide.html)、[Tuning Joint Drive Gains](https://docs.isaacsim.omniverse.nvidia.com/4.5.0/robot_setup/joint_tuning.html)、[PhysX Rigid Body Dynamics](https://nvidia-omniverse.github.io/PhysX/physx/5.4.1/docs/RigidBodyDynamics.html)、[PhysX Joints](https://nvidia-omniverse.github.io/PhysX/physx/5.4.1/docs/Joints.html)。本篇的機制敘述兩版通用;貼出的 API 名稱以 Isaac Sim 4.5–5.1.x 為準(6.0 起 `isaacsim.core.*` 整組移至 `isaacsim.core.experimental.*`,見 [版本速查表](../../version-matrix.md))。6.0 起引入的 Newton 後端另行標註,不假設兩者行為相同。
 
 ## 1. 物理世界的節奏:Physics Scene、timestep 與 substep
 
@@ -61,7 +61,7 @@ Isaac Sim 的解法是 **CCD(Continuous Collision Detection,連續碰撞偵測)*
 
 ## 4. Articulation 與 joint drive:PD 控制把關節拉向目標
 
-**根本問題**:機器人的關節不能瞬間到達目標角度/位置(那是瞬移,見 §7),要嘛不驅動就靠慣性亂晃,要嘛需要一個「持續往目標修正」的控制律——joint drive 就是這個控制律,本質是比例-微分(PD)控制器。
+**根本問題**:機器人的關節不能瞬間到達目標角度/位置(那是瞬移,見 §6),要嘛不驅動就靠慣性亂晃,要嘛需要一個「持續往目標修正」的控制律——joint drive 就是這個控制律,本質是比例-微分(PD)控制器。
 
 PhysX 官方文件(Joints)給出的公式(逐字):
 
@@ -102,7 +102,7 @@ PhysX 提供兩種求解器(官方 [PhysX Rigid Body Dynamics](https://nvidia-om
 
 疊代次數(**Solver Position/Velocity Iteration Count**,Physics Scene 與個別 actor/articulation 上皆可設,PhysX 取所有相關 actor 要求的最大值再夾進場景允許範圍)是 precision/perf 的直接旋鈕:數字愈高愈準但愈貴。官方 Articulation Stability Guide 的建議是**優先加 position iteration**、velocity iteration 通常維持低值甚至 0——把預算集中在位置收斂上。**待查證**:官方文件說明了取捨方向,但本頁未給出 Isaac Sim 內建 Physics Scene 的 position/velocity iteration 預設數值,不同版本可能不同,實際數字請以當前版本 Physics Scene prim 的屬性面板為準。
 
-**這跟本 repo 案例的關係**:疊代求解器內部維護的是自己的「殘留」狀態——上一步算出的速度、接觸快取、articulation 內部矩陣。這份狀態**不在 USD 裡**,存檔存不下,外部也碰不到。§7 講的「reset 為什麼有時候救不回」,根源就在這裡:teleport 只能覆寫 USD 記錄的位姿,solver 這份內部殘留狀態原封不動。
+**這跟本 repo 案例的關係**:疊代求解器內部維護的是自己的「殘留」狀態——上一步算出的速度、接觸快取、articulation 內部矩陣。這份狀態**不在 USD 裡**,存檔存不下,外部也碰不到。§9 講的「reset 為什麼有時候救不回」,根源就在這裡:teleport 只能覆寫 USD 記錄的位姿,solver 這份內部殘留狀態原封不動。
 
 ## 6. 兩種「跳過物理」的方式,語意完全不同:kinematic target 與 teleport
 
