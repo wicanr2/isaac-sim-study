@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>33 · 電梯與多樓層:轎廂、門檻,以及車站在會動的地板上 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../fleet/" class="on">車隊</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">車隊</div><ul class="side-l"><li><a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/"><span class="n">31</span>OmniGraph 與 ROS 2 橋接的真相</a></li><li><a href="../../fleet/32-differential-drive-vehicle-model/"><span class="n">32</span>把車做成真的會動的車</a></li><li><a href="../../fleet/33-elevator-and-multi-floor/" class="on"><span class="n">33</span>電梯與多樓層</a></li><li><a href="../../fleet/34-lidar-and-sensor-plausible-but-wrong/"><span class="n">34</span>感測器的假數字:三個「合理但錯」的位置</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-轎廂升不起來而每一層檢查都是綠的">1. 轎廂升不起來,而每一層檢查都是綠的</a></li><li class="l3"><a href="#11-成因根附著不能帶自由度">1.1 成因:根附著不能帶自由度</a></li><li class="l3"><a href="#12-physicstargetposition-在模擬中改沒有用">1.2 physics:targetPosition 在模擬中改沒有用</a></li><li class="l3"><a href="#13-判定要把沒被推動與跟不上分開">1.3 判定要把「沒被推動」與「跟不上」分開</a></li><li class="l2"><a href="#2-承重接觸站得住三個數字三個量測坑">2. 承重接觸站得住:三個數字,三個量測坑</a></li><li class="l3"><a href="#21-三個會讓數字說謊的量法">2.1 三個會讓數字說謊的量法</a></li><li class="l3"><a href="#22-設計餘裕要留在設計目標上不是靠調求解器">2.2 設計餘裕要留在設計目標上,不是靠調求解器</a></li><li class="l2"><a href="#3-跳動-22-mm指令形狀不是接觸">3. 跳動 22 mm:指令形狀,不是接觸</a></li><li class="l2"><a href="#4-陰性結果怎麼寫才算數">4. 陰性結果怎麼寫才算數</a></li><li class="l3"><a href="#41-對照的基準要選對">4.1 對照的基準要選對</a></li><li class="l2"><a href="#5-門檻上那個-200-mm-的洞只在開進去時發作">5. 門檻上那個 200 mm 的洞,只在「開進去」時發作</a></li><li class="l3"><a href="#51-方向不對稱本身就是診斷指紋">5.1 方向不對稱本身就是診斷指紋</a></li><li class="l3"><a href="#52-負對照證明的是時間順序不是因果">5.2 ⚠ 負對照證明的是時間順序,不是因果</a></li><li class="l2"><a href="#6-門檻板擋住的不是車是轎廂自己的門片">6. 門檻板擋住的不是車,是轎廂自己的門片</a></li><li class="l3"><a href="#61-只量相對量的量尺量不到參考系本身有沒有動">6.1 只量相對量的量尺,量不到參考系本身有沒有動</a></li><li class="l3"><a href="#62-互鎖門檻要比停穩誤差大">6.2 互鎖門檻要比停穩誤差大</a></li><li class="l2"><a href="#7-車在移動中的轎廂裡繼續開">7. 車在移動中的轎廂裡繼續開</a></li><li class="l3"><a href="#71-兩道既有防線都沒接住而各自都沒有錯">7.1 兩道既有防線都沒接住,而各自都沒有錯</a></li><li class="l3"><a href="#72-判準不能用車與轎廂的高度差">7.2 ⚠ 判準不能用「車與轎廂的高度差」</a></li><li class="l2"><a href="#8-運動學只算一次">8. 運動學只算一次</a></li><li class="l2"><a href="#9-檢查清單">9. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="33-電梯與多樓層轎廂門檻以及車站在會動的地板上">33 · 電梯與多樓層:轎廂、門檻,以及車站在會動的地板上</h1>
+<p>多樓層把一個新東西帶進場景:<strong>一塊會動的地板</strong>。車站在上面、跟著它走、在它停之前不該動——而這三件事各自有一個不會報錯的失敗方式。</p>
+<p>這一篇記八個位置:轎廂為什麼升不起來、承重接觸怎麼驗、跳動是指令還是接觸、陰性結果怎麼寫才算數、門檻上那個 200 mm 的洞、擋住轎廂的其實是它自己的門、車在移動中的轎廂裡繼續開,以及運動學該由誰算。</p>
+<blockquote>
+<p><strong>驗證狀態</strong>:內容來自一段多車 + 多樓層的 Isaac Sim 場域前期研究(2026-07 至 08),兩台電梯、五台車的實測。數字連同量測條件列出。</p>
+</blockquote>
+<h2 id="1-轎廂升不起來而每一層檢查都是綠的">1. 轎廂升不起來,而每一層檢查都是綠的</h2>
+<p>症狀是「發了升降指令而轎廂高度一直是 0」,<strong>看起來像驅動端沒送出去</strong>。</p>
+<p>而且沒有任何錯誤訊息:USD 檢查過、joint 建得出來、<code>DriveAPI</code> 也在,資產建置腳本印的 <code>joints</code> 清單裡那個關節也在——<strong>那是 USD 的視角,不是 PhysX 的</strong>。</p>
+<p>真正的證據要問 articulation 自己:</p>
+<pre><code>articulation 的自由度:['door_joint', 'door_joint_mirror']
+</code></pre>
+<p><strong>轎廂的關節不在裡面。</strong></p>
+<h3 id="11-成因根附著不能帶自由度">1.1 成因:根附著不能帶自由度</h3>
+<p>原本的接法是 <code>cabin_joint</code> 接 <code>Shaft</code>(靜態剛體)→ <code>Cabin</code>。</p>
+<p><strong>PhysX 把「靜態物體到 link」的關節當成 articulation 的根附著</strong>,而 reduced-coordinate articulation 的根只能是固定或浮動、<strong>不帶自由度</strong>——於是轎廂變成被釘住的根,自由度清單只剩兩片門。</p>
+<p>修法是加一個<strong>沒有幾何、1 kg 的 <code>Base</code></strong>,用 <code>FixedJoint</code>(<code>body0</code> 留空 = 世界)釘住,再讓 <code>cabin_joint</code> 接 <code>Base</code> → <code>Cabin</code>。這樣它是 articulation 的<strong>內部</strong>關節,也就是真的自由度。</p>
+<p>井道那些牆維持靜態碰撞體——<strong>它們不該進 articulation</strong>。</p>
+<h3 id="12-physicstargetposition-在模擬中改沒有用">1.2 <code>physics:targetPosition</code> 在模擬中改沒有用</h3>
+<p>USD 屬性是<strong>初始值</strong>,PhysX 建 articulation 時讀一次。執行期要走 <code>isaacsim.core.prims.Articulation</code> 的 <code>set_joint_position_targets(..., joint_indices=...)</code>,指定單一自由度而不是整條餵。</p>
+<p>這是 <a href="../../6.0.1/17-physics-parameter-tuning-6.0/">17 篇</a>那五個「無聲失效條件」在關節上的具體形狀:<strong>寫得進去,不代表 runtime 會採用</strong>。</p>
+<h3 id="13-判定要把沒被推動與跟不上分開">1.3 判定要把「沒被推動」與「跟不上」分開</h3>
+<p>只看「指令 vs 實際」的落差時,兩者長得一模一樣——<strong>沒動的落差正好等於全行程</strong>。</p>
+<blockquote>
+<p><strong>先問走到的最高點,再談誤差。</strong></p>
+</blockquote>
+<h2 id="2-承重接觸站得住三個數字三個量測坑">2. 承重接觸站得住:三個數字,三個量測坑</h2>
+<p>滿載 650 kg(轎廂 450 + 兩台車各 100)跑 0 → 8 m → 0:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>量什麼</th>
+<th>理論</th>
+<th>實測</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>靜態下沉 <code>mg/k</code></td>
+<td>4.01 mm</td>
+<td><strong>4.22 mm</strong>(+5%)</td>
+</tr>
+<tr>
+<td>等速追隨誤差 <code>c·v/k</code></td>
+<td>28.3 mm</td>
+<td><strong>27.2 mm</strong></td>
+</tr>
+<tr>
+<td>車相對轎廂的橫向滑動</td>
+<td>0</td>
+<td><strong>0.0 mm</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>三個數字分別驗了彈簧勁度、阻尼、橫向約束三個獨立的假設,而且理論與實測對得上。<strong>承重接觸站得住</strong>——這是「讓車真的站在轎廂上」相對於「每步 teleport 車的位置」多出來的東西,而它成立。</p>
+<h3 id="21-三個會讓數字說謊的量法">2.1 三個會讓數字說謊的量法</h3>
+<p><strong>① 靜態下沉不能在最低層量。</strong> 轎廂停在最低層時正好壓在 <code>lowerLimit = 0.0</code> 上,載重由<strong>限位</strong>承受而不是由驅動彈簧,量到的下沉是 0 ——<strong>一個看起來完美、實際上什麼都沒驗到的數字</strong>。要在行程中間量。</p>
+<p><strong>② 等速追隨誤差不能拿去跟「靜態下沉 ≤ 5 mm」的需求比。</strong> 那是兩種東西:追隨誤差是 <code>c·v/k</code>(阻尼力要有位置誤差才產生,<strong>與載重無關</strong>),下沉才是 <code>mg/k</code>。混著比會把一個正常的 31 mm 讀成「剛度不足」。</p>
+<p><strong>③ 載重要對上設計條件。</strong> 場景裡的車是空車 85 kg,而剛度是由「滿載 650 kg」反推的。用空車跑會得到一個偏寬鬆、而且<strong>看起來剛好擦過門檻</strong>的數字(5.07 對門檻 5.00)。</p>
+<h3 id="22-設計餘裕要留在設計目標上不是靠調求解器">2.2 設計餘裕要留在設計目標上,不是靠調求解器</h3>
+<p>原本的剛度 <code>k</code> 是讓<strong>理論</strong>下沉正好等於需求上限反推出來的,<strong>餘裕是零</strong>。而 PhysX 的實際值比線性模型高 5~6%,於是必然超標。</p>
+<p>改成需求 5 mm、設計目標 4 mm(留 1.25 倍),實測 4.22 mm,過。</p>
+<blockquote>
+<p><strong>從需求反推設計值 = 零餘裕 = 必然超標。</strong> 數值方法與線性模型之間永遠有個幾個百分比,那個百分比要事先讓出來,不是等超標了再去調 solver。</p>
+</blockquote>
+<h2 id="3-跳動-22-mm指令形狀不是接觸">3. 跳動 22 mm:指令形狀,不是接觸</h2>
+<p>階躍速度指令下,兩台車在<strong>啟動 / 到頂反向 / 到底停</strong>的那一刻相對轎廂跳 <strong>22.0 mm</strong>(等速段是 0)。換成限加速度 1.0 m/s² 的梯形速度之後是 <strong>0.0 mm</strong>。</p>
+<p>時間分布本身就是答案:<strong>只在速度不連續的那三個瞬間出現,等速段乾淨</strong>。650 kg 在階躍速度下會產生遠大於 <code>g</code> 的減速度,車離地是必然的。</p>
+<p>所以修法是在驅動端加<strong>加速度上限</strong>,<strong>不是</strong>動 <code>solverPositionIterationCount</code> 或摩擦。</p>
+<blockquote>
+<p>⚠ <strong>這一項的判定一定要有對照。</strong> 「接觸太硬」與「指令太猛」在單一個跳動數字上長得一模一樣,分不開就會去調接觸參數——<strong>而那會把一個指令問題蓋成一組看起來有效的魔數。</strong></p>
+</blockquote>
+<h2 id="4-陰性結果怎麼寫才算數">4. 陰性結果怎麼寫才算數</h2>
+<p>要驗的是「剛體與碰撞分層有沒有造成間歇接觸失效」。五台車靜置 20 s(沉降 120 步之後看 1200 步):<strong>z 抖動、z 漂移、x/y 漂移全部 0.000 mm</strong>。</p>
+<p>全零。而全零最危險:</p>
+<blockquote>
+<p><strong>全 0 的結果一定要配正對照</strong>,否則「很穩」與「我的量尺沒在量」產生的輸出<strong>一模一樣</strong>。</p>
+</blockquote>
+<p>腳本內建的對照是把最後一台<strong>抬高 20 mm</strong>——它必須掉回地面。實測 <strong>−0.000 mm</strong>,量尺有效。</p>
+<h3 id="41-對照的基準要選對">4.1 對照的基準要選對</h3>
+<p>第一版拿被抬高那台跟<strong>其他車的平均高度</strong>比,而五台車在不同樓層(z = 0 / 4 / 8),算出 <strong>−3000 mm</strong>,看起來像嚴重失效——<strong>實際上是基準錯了</strong>。</p>
+<p>要跟<strong>它自己被抬高之前</strong>的高度比。</p>
+<p>「假失效」和「真失效」一樣會讓你花掉半天,而且它更難察覺,因為數字很大、很嚇人、看起來很像真的。</p>
+<h2 id="5-門檻上那個-200-mm-的洞只在開進去時發作">5. 門檻上那個 200 mm 的洞,只在「開進去」時發作</h2>
+<p>樓板的井道開口切在<strong>井道外緣</strong>,而轎廂地板在<strong>內緣</strong>,中間 <code>panel/2 + clearance + wall</code> 是一個什麼都沒有的洞——實測 <strong>0.20 m</strong>。</p>
+<p>車的驅動輪半徑 0.09 m。<strong>掉進 0.20 m 的洞再爬出來就是一次彈跳。</strong></p>
+<h3 id="51-方向不對稱本身就是診斷指紋">5.1 方向不對稱本身就是診斷指紋</h3>
+<pre><code>開進轎廂那 1.6 m   →  19% 的步數輪子離地、彈到 76 mm、傾角 12.3°
+開出來那一段       →  完全乾淨(0.2°、1.5 mm、0%)
+</code></pre>
+<p>同一台車、同樣的控制律,差別只有那一段<strong>有沒有跨過那個洞</strong>。</p>
+<p>若成因是控制律、摩擦或速度這類<strong>對稱</strong>的條件,進出兩個方向應該同樣受影響。<strong>只有幾何上的、有方向性的東西</strong>才會做出這種不對稱。</p>
+<p>修法是補門檻板,<strong>與轎廂留 30 mm</strong>(真電梯是 20~35 mm)——<strong>不能補滿,轎廂會撞到它</strong>:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>之前</th>
+<th>之後</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>電梯 B 進入 1.6 m</td>
+<td>11.6 s(4.3×)、傾角 12.3°、離地 19%</td>
+<td><strong>3.0 s(1.1×)、傾角 2.1°、離地 5%</strong></td>
+</tr>
+<tr>
+<td>電梯 A 進入 1.0 m</td>
+<td>(沒量過)</td>
+<td>2.0 s(1.2×)、傾角 0.2°、離地 0%</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="52-負對照證明的是時間順序不是因果">5.2 ⚠ 負對照證明的是時間順序,不是因果</h3>
+<p>補上門檻板之後,某台電梯變成「卡在門口、退了 55 次」,<strong>看起來像新改動的 regression</strong>。負對照(暫時停用門檻板重建再跑)顯示<strong>確實是改動之後才出現的</strong>。</p>
+<p><strong>而成因不是它。</strong> 逐步資料顯示:車起步時朝 0°、目標在正左方 90°,於是它在淨開口裡原地轉,卡在 31°。那個 90° 是<strong>離線工具放的</strong>(它一律把車放成 yaw=0),真實輪次裡車是從大廳開過來、本來就朝著門。</p>
+<blockquote>
+<p><strong>負對照證明「是這次改動之後才有的」,不證明「是這次改動造成的」</strong>——兩者之間還隔著逐步資料。</p>
+</blockquote>
+<p>這一條很反直覺,因為負對照通常被當成因果的黃金標準。它在這裡失效的原因是:改動同時<strong>改變了觸發條件</strong>(門檻板讓車能開進去,於是離線工具擺放姿態的問題才有機會現形)。</p>
+<h2 id="6-門檻板擋住的不是車是轎廂自己的門片">6. 門檻板擋住的不是車,是轎廂自己的門片</h2>
+<p>補上樓層門檻板之後,即時輪次裡某台電梯的轎廂<strong>卡在 1.62 m 整整 480 秒</strong>,而它的目標一直是 8.0 m。</p>
+<p>沒有錯誤訊息:<strong>仲裁器照樣發出授權,車端互鎖照樣正確地拒絕進入,整條鏈路每一段都在做對的事,只有轎廂沒動。</strong></p>
+<p>成因是幾何差了<strong>半個門厚</strong>。要讓開的是轎廂<strong>最外側的可動件</strong>,而算的時候拿的是轎廂<strong>地板</strong>的邊緣:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>局部 y</th>
+<th>世界 y</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>轎廂地板前緣</td>
+<td><code>half_d</code> = 1.60</td>
+<td>13.60</td>
+</tr>
+<tr>
+<td><strong>門片外緣</strong></td>
+<td><code>half_d + door_thickness/2</code> = 1.63</td>
+<td><strong>13.57</strong></td>
+</tr>
+<tr>
+<td>舊的門檻板前緣</td>
+<td><code>half_d + SILL_GAP</code> = 1.63</td>
+<td><strong>13.57</strong> ← 正好貼上</td>
+</tr>
+</tbody>
+</table></div>
+<p>門片跟著轎廂上下,門檻板固定在樓層——<strong>兩者在同一個 y 上,轎廂一升起就撞</strong>。停在 1.62 m 是因為門片頂端(轎廂 +2.3 m)那時剛好抵到二樓的門檻板(4.0 m)。</p>
+<h3 id="61-只量相對量的量尺量不到參考系本身有沒有動">6.1 只量相對量的量尺,量不到參考系本身有沒有動</h3>
+<p>驗「車搭電梯」的那支工具<strong>在壞掉的幾何上是綠的</strong>。因為它量的三件事全是「車<strong>相對轎廂</strong>」——轎廂卡死時車跟著不動,傾角 0.0°、相對位移 0 mm,<strong>漂亮的滿分</strong>。</p>
+<blockquote>
+<p><strong>一支只量相對量的量尺,量不到參考系本身有沒有動。</strong></p>
+</blockquote>
+<p>補上第四項:讀轎廂關節的<strong>實際</strong>位置,一段走完之後離目標超過 50 mm 就判失敗。負對照(把門檻板搬回舊位置重跑)印出「轎廂沒到,停在 1.62 m」——與即時輪次同一個數字。</p>
+<h3 id="62-互鎖門檻要比停穩誤差大">6.2 互鎖門檻要比停穩誤差大</h3>
+<p>順帶量到:轎廂停穩後的殘餘誤差 <strong>0.0~3.6 mm</strong>,而車端的對位門檻是 20 mm,約 5 倍餘裕。</p>
+<blockquote>
+<p>⚠ <strong>門檻訂得比停穩誤差還小的話,車會被自己的互鎖永遠擋在門外,而那個症狀跟「轎廂真的沒來」一模一樣。</strong></p>
+</blockquote>
+<h2 id="7-車在移動中的轎廂裡繼續開">7. 車在移動中的轎廂裡繼續開</h2>
+<p>一輪五台物理車的實測:某台車在 t=97 進了三樓的轎廂,t=106 <strong>傾角 91.8°</strong>,t=120 躺在一樓的井道裡。</p>
+<p>中間發生的事:<strong>轎廂開始下降,而車還在開。</strong></p>
+<p>下一個路網節點與當前節點是<strong>同一組 (x, y),只差樓層</strong>,所以車瞬間視為抵達,接著朝一樓大廳的節點走——<strong>那時轎廂還在 4 m 高</strong>。它撞上關著的轎廂門、卡住退出三次、爬上門,翻了。</p>
+<h3 id="71-兩道既有防線都沒接住而各自都沒有錯">7.1 兩道既有防線都沒接住,而各自都沒有錯</h3>
+<ul>
+<li><strong>車端的電梯互鎖</strong>只問「<strong>目標</strong>在不在轎廂裡、轎廂在不在這一層」。車<strong>已經在</strong>轎廂裡了,而目標在另一層的大廳——兩個條件都不成立。</li>
+<li><strong>離線的搭乘量尺</strong>裡的車是<strong>靜止</strong>的。它驗的是「站著會不會滑、會不會翻」,而這裡壞掉的是「<strong>根本不該在動</strong>」。</li>
+</ul>
+<p>兩道防線的檢查範圍中間有一條縫,而那條縫剛好是這個情境。<strong>沒有任何一道防線寫錯,是它們的聯集不完整。</strong></p>
+<h3 id="72-判準不能用車與轎廂的高度差">7.2 ⚠ 判準不能用「車與轎廂的高度差」</h3>
+<p>補上的規則是:<strong>車自己在轎廂框裡的時候,轎廂沒停妥就不准動</strong>。</p>
+<p>但判準<strong>不能</strong>寫成「轎廂高度與車的高度差多少」——<strong>車站在轎廂裡時,它的世界 z 跟著轎廂走,兩者永遠相等,那個條件恆真。</strong></p>
+<p>要問的是<strong>轎廂本身</strong>的狀態:</p>
+<pre><code>停在某一層(|cabin − round(cabin/樓高)×樓高| ≤ 20 mm)
+  且 門開到八成以上
+</code></pre>
+<p>兩個都讀關節的<strong>實際</strong>位置。門全開的量從關節上限讀,不寫死——那是資產側由轎廂內寬算出來的。</p>
+<p>這是一個參考系陷阱的乾淨例子:<strong>在會動的參考系裡,相對量會恆真或恆零,而那看起來像「一直都正常」。</strong></p>
+<h2 id="8-運動學只算一次">8. 運動學只算一次</h2>
+<p>電梯的高度與門位移由<strong>調度那一側</strong>算(從車隊管理層的電梯狀態推),<strong>Isaac 這側不算運動學</strong>,只把收到的關節目標設進去(兩片門是鏡像,右門吃原值、左門吃負值)。</p>
+<p>理由很直接:</p>
+<blockquote>
+<p><strong>兩邊各算一次的話,兩個「電梯在哪一層」遲早會分岔,而分岔的症狀是車掉進井道或被門夾住——不是錯誤訊息。</strong></p>
+</blockquote>
+<p>這是 <a href="../../common/12-long-run-operations/">12 篇</a>講的「兩份狀態分歧」在多樓層上的版本,而它的後果更具體:分歧的那幾公分正好是門的開口。</p>
+<p>傳輸走一條共用的 MQTT 通道,<code>retain=True</code>。兩個選擇都是量出來的:</p>
+<ul>
+<li>走 MQTT 而不是 DDS,因為模擬主機的網路只放行 22 埠,DDS 過不去。</li>
+<li><code>retain=True</code>,因為<strong>電梯的位置是狀態不是事件</strong>——沒有它,晚一點才連上的模擬端要等到下一次電梯動才知道門是開是關。</li>
+</ul>
+<h2 id="9-檢查清單">9. 檢查清單</h2>
+<ul>
+<li>[ ] 轎廂關節出現在 articulation 的<strong>自由度清單</strong>裡,不是只出現在 USD 的 joints 清單裡</li>
+<li>[ ] articulation 的根不帶自由度;要動的關節掛在內部,不是掛在靜態物體上</li>
+<li>[ ] 執行期用 <code>set_joint_position_targets</code>,不改 <code>physics:targetPosition</code></li>
+<li>[ ] 「沒被推動」與「跟不上」分開判:先問走到的最高點</li>
+<li>[ ] 靜態下沉在<strong>行程中間</strong>量,不在限位上量</li>
+<li>[ ] 追隨誤差(<code>c·v/k</code>)與下沉(<code>mg/k</code>)分開比,不混</li>
+<li>[ ] 驗證載重對上設計條件(不要拿空車驗滿載反推的剛度)</li>
+<li>[ ] 設計目標比需求留餘裕,不靠調 solver 補</li>
+<li>[ ] 跳動類問題先改<strong>指令形狀</strong>做對照,再考慮接觸參數</li>
+<li>[ ] 全零的結果配一個「應該有反應」的正對照,而且對照的基準是它自己的歷史值</li>
+<li>[ ] 進出方向不對稱時,先找有方向性的幾何,不要先調對稱的參數</li>
+<li>[ ] 門檻/淨空算的是<strong>最外側可動件</strong>,不是地板邊緣</li>
+<li>[ ] 量尺至少有一項量<strong>絕對</strong>位置,不能全是相對量</li>
+<li>[ ] 互鎖門檻比實測停穩誤差大(留數倍)</li>
+<li>[ ] 「車在會動的地板上」的判準問地板自己的狀態,不問兩者的差值</li>
+<li>[ ] 運動學只有一側算,另一側純套用</li>
+</ul>
+<hr />
+<p>延伸閱讀:<a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/">31 OmniGraph 與 ROS 2 橋接的真相</a>(門是有的,只是沒有人下指令)、<a href="../../fleet/32-differential-drive-vehicle-model/">32 把車做成真的會動的車</a>、<a href="../../common/12-long-run-operations/">12 長跑維運</a>(兩份狀態分歧)、<a href="../../6.0.1/17-physics-parameter-tuning-6.0/">17 6.0 的物理調參</a>(寫得進去不代表被採用)。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

@@ -9,7 +9,7 @@
 <body>
 <header class="top">
   <a class="brand" href="">Isaac Sim 實戰筆記</a>
-  <nav class="tabs"><a href="" class="on">總覽</a><a href="common/">共通</a><a href="5.1/">5.1</a><a href="6.0.1/">6.0.1</a><a href="version-matrix.html">版本差異</a></nav>
+  <nav class="tabs"><a href="" class="on">總覽</a><a href="common/">共通</a><a href="5.1/">5.1</a><a href="6.0.1/">6.0.1</a><a href="fleet/">車隊</a><a href="version-matrix.html">版本差異</a></nav>
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
@@ -25,6 +25,8 @@
 只在 5.x 命名空間下成立的內容,主要是程式碼——6.0 起 <code>isaacsim.core.*</code> 整組搬到 <code>isaacsim.core.experimental.*</code>。</p>
 <p><strong><a href="6.0.1">Isaac Sim 6.0.1</a></strong> · 5 篇
 extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風險、6.0 的物理調參。</p>
+<p><strong><a href="fleet">車隊與多樓層</a></strong> · 4 篇
+多台車 + 多樓層自成一個問題域:OmniGraph 與 ROS 2 橋接、差速車動力學、電梯與門檻、感測器。這一區的失敗幾乎全部是「回傳成功、沒有錯誤、就是不對」。</p>
 <p><strong><a href="version-matrix.html">5.1 ↔ 6.0.1 差異速查</a></strong>
 跨版本排查時最花時間的不是「哪裡不一樣」,而是「這個症狀該不該歸給版本」。每一列都標出處篇章。</p>
 <h2 id="怎麼開始">怎麼開始</h2>
@@ -71,6 +73,22 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 <tr>
 <td>短測試都過,跑一小時就死</td>
 <td><a href="common/29-long-run-error-budget-and-clock-drift/">29 長跑才會浮現的兩件事</a></td>
+</tr>
+<tr>
+<td>要接 ROS 2、跑多台車</td>
+<td><a href="fleet/31-omnigraph-and-ros2-bridge-truth/">31 OmniGraph 與 ROS 2 橋接的真相</a></td>
+</tr>
+<tr>
+<td>車在場景裡不動,或動得很奇怪</td>
+<td><a href="fleet/32-differential-drive-vehicle-model/">32 把車做成真的會動的車</a></td>
+</tr>
+<tr>
+<td>要做電梯、多樓層</td>
+<td><a href="fleet/33-elevator-and-multi-floor/">33 電梯與多樓層</a></td>
+</tr>
+<tr>
+<td>感測器讀數看起來正常但不對</td>
+<td><a href="fleet/34-lidar-and-sensor-plausible-but-wrong/">34 感測器的假數字</a></td>
 </tr>
 <tr>
 <td>手上有一台叉車/機器人,要把物理與關節建起來</td>

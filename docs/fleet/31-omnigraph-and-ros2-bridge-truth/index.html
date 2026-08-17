@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>31 · OmniGraph 與 ROS 2 橋接的真相:五個「成功了但沒有在跑」 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../fleet/" class="on">車隊</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">車隊</div><ul class="side-l"><li><a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/" class="on"><span class="n">31</span>OmniGraph 與 ROS 2 橋接的真相</a></li><li><a href="../../fleet/32-differential-drive-vehicle-model/"><span class="n">32</span>把車做成真的會動的車</a></li><li><a href="../../fleet/33-elevator-and-multi-floor/"><span class="n">33</span>電梯與多樓層</a></li><li><a href="../../fleet/34-lidar-and-sensor-plausible-but-wrong/"><span class="n">34</span>感測器的假數字:三個「合理但錯」的位置</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-simulationapp-之前不可以-import-pxr">1. SimulationApp 之前不可以 import pxr</a></li><li class="l2"><a href="#2-啟用成功不是它活著的證明">2. 「啟用成功」不是它活著的證明</a></li><li class="l3"><a href="#21-生效證明要看型別在不在">2.1 生效證明要看型別在不在</a></li><li class="l3"><a href="#22-列舉查詢一定要配正對照">2.2 ⚠ 列舉查詢一定要配正對照</a></li><li class="l3"><a href="#23-ros_distro-與不要-source-別人的-ros">2.3 ros_distro 與「不要 source 別人的 ROS」</a></li><li class="l2"><a href="#3-節點型別是真的-usd-屬性寫在-customdata-等於沒寫">3. 節點型別是真的 USD 屬性,寫在 customData 等於沒寫</a></li><li class="l2"><a href="#4-圖的連線就是普通的-usd-attribute-connection">4. 圖的連線就是普通的 USD attribute connection</a></li><li class="l3"><a href="#41-不要照出貨的樣板抄">4.1 ⚠ 不要照出貨的樣板抄</a></li><li class="l2"><a href="#5-worldsteprenderfalse-不會-tick-action-graph">5. world.step(render=False) 不會 tick action graph</a></li><li class="l3"><a href="#51-算圖本身是非同步的">5.1 算圖本身是非同步的</a></li><li class="l2"><a href="#6-三個檔案正常程式沒報錯畫面是黑的">6. 三個「檔案正常、程式沒報錯、畫面是黑的」</a></li><li class="l3"><a href="#61-錄影的寫入量要自己守門">6.1 ⚠ 錄影的寫入量要自己守門</a></li><li class="l2"><a href="#7-東西都在只是沒有人下指令">7. 東西都在,只是沒有人下指令</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="31-omnigraph-與-ros-2-橋接的真相五個成功了但沒有在跑">31 · OmniGraph 與 ROS 2 橋接的真相:五個「成功了但沒有在跑」</h1>
+<p>多車場景幾乎一定會用到 OmniGraph——每台車一組節點,發 odom、收 twist、接 TF。而這一層最麻煩的地方是:<strong>它的失敗形狀幾乎全部是「回傳成功、沒有錯誤、就是沒有在跑」</strong>。</p>
+<p>這一篇把五個這樣的位置講清楚:模組載入順序、extension 啟用、節點型別怎麼寫、圖怎麼接線、以及圖到底跟著誰 tick。</p>
+<blockquote>
+<p><strong>驗證狀態</strong>:內容來自一段多車 + 多樓層的 Isaac Sim 場域前期研究(2026-07 至 08),在 Isaac Sim 5.1.2 的 <code>isaacsim.ros2.bridge</code> 上實測。所有數字與 log 字串都是實測值。⚠ <strong>未在 6.0.x 上複驗</strong>;6.0 的 bridge 已重組成門面 + 四個實作(見 <a href="../../6.0.1/14-ros2-bridge-6.0-architecture/">14 篇</a>),extension 名稱雖然沒變,行為要自己驗一次。</p>
+</blockquote>
+<h2 id="1-simulationapp-之前不可以-import-pxr">1. <code>SimulationApp</code> 之前不可以 import <code>pxr</code></h2>
+<p>pip 安裝的 <code>isaacsim[all]</code> 會把 <code>usd_exchange</code> 一起裝進來,而它在 site-packages 頂層放了一份 <code>pxr</code>;Isaac 自己那份在 <code>isaacsim/extscache/omni.usd.libs-*/pxr</code>。</p>
+<p><strong>這是兩套 C++ USD,誰先被 import 誰贏。</strong> 而 Kit 稍後仍然會載入自己那份,於是 boost::python 的轉換器註冊在不同型別上。</p>
+<p>症狀不是 <code>ImportError</code>,是啟動九秒後:</p>
+<pre><code>TypeError: No to_python (by-value) converter found for C++ type:
+           std::vector&lt;pxrInternal_v0_25_11__pxrReserved__::SdfPath, ...&gt;
+RuntimeError: Caught an unknown exception!
+</code></pre>
+<p><strong>看起來完全像 Isaac 內部壞掉</strong>,跟「我在檔案開頭多 import 了一個模組」沒有任何外觀上的關聯。</p>
+<p>判準很簡單但要嚴格執行:</p>
+<blockquote>
+<p><strong>啟動腳本的頂層 import 只能有 stdlib</strong>,其餘一律延到 <code>SimulationApp(...)</code> 之後。</p>
+</blockquote>
+<p>⚠ <strong>間接 import 一樣算。</strong> 頂層寫 <code>from my_pkg.ros2_graph import NODE_TYPES</code> 就中了——因為那個模組自己 <code>from pxr import Usd</code>。你的檔案裡看不到 <code>pxr</code> 三個字,照樣爆。</p>
+<h2 id="2-啟用成功不是它活著的證明">2. 「啟用成功」不是它活著的證明</h2>
+<p>pip 版的 base python 體驗(<code>isaacsim.exp.base.python.kit</code>)<strong>沒有</strong> <code>isaacsim.ros2.bridge</code>,所以 <code>isaacsim.ros2.bridge.*</code> 的節點型別一個都不存在,<code>og.Controller</code> 會丟 <code>Could not create node using unrecognized type ...</code>。</p>
+<p>啟用它之後,log 長這樣:</p>
+<pre><code>啟用 isaacsim.ros2.bridge -&gt; True
+[234.513s] [ext: isaacsim.ros2.bridge-5.1.2] startup
+[234.530s] [ext: isaacsim.ros2.bridge-5.1.2] shutdown     ← 17 ms 後自己收掉
+</code></pre>
+<p><strong>回傳值是 <code>True</code>,而它已經死了。</strong> 理由只在 log 裡一行,而那一行不會冒到你的例外處理裡。</p>
+<h3 id="21-生效證明要看型別在不在">2.1 生效證明要看型別在不在</h3>
+<pre><code class="language-python">registered = set(og.get_registered_nodes())          # 回的是字串
+alive = &quot;isaacsim.ros2.bridge.ROS2PublishOdometry&quot; in registered
+</code></pre>
+<p>實測那台註冊了 <strong>614 個節點型別</strong>,用到的 11 個全部在內——包含 <code>isaacsim.ros2.bridge.*</code> 那六個。</p>
+<h3 id="22-列舉查詢一定要配正對照">2.2 ⚠ 列舉查詢一定要配正對照</h3>
+<p>這一條是整篇最容易複製到別處的:</p>
+<blockquote>
+<p><code>og.get_registered_nodes()</code> 回的是<strong>字串</strong>。若照物件寫成 <code>{n.get_node_type_name() for n in ...}</code> 會拋 <code>AttributeError</code>,集合停在空的,於是十一個型別全印「沒有」——<strong>包括一定存在的 <code>omni.graph.action.OnPlaybackTick</code></strong>。</p>
+</blockquote>
+<p><strong>正對照就是拿它當試紙</strong>:查一個你確定存在的東西。它若也回「沒有」,那是查法壞了,不是東西不在。</p>
+<p>這與<a href="../../common/27-failure-mode-taxonomy/">27 篇</a> §6 是同一條規則的不同穿法——<strong>一個回空的查詢,同時相容於「東西不在」與「我的查法有洞」兩個世界</strong>。</p>
+<h3 id="23-ros_distro-與不要-source-別人的-ros">2.3 <code>ros_distro</code> 與「不要 source 別人的 ROS」</h3>
+<p>設定項 <code>ros_distro</code> 預設 <code>"system_default"</code>(= 沒有 source 任何 ROS 2 就退回內建的),而它退回的是 <strong>jazzy</strong>。</p>
+<p>那台雖然有 <code>/opt/ros/humble</code>,<strong>不要去 source 它</strong>——那是那台上別人的環境。要讓內建那份被找到,補 library path 即可:</p>
+<pre><code class="language-bash">ISAAC_ROS2_LIB=&quot;$VENV/lib/python3.12/site-packages/isaacsim/exts/isaacsim.ros2.core/jazzy/lib&quot;
+export LD_LIBRARY_PATH=&quot;${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$ISAAC_ROS2_LIB&quot;
+</code></pre>
+<p>「啟動前不要 source ROS」這條在 <a href="../../6.0.1/14-ros2-bridge-6.0-architecture/">14 篇</a> 也有,機制相同:內建那份與系統那份會互相蓋。</p>
+<h2 id="3-節點型別是真的-usd-屬性寫在-customdata-等於沒寫">3. 節點型別是真的 USD 屬性,寫在 <code>customData</code> 等於沒寫</h2>
+<p><code>OmniGraphNode</code> 的型別是<strong>真的 USD 屬性</strong> <code>token node:type</code>,配一個 <code>int node:typeVersion</code>。</p>
+<p>寫進 <code>customData</code> 的話,OmniGraph 讀到空字串:</p>
+<pre><code>[omni.graph.core.plugin] Could not find node type interface for ''
+</code></pre>
+<p>發現的方式值得記:<strong>數字對得上就不必猜</strong>——五台車 × 每台 9 個節點 = 45 個 <code>OmniGraphNode</code>,而每一批警告正好 <strong>45 條</strong>。範圍吻合就確認了是全體而不是個案。</p>
+<p>⚠ 後果比「幾行警告」大得多:<strong>全 stage 的過時檢查都因此沒跑完</strong>,而表面上只是少了幾行警告。<strong>沉默不等於沒問題。</strong></p>
+<h2 id="4-圖的連線就是普通的-usd-attribute-connection">4. 圖的連線就是普通的 USD attribute connection</h2>
+<p>這一節推翻了一個常見的假設。三件事:</p>
+<ol>
+<li><strong>吃 prim 的輸入是 <code>rel</code>(關係)不是字串</strong>,而且帶 <code>customData.omni.graph.relType = "target"</code>。<code>chassisPrim</code>、<code>targetPrims</code> 都是。</li>
+<li><strong>連線是 <code>&lt;attr&gt;.connect</code>,純 USD。</strong> 所以<strong>整張圖可以離線寫全,不需要在 Isaac 裡跑 <code>og.Controller</code></strong>——這推翻了「接線只能在 Isaac 裡做」。</li>
+<li><strong>執行埠帶 <code>customData = { bool isExecution = 1 }</code></strong>,沒有這個標記的 <code>uint</code> 不會被當成執行流。</li>
+</ol>
+<p>第 2 點的工程價值很大:圖可以進版控、可以 review、可以離線批次生成五台車的九個節點,而不必每次開一次 Isaac。這跟 <a href="../../common/02-python-no-ui/">02 篇</a>「不碰 UI」是同一個方向,只是延伸到了圖這一層。</p>
+<h3 id="41-不要照出貨的樣板抄">4.1 ⚠ 不要照出貨的樣板抄</h3>
+<p>Isaac 出貨的 <code>ogn/tests/usd/*Template.usda</code> 寫的是 <code>flatCacheBacking</code> 與 <code>fileFormatVersion = (1, 3)</code>,而<strong>執行期實際產出的是 <code>fabricCacheBacking</code> 與 <code>(1, 9)</code></strong>。</p>
+<p><strong>樣板比執行期舊。</strong> 要參考長相,就在自己這台建一個真的圖匯出來,不要抄靜態檔案。這與 <a href="../../common/21-cad-asset-reading-and-conversion/">21 篇</a>「哪一份能用不寫在檔名上」是同一類問題——<strong>檔案存在不代表它反映現況</strong>。</p>
+<h2 id="5-worldsteprenderfalse-不會-tick-action-graph">5. <code>world.step(render=False)</code> 不會 tick action graph</h2>
+<p>這是最貴的一條,因為它讓「物理在跑」與「圖在跑」看起來是同一件事。</p>
+<blockquote>
+<p><strong>物理與圖掛在不同的東西上</strong>:物理跟著 <code>world.step()</code> 走,action graph 跟著主迴圈走。
+<code>render=False</code> 只推物理,<strong>圖完全不被求值</strong>。</p>
+</blockquote>
+<p>實測對照(同一個場景、跑 300 步):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th><code>render=False</code></th>
+<th><code>render=True</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>模擬時間</td>
+<td>正確前進 2.000 s / 120 步</td>
+<td>正確前進</td>
+</tr>
+<tr>
+<td><code>OnTick</code> 被算幾次</td>
+<td><strong>1</strong></td>
+<td>301</td>
+</tr>
+<tr>
+<td>其餘八個節點</td>
+<td><strong>0</strong></td>
+<td>300</td>
+</tr>
+<tr>
+<td>odom 的 ROS 2 publisher</td>
+<td><strong>沒有建出來</strong></td>
+<td>每台車 1 個</td>
+</tr>
+<tr>
+<td>收到的 odom</td>
+<td><strong>0</strong></td>
+<td>296~299 / 300</td>
+</tr>
+</tbody>
+</table></div>
+<p>⚠ <strong>物理步進那一項會綠,而圖那一項是空的——兩個訊號指向不同的東西。</strong> 不要拿「物理時間有前進」當成「模擬在跑」。</p>
+<p>這與 <a href="../../common/05-ros2-bridge/">05 篇</a>記的 headless 下 OmniGraph 不 tick 是同一個家族的問題,只是那次的觸發條件是 headless,這次是 <code>render=False</code>。<strong>共同點是:圖的求值不在物理迴圈上。</strong></p>
+<h3 id="51-算圖本身是非同步的">5.1 算圖本身是非同步的</h3>
+<p>一次 <code>world.step(render=True)</code> 之後<strong>立刻</strong> <code>get_data()</code> 會拿到空的。連續錄影感覺不到(每隔幾步就算一次),<strong>單幀預覽要自己多轉幾圈</strong>。</p>
+<h2 id="6-三個檔案正常程式沒報錯畫面是黑的">6. 三個「檔案正常、程式沒報錯、畫面是黑的」</h2>
+<p>第一次錄影一次撞出三個缺口,而<strong>三個的症狀完全一樣</strong>:</p>
+<p><strong>① 缺貼圖不是素色,是純黑。</strong> <code>UsdUVTexture</code> 讀不到檔案回 <code>(0,0,0)</code>,而 <code>diffuseColor</code> 是<strong>連到</strong>它的,所以整個表面算出來是黑的。</p>
+<p><strong>② 樓板擋住一切。</strong> 三層疊在 z 上、每層樓板不透明,任何外部視角看到的都是屋頂。錄影時把樓板設成 invisible——⚠ <strong><code>visibility</code> 只影響算圖,不改變碰撞</strong>,所以車照樣在樓板上跑。</p>
+<p><strong>③ 算圖非同步</strong>(見 §5.1)。</p>
+<p>三個加起來的結果:錄出來 <strong>2833 幀全黑</strong>,而 mp4 的參數(1280×720、94 秒)完全正常,寫檔也沒有報錯。</p>
+<blockquote>
+<p><strong>「錄到了」與「錄了一片黑」在檔案層面分不出來,要抽幀看畫素才知道。</strong></p>
+</blockquote>
+<p>這條的一般形式:<strong>產出物存在 ≠ 產出物有內容</strong>。跟 <a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a> §4.1 的「表頭有 64 欄而 13632 格全是 nan」是同一件事,只是換成了影像。</p>
+<h3 id="61-錄影的寫入量要自己守門">6.1 ⚠ 錄影的寫入量要自己守門</h3>
+<p><code>rep.orchestrator.wait_until_complete()</code> 配 <code>BasicWriter</code> 會<strong>一直寫</strong>。踩過:九分鐘寫了 <strong>57601 張、1.2 GB</strong> 到共用網路磁碟。</p>
+<p>改用 <code>AnnotatorRegistry</code> 的拉式介面自己取幀——<code>get_data()</code> 呼叫幾次就有幾幀,寫不出界。</p>
+<h2 id="7-東西都在只是沒有人下指令">7. 東西都在,只是沒有人下指令</h2>
+<p>最後一個形狀:<strong>設定齊全與「有人驅動」是兩回事</strong>。</p>
+<p>電梯的門在 USD 裡是完整的——門片帶剛體與質量、門的關節是 articulation 的自由度(冒煙測試印的自由度清單裡就有)。缺的是<strong>沒有人下指令</strong>,所以整段都停在關的位置。</p>
+<p>⚠ <strong>不要靠看畫面判斷門有沒有動。</strong> 側視角的轎廂內部很暗,兩幀擺在一起也難說。改成把<strong>關節位置量出來</strong>:實測兩台電梯的門都走完 <code>0 → 0.475 m</code> 的全行程。</p>
+<p>同一次查證還抓到另一個缺口:<strong>轎廂得先來接。</strong> 原本車要上車時,轎廂可能還停在別層——某台電梯該走到 8.0 m 只走到 <strong>7.589 m</strong>,<strong>沒有報錯</strong>,只是差了 41 公分,而那 41 公分正好是「車站在哪裡」。時刻表補上「接車」那一段之後是 7.996 m。</p>
+<h2 id="8-檢查清單">8. 檢查清單</h2>
+<ul>
+<li>[ ] 啟動腳本頂層 import 只有 stdlib,<strong>含間接 import</strong></li>
+<li>[ ] extension 的生效證明看<strong>節點型別在不在</strong>,不看 <code>enable_extension</code> 的回傳值</li>
+<li>[ ] 每個列舉查詢都配一個「確定存在」的正對照當試紙</li>
+<li>[ ] 節點型別寫在 <code>node:type</code> 屬性,不是 <code>customData</code></li>
+<li>[ ] 圖的長相參考自己這台匯出的真圖,不抄出貨樣板</li>
+<li>[ ] 確認圖有沒有在 tick,用節點被算的次數,<strong>不用物理時間有沒有前進</strong></li>
+<li>[ ] 單幀取像多轉幾圈再 <code>get_data()</code></li>
+<li>[ ] 錄影/寫檔的量自己守門,不靠 writer 停</li>
+<li>[ ] 驗「東西有沒有動」量關節位置,不看畫面</li>
+<li>[ ] 產出物驗的是<strong>內容</strong>(抽幀看畫素),不是檔案存不存在</li>
+</ul>
+<hr />
+<p>延伸閱讀:<a href="../../common/05-ros2-bridge/">05 ROS2 橋接</a>(headless 下 OmniGraph 不 tick 的實案與 UDP 解耦)、<a href="../../6.0.1/14-ros2-bridge-6.0-architecture/">14 ROS 2 Bridge 在 6.0 的架構重組</a>、<a href="../../common/02-python-no-ui/">02 不碰 UI:用 Python 操作</a>、<a href="../../common/30-acceptance-probes-and-preregistration/">30 驗收探針與實驗預先登記</a>。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

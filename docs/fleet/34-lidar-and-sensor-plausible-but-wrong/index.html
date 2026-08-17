@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>34 · 感測器的假數字:三個「合理但錯」的位置 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../fleet/" class="on">車隊</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">車隊</div><ul class="side-l"><li><a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/"><span class="n">31</span>OmniGraph 與 ROS 2 橋接的真相</a></li><li><a href="../../fleet/32-differential-drive-vehicle-model/"><span class="n">32</span>把車做成真的會動的車</a></li><li><a href="../../fleet/33-elevator-and-multi-floor/"><span class="n">33</span>電梯與多樓層</a></li><li><a href="../../fleet/34-lidar-and-sensor-plausible-but-wrong/" class="on"><span class="n">34</span>感測器的假數字:三個「合理但錯」的位置</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-感測器埋在自己的碰撞盒裡">1. 感測器埋在自己的碰撞盒裡</a></li><li class="l2"><a href="#2-視角在這個幾何下根本裝不下">2. 視角在這個幾何下根本裝不下</a></li><li class="l2"><a href="#3-正對照自己的幾何錯了">3. 正對照自己的幾何錯了</a></li><li class="l2"><a href="#4-資料是對的但你看不見三個成因">4. 資料是對的,但你看不見:三個成因</a></li><li class="l2"><a href="#5-ros-2-那側四個會讓數字說謊的量法">5. ROS 2 那側四個會讓數字說謊的量法</a></li><li class="l2"><a href="#6-材質與顏色量素材不要看檔名">6. 材質與顏色:量素材,不要看檔名</a></li><li class="l2"><a href="#7-誠實標註還沒接上的那條線">7. 誠實標註:還沒接上的那條線</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="34-感測器的假數字三個合理但錯的位置">34 · 感測器的假數字:三個「合理但錯」的位置</h1>
+<p>把雷射從無到有接上去的過程中,錯過三次。<strong>三次的輸出都是一組合理的數字。</strong></p>
+<p>這是感測器這一層最麻煩的性質:它幾乎不會給你 NaN 或例外,它會給你一組穩定、一致、落在量程內的讀數——而那組讀數描述的是另一個世界。</p>
+<blockquote>
+<p><strong>驗證狀態</strong>:內容來自一段多車 + 多樓層的 Isaac Sim 場域前期研究(2026-07 至 08),<code>/scan</code> 於 2026-08-16 接上實際的 lidar。數字連同幾何條件列出。⚠ 有一項明確標了「原始紀錄沒有討論」,不代下結論。</p>
+</blockquote>
+<h2 id="1-感測器埋在自己的碰撞盒裡">1. 感測器埋在自己的碰撞盒裡</h2>
+<p>lidar 一開始掛在車體原點,而車體是一個實心的 Cube 碰撞盒。</p>
+<p>結果:<strong>240 束全部回傳 0.120 m</strong>,也就是量程下限。</p>
+<blockquote>
+<p>那個值<strong>穩定、一致、在合理範圍內</strong>——與「車貼著牆」在資料上<strong>完全一樣</strong>。</p>
+</blockquote>
+<p>沒有任何辦法從資料本身分辨這兩件事。改成掛在車頭前緣外 2 cm。</p>
+<p><strong>這一條的一般形式</strong>:感測器的安裝位置是它的量測前提,而那個前提不在資料裡。任何「所有讀數都一樣」的感測器輸出,第一個要懷疑的是它在不在自己身體裡。</p>
+<h2 id="2-視角在這個幾何下根本裝不下">2. 視角在這個幾何下根本裝不下</h2>
+<p>移到車頭之後<strong>仍有 41 束</strong>是量程下限。</p>
+<p>原因可以算出來:方位角超過</p>
+<pre><code>180° − atan( (車寬/2) / 淨空 )
+</code></pre>
+<p>的射線會往後打進自己的車體。2 cm 淨空、0.6 m 車寬時,這個角度約 <strong>93.5°</strong>。</p>
+<p><strong>±120° 的視角在這個幾何下根本裝不下。</strong></p>
+<p>要保住 240° 的視野只有兩條路:</p>
+<ul>
+<li>感測器伸到車頭前 <strong>18 cm 以上</strong>(一根突出的桿子),或</li>
+<li>在下游遮掉後方那個楔形(而 OmniGraph 這側沒有濾波節點)</li>
+</ul>
+<p>最後改成 <strong>±90° 前向</strong>,並讓建構函式在裝不下時<strong>直接擋</strong>——把上限算出來當成前置條件,不是等下次有人再踩一遍。</p>
+<blockquote>
+<p><strong>這是把一個幾何約束寫成程式碼裡的守衛。</strong> 「感測器視角」與「車體寬度 + 安裝淨空」之間有一條硬關係,而那條關係在任何設定檔裡都看不出來。</p>
+</blockquote>
+<h2 id="3-正對照自己的幾何錯了">3. 正對照自己的幾何錯了</h2>
+<p>寫好的正對照是:<strong>車前方 2 m 放一個箱子,量到的最近距離要是 2 m</strong>。</p>
+<p>它失敗了。<strong>而感測器其實正常。</strong></p>
+<p>兩個獨立的錯誤疊在一起:</p>
+<ul>
+<li>箱子放在<strong>車體原點</strong>前方 2 m,但感測器在車頭、<strong>離原點 0.4 m</strong> —— 雷射看到的是 1.6 m。</li>
+<li>那台車前方本來就有一面 <strong>2.1 m 的牆</strong>,箱子與牆落在同一個判定帶裡,<strong>束數一根都沒變</strong>。</li>
+</ul>
+<p>兩個教訓:</p>
+<blockquote>
+<p><strong>距離要從感測器量,不是從車體原點。</strong>
+<strong>對照的距離要從資料算</strong>(取當下最近距離的一半),不要寫死一個可能與場景碰撞的數字。</p>
+</blockquote>
+<p>現在的判準是一個<strong>加擾動 / 去擾動的閉環</strong>:</p>
+<pre><code>放箱子  → 最近距離變成箱子的距離
+拿掉    → 回到原本的值
+實測:2.095 → 1.048 → 2.095
+</code></pre>
+<p>第三個數字回到第一個,才證明變化是箱子造成的而不是別的東西漂移。<strong>只做「放箱子」那一半,同時相容於「感測器有效」與「剛好有別的東西進了視野」。</strong></p>
+<p>⚠ 這一條與<a href="../../common/27-failure-mode-taxonomy/">27 篇</a> §6、<a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a> §4 是同一條規則的第三次出現:<strong>驗法本身也是要被驗的東西</strong>。這次它以「正對照的幾何算錯」的形式出現。</p>
+<h2 id="4-資料是對的但你看不見三個成因">4. 資料是對的,但你看不見:三個成因</h2>
+<p>視覺化那一層有另一組坑,而<strong>它們的症狀完全一樣</strong>(什麼都看不到),成因卻互不相干:</p>
+<p><strong>① 形狀建太晚。</strong> 射線曲線第一版是在迴圈裡才 <code>Define</code> 的,結果一條都看不到。物理那側收得到(對照用的箱子就是模擬中新建的,PhysX 認得),但 <strong>Hydra 已經把場景收下了</strong>。</p>
+<blockquote>
+<p>症狀與「根本沒呼叫繪製函式」一模一樣,查的時候會往顏色、線寬、材質各繞一圈。</p>
+</blockquote>
+<p>處置:在 <code>world.reset()</code> <strong>之前</strong>先建好形狀,之後每幀只改點座標。</p>
+<p><strong>② 線寬是次像素。</strong> 線寬 1.2 cm 在四十公尺外的機位是次像素寬——畫面寬 1280 px 涵蓋約五十公尺,<strong>一個像素約 4 cm</strong>。</p>
+<p><strong>③ <code>displayColor</code> 只是提示。</strong> RTX 這側走材質,<strong>沒綁材質的曲線在暗色地板上等於看不見</strong>。</p>
+<p>三個都不是「資料錯」,是「呈現錯」。而在排查時它們與「資料錯」長得一模一樣——所以<strong>驗感測器要驗數值,不要靠看畫面</strong>。</p>
+<h2 id="5-ros-2-那側四個會讓數字說謊的量法">5. ROS 2 那側四個會讓數字說謊的量法</h2>
+<p>這一節跟雷射沒有直接關係,但排查感測器時幾乎一定會用到:</p>
+<p><strong>① <code>get_topic_names_and_types()</code> 看得到某個 topic,不代表有人在發。</strong> 自己建的訂閱就會讓那個名字出現在列表裡。要問 publisher 用 <code>get_publishers_info_by_topic()</code>。</p>
+<p>第一次量到「<strong>5 個 topic 都在,但 publisher 是 0</strong>」就是這個差別——<strong>把前者當證據會得到完全相反的結論</strong>。</p>
+<p><strong>② 一次 <code>rclpy.spin_once()</code> 只處理一個 callback。</strong> 五個訂閱共用一次 spin,收到的則數會被自己的取件速度節流(300 步只收到約 50 則),<strong>而那個數字看起來像「發佈頻率不足」</strong>。每步多轉幾次之後是 296~299 / 300。</p>
+<p><strong>③ 不要把它換算成 Hz。</strong> 牆鐘頻率取決於這台跑多快,與圖對不對無關;分母要用<strong>「應發幾則」</strong>(每 tick 一則 = 步數)。</p>
+<p>(這與 <a href="../../common/29-long-run-error-budget-and-clock-drift/">29 篇</a> §2 是同一個病:牆鐘與模擬節拍不是同一件事,<strong>任何以牆鐘為分母的指標都在量機器負載</strong>。)</p>
+<p><strong>④ publisher 預設沒有訂閱者就不發</strong>(<code>publish_without_verification</code> 預設 false)。所以「量不到」也可能只是<strong>沒有人在聽</strong>。</p>
+<p>四條的共同形狀:<strong>一個回空或偏低的量測,同時相容於「東西壞了」與「我的量法有洞」。</strong></p>
+<h2 id="6-材質與顏色量素材不要看檔名">6. 材質與顏色:量素材,不要看檔名</h2>
+<p>電梯與車原本只綁<strong>物理材質</strong>(摩擦、恢復係數),沒有視覺材質——所以都是預設灰。</p>
+<p>補視覺材質時踩到幾個:</p>
+<ul>
+<li>電梯原本綁一張金屬板貼圖(Poly Haven,CC0),而<strong>那張圖的 diffuse 平均色量出來是 <code>(61, 50, 28)/255</code></strong> ——在這個場域的照度下,井道整個算成一塊黑,<strong>跟「材質壞掉」在畫面上分不出來</strong>。改綁純色(淺鋼藍灰)。</li>
+<li>中間試過「不換素材,用 <code>UsdUVTexture</code> 的 <code>inputs:scale</code> 提亮 3.5 倍」:<strong>屬性確實寫進了 USD</strong>(grep 看得到),<strong>但算出來的畫面一模一樣</strong>——這條路在這個 renderer 上行不通。</li>
+<li><strong>判準是量素材本身的亮度,不是看檔名。</strong> 一張名為 <code>blue_floor_tiles_01</code> 的圖量出來是 <code>(149, 139, 113)</code>,也就是米色而不是藍色;地板看起來偏橄欖色不是打光的問題。</li>
+<li>車改成<strong>每台一個純色</strong>。五台都是灰白盒子的話,影片裡分不出誰是誰,而「哪一台搭了電梯」「哪兩台靠得太近」正是要看的東西。真實 AMR 也是烤漆單色,所以純色比貼圖更接近實物;<strong>純色也不會有「貼圖檔不在就變全黑」的風險</strong>。</li>
+<li>⚠ <strong>材質 prim 放 <code>/World/Looks</code>,不要放 <code>/World/Robots</code> 底下</strong> —— 冒煙與測試都用「<code>/World/Robots</code> 的子節點數」當車數,多一個 <code>Looks</code> 就會數成六台(測試抓到過)。</li>
+<li>環境光從 1000 加到 2500:1000 在室外夠,而這個場域有牆有樓板,從側面看進去時牆會擋掉大半環境光,轎廂內部幾乎全黑。</li>
+</ul>
+<p>「屬性寫進去了但畫面沒變」那一條與 <a href="../../6.0.1/17-physics-parameter-tuning-6.0/">17 篇</a>的無聲失效同源:<strong>寫得進去不代表被採用</strong>,而這次採用它的是 renderer 而不是 PhysX。</p>
+<blockquote>
+<p>⚠ <strong>原始紀錄沒有討論「材質與顏色會不會影響雷射測距」。</strong> §1–§3 那三個雷射錯誤的成因分別是碰撞盒幾何、視角幾何、量測基準點,都與材質無關。但「所以雷射不受渲染影響」是一個<strong>推論而不是查證過的結論</strong>,這裡不下。要用的話自己驗。</p>
+</blockquote>
+<h2 id="7-誠實標註還沒接上的那條線">7. 誠實標註:還沒接上的那條線</h2>
+<ul>
+<li><strong><code>/cmd_vel</code> 收得到但動不了車。</strong> <code>ROS2SubscribeTwist</code> 吐出速度之後,要有差速控制器 + articulation controller 才會變成輪子的動作。當時車輛是直接搬位置的,<strong>等於繞過物理驅動</strong>——這正是 <a href="../../common/23-no-shortcuts-in-physics-sim/">23 篇</a>講的那種捷徑,而它的下游後果在 <a href="../../fleet/32-differential-drive-vehicle-model/">32 篇</a>兌現。</li>
+<li><strong>第一幀有一個暫態</strong>:<code>ROS2PublishTransformTree</code> 第一次計算時 <code>inputs:parentFrames</code> 等陣列還是空的,於是退回另一條路並報 <code>Please specify at least one valid target prim</code>。<strong>整輪只出現一次</strong>,之後就走連線那條。要消掉它就把備援那組也填上。</li>
+</ul>
+<h2 id="8-檢查清單">8. 檢查清單</h2>
+<ul>
+<li>[ ] 感測器不在自己的碰撞體裡(所有讀數都是量程下限 → 先查這個)</li>
+<li>[ ] 視角上限用 <code>180° − atan((車寬/2)/淨空)</code> 算過,而且寫成程式裡的守衛</li>
+<li>[ ] 距離從<strong>感測器</strong>量,不從車體原點</li>
+<li>[ ] 正對照的距離<strong>從當下資料算</strong>,不寫死</li>
+<li>[ ] 對照是閉環:加擾動 → 去擾動 → 回到原值</li>
+<li>[ ] 驗感測器<strong>驗數值</strong>,不看畫面(畫面有三個獨立的「看不見」成因)</li>
+<li>[ ] 繪製用的形狀在 <code>world.reset()</code> 之前建好</li>
+<li>[ ] 用 <code>get_publishers_info_by_topic()</code> 問誰在發,不用 topic 列表</li>
+<li>[ ] 收訊率的分母用「應發幾則」,不換算成 Hz</li>
+<li>[ ] 素材亮度用<strong>量的</strong>,不看檔名</li>
+<li>[ ] 材質 prim 不要放在會被當成計數依據的路徑底下</li>
+</ul>
+<hr />
+<p>延伸閱讀:<a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/">31 OmniGraph 與 ROS 2 橋接的真相</a>、<a href="../../fleet/32-differential-drive-vehicle-model/">32 把車做成真的會動的車</a>(車不看自己的雷射,是它開不完路網的第五個成因)、<a href="../../common/30-acceptance-probes-and-preregistration/">30 驗收探針與實驗預先登記</a>、<a href="../../common/27-failure-mode-taxonomy/">27 失效模式分類學</a>。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

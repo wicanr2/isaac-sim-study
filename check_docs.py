@@ -24,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 DOCS = ROOT / "docs"
-ZONES = ["common", "5.1", "6.0.1"]
+ZONES = ["common", "5.1", "6.0.1", "fleet"]
 
 problems: list[str] = []
 
@@ -67,17 +67,18 @@ total = sum(counts.values())
 
 home = (DOCS / "index.md").read_text(encoding="utf-8")
 for zone, label in [("common", "共通:機制與方法論"), ("5.1", "Isaac Sim 5.1"),
-                    ("6.0.1", "Isaac Sim 6.0.1")]:
+                    ("6.0.1", "Isaac Sim 6.0.1"), ("fleet", "車隊與多樓層")]:
     m = re.search(rf"\[{re.escape(label)}\]\([^)]*\)\*\* · (\d+) 篇", home)
     if not m:
         fail(f"篇數  docs/index.md 找不到 {label} 的篇數宣告")
     elif int(m.group(1)) != counts[zone]:
         fail(f"篇數  docs/index.md 說 {label} 有 {m.group(1)} 篇,實際 {counts[zone]} 篇")
 
-zone_index = (DOCS / "common" / "index.md").read_text(encoding="utf-8")
-m = re.search(r"這一區的 (\d+) 篇", zone_index)
-if m and int(m.group(1)) != counts["common"]:
-    fail(f"篇數  docs/common/index.md 說 {m.group(1)} 篇,實際 {counts['common']} 篇")
+for zone in ZONES:
+    zone_index = (DOCS / zone / "index.md").read_text(encoding="utf-8")
+    m = re.search(r"這一區的 (\d+) 篇", zone_index)
+    if m and int(m.group(1)) != counts[zone]:
+        fail(f"篇數  docs/{zone}/index.md 說 {m.group(1)} 篇,實際 {counts[zone]} 篇")
 
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
 m = re.search(r"^(\d+) 篇裡真正綁死版本", readme, re.M)
@@ -150,8 +151,8 @@ if stale:
          + ("\n        …" if len(stale) > 5 else ""))
 
 # --------------------------------------------------------------------------- #
-print(f"連結 {n_links} 條 · 篇數 common {counts['common']} / 5.1 {counts['5.1']} "
-      f"/ 6.0.1 {counts['6.0.1']} = {total}")
+print("連結 %d 條 · 篇數 %s = %d"
+      % (n_links, " / ".join(f"{z} {counts[z]}" for z in ZONES), total))
 if problems:
     print(f"\n{len(problems)} 個問題:")
     for p in problems:

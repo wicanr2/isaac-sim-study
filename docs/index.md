@@ -15,6 +15,9 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 **[Isaac Sim 6.0.1](6.0.1/)** · 5 篇
 extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風險、6.0 的物理調參。
 
+**[車隊與多樓層](fleet/)** · 4 篇
+多台車 + 多樓層自成一個問題域:OmniGraph 與 ROS 2 橋接、差速車動力學、電梯與門檻、感測器。這一區的失敗幾乎全部是「回傳成功、沒有錯誤、就是不對」。
+
 **[5.1 ↔ 6.0.1 差異速查](version-matrix.md)**
 跨版本排查時最花時間的不是「哪裡不一樣」,而是「這個症狀該不該歸給版本」。每一列都標出處篇章。
 
@@ -31,6 +34,10 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 | 一堆輪次的結果分析不出東西 | [27 失效模式分類學](common/27-failure-mode-taxonomy/README.md) |
 | 連續搬運第二趟就歪掉,想加補償 | [28 誤差累積與「補償反而有害」](common/28-error-accumulation-and-harmful-compensation/README.md) |
 | 短測試都過,跑一小時就死 | [29 長跑才會浮現的兩件事](common/29-long-run-error-budget-and-clock-drift/README.md) |
+| 要接 ROS 2、跑多台車 | [31 OmniGraph 與 ROS 2 橋接的真相](fleet/31-omnigraph-and-ros2-bridge-truth/README.md) |
+| 車在場景裡不動,或動得很奇怪 | [32 把車做成真的會動的車](fleet/32-differential-drive-vehicle-model/README.md) |
+| 要做電梯、多樓層 | [33 電梯與多樓層](fleet/33-elevator-and-multi-floor/README.md) |
+| 感測器讀數看起來正常但不對 | [34 感測器的假數字](fleet/34-lidar-and-sensor-plausible-but-wrong/README.md) |
 | 手上有一台叉車/機器人,要把物理與關節建起來 | [26 從規格表到會動的叉車](common/26-forklift-physics-and-articulation/README.md) |
 | 場域主機不能對外,資產抓不到 | [25 官方資產的預先下載與離線佈署](common/25-offline-assets-deployment/README.md) |
 
