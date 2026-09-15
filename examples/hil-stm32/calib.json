@@ -1,0 +1,17 @@
+{
+  "_comment": "韌體、橋接、受控體共用的唯一參數來源。改這裡,然後跑 tools/gen_calib.py 重生 firmware/calib.h。",
+  "wheel_radius_mm": 50.0,
+  "track_mm": 300.0,
+  "encoder_ticks_per_rev": 4096,
+  "control_period_ms": 5,
+  "report_period_ms": 20,
+  "cmd_timeout_ms": 500,
+  "pwm_arr": 999,
+  "duty_full_scale": 1000,
+  "wheel_speed_at_full_duty_mm_s": 1000.0,
+  "pi_kp_q8": 128,
+  "pi_ki_q8": 13,
+  "pi_integral_limit": 20000,
+  "can_id_encoder": 385,
+  "can_id_motor_status": 513
+}

@@ -1,0 +1,42 @@
+/* 連結腳本:對應 Renode 內建 stm32f4.repl 的記憶體配置
+ * (flash 2 MB @0x08000000、SRAM 256 KB @0x20000000)。
+ * 真板子(如 F407:1 MB flash / 128 KB SRAM)也放得下,這支韌體不到 16 KB。 */
+MEMORY
+{
+  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 2M
+  SRAM  (rwx) : ORIGIN = 0x20000000, LENGTH = 256K
+}
+
+ENTRY(Reset_Handler)
+_estack = ORIGIN(SRAM) + LENGTH(SRAM);
+
+SECTIONS
+{
+  .isr_vector : { KEEP(*(.isr_vector)) } > FLASH
+  .text : {
+    *(.text*)
+    *(.rodata*)
+    . = ALIGN(4);
+    _etext = .;
+  } > FLASH
+
+  _sidata = LOADADDR(.data);
+  .data : {
+    . = ALIGN(4);
+    _sdata = .;
+    *(.data*)
+    . = ALIGN(4);
+    _edata = .;
+  } > SRAM AT > FLASH
+
+  .bss : {
+    . = ALIGN(4);
+    _sbss = .;
+    *(.bss*)
+    *(COMMON)
+    . = ALIGN(4);
+    _ebss = .;
+  } > SRAM
+
+  /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }
+}

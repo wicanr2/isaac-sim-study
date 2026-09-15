@@ -1,0 +1,19 @@
+# 第 2 步驗收:韌體開機走到主迴圈。兩條管道:USART2 文字、g_dbg(SRAM)。
+include @/w/renode/hilctl.resc
+emulation RunFor "0.200"
+echo "[dbg] magic (expect 0x48494C31):"
+sysbus ReadDoubleWord 0x200000F8
+echo "[dbg] tick_ms (expect ~200):"
+sysbus ReadDoubleWord 0x200000FC
+echo "[dbg] ctrl_steps (expect ~40):"
+sysbus ReadDoubleWord 0x20000100
+echo "[dbg] flags (expect 4 = CMD_STALE):"
+sysbus ReadDoubleWord 0x20000130
+echo "[dbg] init_err (expect 0):"
+sysbus ReadDoubleWord 0x20000134
+echo "[tim3] ARR / CCR1 / CR1:"
+sysbus ReadDoubleWord 0x4000042C
+sysbus ReadDoubleWord 0x40000434
+sysbus ReadDoubleWord 0x40000400
+can_hook_stats
+quit

@@ -1,0 +1,4 @@
+// hilctl 韌體的平台描述:直接用 1.16.1 內建的 stm32f4 基底,
+// 這支韌體用到的週邊(USART1/2、TIM3、GPIOA/B/C、CAN1、SysTick)基底檔都有。
+// 什麼叫「有」:第 1 步探針逐項驗過的清單見 docs/hil/36 篇。
+using "./stm32f4-1.16.1.repl"

@@ -1,0 +1,65 @@
+# 第 2 步驗收(不經橋接):UART 中斷收訊、CAN RX、控制迴圈 → PWM/GPIO,以及負對照(壞 CRC)。
+# g_dbg @0x200000f8:magic +0, tick +4, ctrl_steps +8, sp_l +C, sp_r +10, meas_l +14, meas_r +18,
+#   duty_l +1C, duty_r +20, enc_l +24, enc_r +28, enc_frames +2C, cmd_frames +30, bad_crc +34,
+#   flags +38, init_err +3C, rx_overflow +40
+include @/w/renode/hilctl.resc
+include @/w/renode/io_check.py
+emulation RunFor "0.100"
+
+echo "[A] 壞 CRC 的 CMD_VEL → bad_crc 應 +1、cmd_frames 仍 0"
+uart1_feed "A55A04012C010000406F"
+emulation RunFor "0.010"
+echo "    bad_crc:"
+sysbus ReadDoubleWord 0x2000012C
+echo "    cmd_frames:"
+sysbus ReadDoubleWord 0x20000128
+
+echo "[B] 正確的 CMD_VEL v=300 → cmd_frames 1、sp_l/sp_r 300、flags bit0 ENABLED、duty>0、CCR1>0、PB8/PB9/PB10 高"
+uart1_feed "A55A04012C0100004090"
+emulation RunFor "0.030"
+echo "    cmd_frames:"
+sysbus ReadDoubleWord 0x20000128
+echo "    sp_l / sp_r:"
+sysbus ReadDoubleWord 0x20000104
+sysbus ReadDoubleWord 0x20000108
+echo "    flags:"
+sysbus ReadDoubleWord 0x20000130
+echo "    duty_l:"
+sysbus ReadDoubleWord 0x20000114
+echo "    TIM3 CCR1 / CCR2:"
+sysbus ReadDoubleWord 0x40000434
+sysbus ReadDoubleWord 0x40000438
+echo "    GPIOB ODR (expect bits 8,9,10 = 0x700):"
+sysbus ReadDoubleWord 0x40020414
+
+echo "[C] 編碼器訊框:左右各 +20 tick / 5 ms → 20*314159/4096/5 = 306.8 mm/s"
+can_feed "181" "1400000014000000"
+emulation RunFor "0.005"
+can_feed "181" "2800000028000000"
+emulation RunFor "0.005"
+echo "    enc_frames:"
+sysbus ReadDoubleWord 0x20000124
+echo "    enc_l:"
+sysbus ReadDoubleWord 0x2000011C
+echo "    meas_l (expect 306):"
+sysbus ReadDoubleWord 0x2000010C
+
+echo "[D] 急停:PC13 拉高 → flags bit1、duty 0、PB10 低"
+sysbus.gpioPortC OnGPIO 13 true
+emulation RunFor "0.010"
+echo "    flags:"
+sysbus ReadDoubleWord 0x20000130
+echo "    duty_l:"
+sysbus ReadDoubleWord 0x20000114
+echo "    GPIOB ODR:"
+sysbus ReadDoubleWord 0x40020414
+
+echo "[E] 命令逾時:放開急停、不再送命令,跑 600 ms → flags bit2、duty 0"
+sysbus.gpioPortC OnGPIO 13 false
+emulation RunFor "0.600"
+echo "    flags:"
+sysbus ReadDoubleWord 0x20000130
+echo "    rx_overflow (expect 0):"
+sysbus ReadDoubleWord 0x20000138
+can_hook_stats
+quit

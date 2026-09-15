@@ -1,0 +1,28 @@
+:name: hilctl
+:description: 差速底盤控制器最小韌體(examples/hil-stm32/firmware)在 STM32F4 上
+
+$bin ?= @/w/firmware/build/hilctl.elf
+
+using sysbus
+mach create "hilctl"
+machine LoadPlatformDescription @/w/renode/hilctl.repl
+
+# USART2 = 人看的除錯輸出。headless 下 showAnalyzer 沒有用,改寫到檔案。
+usart2 CreateFileBackend @/w/renode/out/usart2.txt true
+
+# USART1 = 上位協定,開 TCP socket 給橋接程式。
+emulation CreateServerSocketTerminal 3456 "host_uart" false
+connector Connect usart1 host_uart
+
+# CAN 出口:monitor 級 IronPython hook(docs/hil/37 篇的「三條路」之一)
+include @/w/renode/can_hook.py
+can_hook_start 3600
+
+# External Control API:橋接用它推進時間、讀 TIM3 CCR、讀寫 GPIO
+emulation CreateExternalControlServer "ec" 3500
+
+macro reset
+"""
+    sysbus LoadELF $bin
+"""
+runMacro $reset
