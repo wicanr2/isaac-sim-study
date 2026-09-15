@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="STM32_Timer_Fixed.cs" />
+    <Compile Include="STM32_TimerTests.cs" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
+    <Reference Include="Infrastructure"><HintPath>../renode-bin/Infrastructure.dll</HintPath></Reference>
+    <!-- Machine() 會透過 Mono.Unix 碰檔案系統;把 Renode 1.16.1 自帶的組件與原生庫一起放進輸出目錄 -->
+    <None Include="../renode-bin/*.dll" Exclude="../renode-bin/Infrastructure.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+    <None Include="../renode-bin/runtimes/linux-x64/native/*.so" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+    <None Include="../renode-bin/*.so" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

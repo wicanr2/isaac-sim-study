@@ -1,0 +1,4 @@
+renode-bin/
+.nuget/
+bin/
+obj/

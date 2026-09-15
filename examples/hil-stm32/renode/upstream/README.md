@@ -12,6 +12,10 @@
 | `STM32_Timer.robot` | 上游 `tests/peripherals/` 樣式的 Robot 測試,對原版 3 紅 |
 | `STM32_Timer_fixed_local.robot` | 同一份測試對執行期載入的修正版,3 綠 |
 | `probes.py` | monitor 端 helper(讀 GPIO 線、IRQ 線) |
+| `STM32_TimerTests.cs` | 上游 `PeripheralsTests` 樣式的 NUnit 測試(仿 `Cadence_TTCTests`),進 fork 的 commit |
+| `dotnet-verify/` | 不建整個 Renode 的驗證:上游版檔案對 1.16.1 組件編譯 0 warning;NUnit 修正版 4/4 綠、原版 4/4 紅 |
+
+fork:`wicanr2/renode-infrastructure` 分支 `stm32-timer-period-preload-fixes`(基於 1.16.1 的 commit),一個 commit:`STM32_Timer.cs` 修正 + `STM32_TimerTests.cs`。
 
 三項修正(都對 RM0090):
 
