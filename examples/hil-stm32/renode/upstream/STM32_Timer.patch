@@ -1,0 +1,175 @@
+--- a/src/Emulator/Peripherals/Peripherals/Timers/STM32_Timer.cs
++++ b/src/Emulator/Peripherals/Peripherals/Timers/STM32_Timer.cs
+@@ -53,7 +53,9 @@
+                     enableRequested = false;
+                 }
+ 
+-                Limit = autoReloadValue;
++                // Counter runs 0..ARR inclusive, so the period is ARR + 1 ticks (RM0090 18.3.1).
++                Limit = (ulong)autoReloadValue + 1;
++                ApplyPendingCaptureCompare();
+ 
+                 for(var i = 0; i < NumberOfCCChannels; ++i)
+                 {
+@@ -132,6 +134,10 @@
+                     {
+                         enableRequested = val;
+                         Enabled = enableRequested && autoReloadValue > 0;
++                        if(Enabled)
++                        {
++                            DriveOutputsForCurrentCount();
++                        }
+                     }, valueProviderCallback: _ => enableRequested, name: "Counter enable (CEN)")
+                     .WithFlag(1, out updateDisable, name: "Update disable (UDIS)")
+                     .WithFlag(2, out updateRequestSource, name: "Update request source (URS)")
+@@ -238,6 +244,8 @@
+                         }
+ 
+                         repetitionsLeft = (uint)repetitionCounter.Value;
++                        ApplyPendingCaptureCompare();
++                        DriveOutputsForCurrentCount();
+ 
+                         if(!updateRequestSource.Value && updateInterruptEnable.Value)
+                         {
+@@ -269,12 +277,12 @@
+                         // "IC1PSC", 2, 2
+                         // "IC1F", 4, 4
+                     .WithTaggedFlag("OC1FE", 2)
+-                    .WithTaggedFlag("OC1PE", 3)
++                    .WithFlag(3, valueProviderCallback: _ => ccPreloadEnable[0], writeCallback: (_, val) => ccPreloadEnable[0] = val, name: "OC1PE")
+                     .WithEnumField(4, 3, out outputCompareModes[0], writeCallback: (_, val) => WriteOutputCompareMode(0, val), name: "OC1M")
+                     .WithTaggedFlag("OC1CE", 7)
+                     .WithEnumField<DoubleWordRegister, CaptureCompareSelection>(8, 2, writeCallback: (_, val) => WriteCaptureCompareSelection(1, val), name: "CC2S")
+                     .WithTaggedFlag("OC2FE", 10)
+-                    .WithTaggedFlag("OC2PE", 11)
++                    .WithFlag(11, valueProviderCallback: _ => ccPreloadEnable[1], writeCallback: (_, val) => ccPreloadEnable[1] = val, name: "OC2PE")
+                     .WithEnumField(12, 3, out outputCompareModes[1], writeCallback: (_, val) => WriteOutputCompareMode(1, val), name: "OC2M")
+                     .WithTaggedFlag("OC2CE", 15)
+                     // Input mode:
+@@ -287,7 +295,7 @@
+                     // Only fields for output compare mode are defined
+                     .WithEnumField<DoubleWordRegister, CaptureCompareSelection>(0, 2, writeCallback: (_, val) => WriteCaptureCompareSelection(2, val), name: "CC3S")
+                     .WithTaggedFlag("OC3FE", 2)
+-                    .WithTaggedFlag("OC3PE", 3)
++                    .WithFlag(3, valueProviderCallback: _ => ccPreloadEnable[2], writeCallback: (_, val) => ccPreloadEnable[2] = val, name: "OC3PE")
+                     .WithEnumField(4, 3, out outputCompareModes[2], writeCallback: (_, val) => WriteOutputCompareMode(2, val), name: "OC3M")
+                     .WithTaggedFlag("OC3CE", 7)
+                     // Input mode:
+@@ -295,7 +303,7 @@
+                         // "IC3F", 4, 4
+                     .WithEnumField<DoubleWordRegister, CaptureCompareSelection>(8, 2, writeCallback: (_, val) => WriteCaptureCompareSelection(3, val), name: "CC4S")
+                     .WithTaggedFlag("OC4FE", 10)
+-                    .WithTaggedFlag("OC4PE", 11)
++                    .WithFlag(11, valueProviderCallback: _ => ccPreloadEnable[3], writeCallback: (_, val) => ccPreloadEnable[3] = val, name: "OC4PE")
+                     .WithEnumField(12, 3, out outputCompareModes[3], writeCallback: (_, val) => WriteOutputCompareMode(3, val), name: "OC4M")
+                     .WithTaggedFlag("OC4CE", 15)
+                     // Input mode:
+@@ -363,7 +371,7 @@
+                         Enabled = enableRequested && autoReloadValue > 0;
+                         if(!autoReloadPreloadEnable.Value)
+                         {
+-                            Limit = autoReloadValue;
++                            Limit = (ulong)autoReloadValue + 1;
+                         }
+                     }, valueProviderCallback: _ => autoReloadValue, name: "Auto-reload value (ARR)")
+                     .WithReservedBits(timerCounterLengthInBits, 32 - timerCounterLengthInBits)
+@@ -390,13 +398,16 @@
+             {
+                 var j = i;
+                 registersMap.Add((long)Registers.CaptureOrCompare1 + (j * 0x4), new DoubleWordRegister(this)
+-                    .WithValueField(0, timerCounterLengthInBits, valueProviderCallback: _ => (uint)ccTimers[j].Limit, writeCallback: (_, val) =>
++                    .WithValueField(0, timerCounterLengthInBits, valueProviderCallback: _ => (uint)(ccPending[j] ?? ccTimers[j].Limit), writeCallback: (_, val) =>
+                     {
+-                        if(val == 0)
++                        if(ccPreloadEnable[j])
+                         {
+-                            ccTimers[j].Enabled = false;
++                            // OCxPE: the write goes to the preload register and is transferred to the
++                            // active register on the next update event (RM0090 18.4.7).
++                            ccPending[j] = val;
++                            return;
+                         }
+-                        ccTimers[j].Limit = val;
++                        SetCaptureCompareValue(j, val);
+                     }, name: String.Format("Capture/compare value {0} (CCR{0})", j + 1))
+                     .WithReservedBits(timerCounterLengthInBits, 32 - timerCounterLengthInBits)
+                     .WithWriteCallback((_, __) => { UpdateCaptureCompareTimer(j); UpdateInterrupts(); })
+@@ -446,7 +457,7 @@
+             registers.Reset();
+             autoReloadValue = initialLimit;
+             enableRequested = false;
+-            Limit = initialLimit;
++            Limit = (ulong)initialLimit + 1;
+             repetitionsLeft = 0;
+             updateInterruptFlag = false;
+             for(var i = 0; i < NumberOfCCChannels; ++i)
+@@ -455,6 +466,8 @@
+                 ccInterruptFlag[i] = false;
+                 ccInterruptEnable[i] = false;
+                 ccOutputEnable[i] = false;
++                ccPreloadEnable[i] = false;
++                ccPending[i] = null;
+                 Connections[i].Unset();
+             }
+             UpdateInterrupts();
+@@ -487,6 +500,51 @@
+             ccTimers[i].Direction = Direction;
+         }
+ 
++        private void SetCaptureCompareValue(int i, ulong val)
++        {
++            if(val == 0)
++            {
++                ccTimers[i].Enabled = false;
++            }
++            ccTimers[i].Limit = val;
++        }
++
++        private void ApplyPendingCaptureCompare()
++        {
++            for(var i = 0; i < NumberOfCCChannels; ++i)
++            {
++                if(ccPending[i].HasValue)
++                {
++                    SetCaptureCompareValue(i, ccPending[i].Value);
++                    ccPending[i] = null;
++                    UpdateCaptureCompareTimer(i);
++                }
++            }
++        }
++
++        // PWM outputs reflect the comparison between the counter and CCRx continuously;
++        // set them on enable and on update events, not only on overflow.
++        private void DriveOutputsForCurrentCount()
++        {
++            for(var i = 0; i < NumberOfCCChannels; ++i)
++            {
++                if(!ccOutputEnable[i])
++                {
++                    continue;
++                }
++                var below = Value < ccTimers[i].Limit;
++                switch(outputCompareModes[i].Value)
++                {
++                case OutputCompareMode.PwmMode1:
++                    Connections[i].Set(below);
++                    break;
++                case OutputCompareMode.PwmMode2:
++                    Connections[i].Set(!below);
++                    break;
++                }
++            }
++        }
++
+         private void UpdateCaptureCompareTimers()
+         {
+             for(var i = 0; i < NumberOfCCChannels; ++i)
+@@ -576,6 +634,8 @@
+         private readonly bool[] ccInterruptFlag = new bool[NumberOfCCChannels];
+         private readonly bool[] ccInterruptEnable = new bool[NumberOfCCChannels];
+         private readonly bool[] ccOutputEnable = new bool[NumberOfCCChannels];
++        private readonly bool[] ccPreloadEnable = new bool[NumberOfCCChannels];
++        private readonly ulong?[] ccPending = new ulong?[NumberOfCCChannels];
+ 
+         private readonly uint initialLimit;
+         private readonly int timerCounterLengthInBits;

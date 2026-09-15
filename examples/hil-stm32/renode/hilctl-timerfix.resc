@@ -1,11 +1,12 @@
 :name: hilctl
-:description: 差速底盤控制器最小韌體(examples/hil-stm32/firmware)在 STM32F4 上
+:description: 同 hilctl.resc,但 TIM3/TIM4 換成修正版 STM32_Timer_Fixed(renode/upstream/)
 
 $bin ?= @/w/firmware/build/hilctl.elf
 
 using sysbus
 mach create "hilctl"
-machine LoadPlatformDescription @/w/renode/hilctl.repl
+i @/w/renode/upstream/STM32_Timer_Fixed.cs
+machine LoadPlatformDescription @/w/renode/upstream/stm32f4-timerfix.repl
 
 # USART2 = 人看的除錯輸出。headless 下 showAnalyzer 沒有用,改寫到檔案。
 usart2 CreateFileBackend @/w/renode/out/usart2.txt true

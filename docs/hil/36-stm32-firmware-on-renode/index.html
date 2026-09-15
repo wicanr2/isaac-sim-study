@@ -63,13 +63,19 @@ CAN 0x181 收編碼器累計 tick    → 輪速量測 + 里程計
 <td>同上,計數週期</td>
 <td>ARR</td>
 <td><strong>週期是 ARR,硬體是 ARR+1</strong>。兩組量測:ARR=999、10 MHz 跑 1 ms → CNT=10(=10000 mod 999);ARR=99 → CNT=1(=10000 mod 99)</td>
-<td>PWM 頻率差 0.1%,無感。但這是一個可送上游的修正候選</td>
+<td>PWM 頻率差 0.1%,無感。已修,見 <a href="../../hil/37-bus-signal-bridging/">37 篇</a> §4</td>
+</tr>
+<tr>
+<td>同上,PWM 腳位初值</td>
+<td>CEN、EGR.UG</td>
+<td>致能後、第一次溢位前腳位不動(CNT=200 &lt; CCR=500 時讀到 False);硬體的 OCxREF 是持續比較</td>
+<td>5 ms 一步的閉環看不到(第一次溢位在 10 µs 內);已修,同上</td>
 </tr>
 <tr>
 <td><code>STM32_UART</code>(USART1/2)</td>
-<td>SR(RXNE/TXE)、DR、BRR、CR1</td>
-<td>TXE 恆為 1;RX 有佇列。既有內部專案:<strong>TC 旗標做成「可寫清除但永不重設」</strong>,等 TC 中斷的傳送路徑會卡死</td>
-<td>韌體只輪詢 TXE、不等 TC。真硬體同樣正確</td>
+<td>SR(RXNE/TXE/TC)、DR、BRR、CR1</td>
+<td>TXE 恆為 1;RX 有佇列。<strong>TC 在 CPU 寫 DR 後正常設回、TCIE 拉中斷</strong>(本篇探針);既有內部專案在 DMA 傳送下量到「TC 永不重設」,那條路徑本篇沒走,兩者不衝突</td>
+<td>韌體輪詢 TXE、不等 TC。真硬體同樣正確</td>
 </tr>
 <tr>
 <td><code>STMCAN</code>(CAN1)</td>

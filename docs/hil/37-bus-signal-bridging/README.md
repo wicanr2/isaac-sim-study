@@ -81,7 +81,9 @@ Renode 1.16.1 把 CAN 訊框送到模擬器外面的**官方**管道只有 `Crea
 
 ②③ 是同一件事——都讓核心載入 `vcan.ko`,差別只在誰觸發。真正不碰核心的只有 ①。
 
-①在 Renode 端遇到缺口時的處理原則:**不繞路,修 Renode 原始碼**。1.16.1 對應的 `renode-infrastructure` commit 是 `add012af003a0f620d3da52828262676f374d121`;修週邊模型可以 `i @file.cs` 執行期編譯載入(既有內部專案用這招換掉 UART 模型),不必自建 Renode。目前這一區沒有需要改 Renode 的地方;已知的修正候選有三個:`STM32_Timer` 週期 ARR vs ARR+1、`OC1PE` 未實作、`STM32_UART` 的 TC 閂鎖([36 篇](../36-stm32-firmware-on-renode/README.md) §3)。
+①在 Renode 端遇到缺口時的處理原則:**不繞路,修 Renode 原始碼**。1.16.1 對應的 `renode-infrastructure` commit 是 `add012af003a0f620d3da52828262676f374d121`;修週邊模型可以 `i @file.cs` 執行期編譯載入,不必自建 Renode——改一行、跑一次探針是秒級迴圈。
+
+這一區用這條路修了 `STM32_Timer` 的三個缺口([`renode/upstream/`](../../../examples/hil-stm32/renode/upstream/)):計數週期 ARR+1、OCxPE 預載、致能時就驅動 PWM 腳。每一項有一支探針(原版紅、修正版綠)與一條上游樣式的 Robot 測試(原版 3 紅、修正版 3 綠);修正版接進閉環 `TIMERFIX=1 ./run_loop.sh` 仍 ALL PASS,而且 `.resc` 印出 timer 的型別名當生效證明——沒有這一行,「修正版也綠」與「根本沒載入」看起來一樣。第四個候選 `STM32_UART` 的 TC 閂鎖在 1.16.1 上**無法重現**(CPU 寫 DR 後 TC 正常設回、TCIE 拉中斷);既有內部紀錄的條件是 DMA 傳送,這裡沒走那條路,不下結論。
 
 ## 5. lockstep 迴圈
 

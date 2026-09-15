@@ -1,0 +1,49 @@
+# 三個缺口在原版 1.16.1 上的探針。每一段印出的值,原版與修正版的期望寫在 echo 裡。
+i @/w/renode/upstream/STM32_Timer_Fixed.cs
+mach create "p"
+machine LoadPlatformDescription @/w/renode/upstream/stm32f4-timerfix.repl
+include @/w/renode/upstream/probes.py
+
+echo "=== T1 timer 週期:ARR=99 @10 MHz 跑 1 ms = 10000 tick;硬體週期 100 → CNT=0;原版週期 99 → CNT=1"
+sysbus WriteDoubleWord 0x4000042C 99
+sysbus WriteDoubleWord 0x40000400 0x1
+emulation RunFor "0.001"
+sysbus ReadDoubleWord 0x40000424
+
+echo "=== T2 OC1PE 預載:ARR=999 CCR1=500 PWM1 OC1PE=1;跑到 CNT~200 後寫 CCR1=100;硬體:輸出仍高(舊 500 到下個 update 才換);原版:立刻變低"
+sysbus WriteDoubleWord 0x4000082C 999
+sysbus WriteDoubleWord 0x40000834 500
+sysbus WriteDoubleWord 0x40000818 0x68
+sysbus WriteDoubleWord 0x40000820 0x1
+sysbus WriteDoubleWord 0x40000814 0x1
+sysbus WriteDoubleWord 0x40000800 0x1
+emulation RunFor "0.00012"
+echo "    CNT:"
+sysbus ReadDoubleWord 0x40000824
+pin timer4 0
+sysbus WriteDoubleWord 0x40000834 100
+echo "    寫 CCR1=100 之後(硬體期望 True,原版 False):"
+pin timer4 0
+echo "    CCR1 讀回(硬體:預載值 100):"
+sysbus ReadDoubleWord 0x40000834
+emulation RunFor "0.0001"
+echo "    跑過 update event 後(兩者都應 False,CNT 在 100 之後):"
+sysbus ReadDoubleWord 0x40000824
+pin timer4 0
+
+echo "=== T3 UART TC:清 TC → 寫 DR → 讀 SR,硬體 TC(bit6)=1;開 TCIE 後 IRQ 應拉起"
+sysbus WriteDoubleWord 0x4001100C 0x200C
+sysbus WriteDoubleWord 0x40011000 0xFFFFFFBF
+echo "    清 TC 後 SR(期望 0x80):"
+sysbus ReadDoubleWord 0x40011000
+sysbus WriteDoubleWord 0x40011004 0x41
+echo "    寫 DR 後 SR(硬體期望 0xC0):"
+sysbus ReadDoubleWord 0x40011000
+sysbus WriteDoubleWord 0x40011000 0xFFFFFFBF
+sysbus WriteByte 0x40011004 0x42
+echo "    WriteByte DR 後 SR(硬體期望 0xC0):"
+sysbus ReadDoubleWord 0x40011000
+sysbus WriteDoubleWord 0x4001100C 0x204C
+echo "    開 TCIE 後 IRQ(硬體期望 True):"
+irq usart1
+quit
