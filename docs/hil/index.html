@@ -82,9 +82,13 @@
 <td>驗收與失敗形態</td>
 <td>八項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;兩次 CSV 逐 byte 相同;<strong>步邊界取樣的 2/305 不符</strong>與事件時刻快照;十種失敗形態;換成 Isaac 6.0.1 的七件事各量到什麼——<strong>PhysX 介面沒有 <code>update</code>、joint state 不寫回、地面 xformOpOrder 反了讓車飛起來</strong>、滑移 3.1%</td>
 </tr>
+<tr>
+<td><a href="../hil/39-freertos-firmware-in-the-loop/">39</a></td>
+<td>同一台車換 FreeRTOS</td>
+<td>三個 task 一條 ISR,協定、暫存器、控制律、<code>g_dbg</code> 版面與裸機版逐字相同,橋接不改;<code>ctrl_missed=0</code>、stack 餘量、<code>rx_wakeups=300</code>;末端位姿相同而途中 CCR 差在相位;<strong>RTOS 才踩到的 Renode 缺口:port 先寫 CVR 再寫 LOAD,SysTick 第一個週期跑 2^24 cycle(233 ms)</strong>,裸機版永遠不會踩到——修在 NVIC 不改 port.c</td>
+</tr>
 </tbody>
 </table></div>
-<p>| <a href="../hil/39-freertos-firmware-in-the-loop/">39</a> | 同一台車換 FreeRTOS | 三個 task 一條 ISR,協定、暫存器、控制律、<code>g_dbg</code> 版面與裸機版逐字相同,橋接不改;<code>ctrl_missed=0</code>、stack 餘量、<code>rx_wakeups=300</code>;末端位姿相同而途中 CCR 差在相位;<strong>RTOS 才踩到的 Renode 缺口:port 先寫 CVR 再寫 LOAD,SysTick 第一個週期跑 2^24 cycle(233 ms)</strong>,裸機版永遠不會踩到——修在 NVIC 不改 port.c |</p>
 <h2 id="怎麼讀">怎麼讀</h2>
 <p><strong>只想知道 HIL 跟「Isaac 裡跑純運動學」差在哪</strong> → <a href="../hil/35-hil-what-and-why/">35</a>。</p>
 <p><strong>要把自己的韌體放進 Renode</strong> → <a href="../hil/36-stm32-firmware-on-renode/">36</a>。先做 §3 那張盤點表,再開始寫程式。</p>
