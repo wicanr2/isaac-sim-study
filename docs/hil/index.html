@@ -33,7 +33,7 @@
 </tr>
 <tr>
 <td>Isaac Sim 6.0.1 的受控體腳本</td>
-<td>⚠ <strong>未在本 repo 環境驗證</strong>(本機無 GPU)。協定已用假受控體驗過,腳本附驗收清單</td>
+<td><strong>場域 GPU 主機實測</strong>(pip 版 6.0.1,PhysX、CPU 求解,同日):閉環 ALL PASS,odom 對真值 3.4 mm / 0.028 rad,兩次 CSV 逐 byte 相同。GPU 求解沒測</td>
 </tr>
 <tr>
 <td>實體 STM32 板</td>
@@ -80,7 +80,7 @@
 <tr>
 <td><a href="../hil/38-acceptance-and-failure-modes/">38</a></td>
 <td>驗收與失敗形態</td>
-<td>八項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;兩次 CSV 逐 byte 相同;<strong>步邊界取樣的 2/305 不符</strong>與事件時刻快照;這次踩到的六種失敗形態;換成 Isaac 6.0.1 要驗的七件事</td>
+<td>八項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;兩次 CSV 逐 byte 相同;<strong>步邊界取樣的 2/305 不符</strong>與事件時刻快照;十種失敗形態;換成 Isaac 6.0.1 的七件事各量到什麼——<strong>PhysX 介面沒有 <code>update</code>、joint state 不寫回、地面 xformOpOrder 反了讓車飛起來</strong>、滑移 3.1%</td>
 </tr>
 </tbody>
 </table></div>

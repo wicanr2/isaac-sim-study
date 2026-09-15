@@ -41,6 +41,7 @@ mkdir -p out renode/out
 cleanup() {
   docker stop -t 2 "$NAME" >/dev/null 2>&1 || true
   docker stop -t 2 "$PNAME" >/dev/null 2>&1 || true
+  # remote.sh 用 exec 起 ssh,所以 TUNNEL_PID 就是 ssh 本身
   [ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -73,11 +74,13 @@ case "$PLANT" in
     ;;
   remote)
     echo "[tunnel] ssh -L $GW:3700 → 場域 GPU 主機 127.0.0.1:3700"
-    tools/remote.sh tunnel "$GW:3700" 3700 &
+    # 隧道的 stdout/stderr 導到檔案:不然 ssh 會把這支腳本的輸出管線佔住,跑完也收不掉
+    tools/remote.sh tunnel "$GW:3700" 3700 > out/tunnel.log 2>&1 &
     TUNNEL_PID=$!
     for i in $(seq 1 40); do ss -ltn 2>/dev/null | grep -q "$GW:3700" && break; sleep 0.25; done
     ss -ltn | grep -q "$GW:3700" || { echo "隧道沒起來"; exit 1; }
-    PLANT_ARG=(--plant "tcp:$GW:3700")
+    # Isaac 6.0.1 實測滑移:轉向 3.1%、直行 0.5%(2026-09-15);容差用 5%
+    PLANT_ARG=(--plant "tcp:$GW:3700" --slip 0.05)
     ;;
   tcp:*|udp:*)
     PLANT_ARG=(--plant "$PLANT")

@@ -13,12 +13,12 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-八項判準在開跑前寫死">1. 八項判準,在開跑前寫死</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601要驗的七件事">6. 換成 Isaac Sim 6.0.1:要驗的七件事</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-八項判準在開跑前寫死">1. 八項判準,在開跑前寫死</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="38-驗收與失敗形態先閉環再換-isaac">38 · 驗收與失敗形態:先閉環,再換 Isaac</h1>
-<p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後列出把受控體換成 Isaac Sim 6.0.1 時要驗的七件事。</p>
+<p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後是把受控體換成 Isaac Sim 6.0.1 時七件事各量到什麼。</p>
 <blockquote>
-<p><strong>驗證狀態</strong>:§1–§5 全部在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 的 Isaac 腳本<strong>未在本 repo 環境驗證</strong>。</p>
+<p><strong>驗證狀態</strong>:§1–§5 在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 在場域 GPU 主機實測(Isaac Sim 6.0.1 pip 版,PhysX、CPU 求解、TGS;Renode 與橋接留在本機,受控體經 <code>ssh -L</code> 隧道,同日)。</p>
 </blockquote>
 <h2 id="1-八項判準在開跑前寫死">1. 八項判準,在開跑前寫死</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/run_loop.sh"><code>run_loop.sh</code></a> 一條指令:起 Renode 容器(<code>--network none</code>)、橋接容器共用它的 netns、跑完只停自己起的那一個。橋接開頭先印生效證明:</p>
@@ -90,7 +90,7 @@
 </tbody>
 </table></div>
 <p>任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 <a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a>。</p>
-<p>C3 的容差值得說明:0.9 mm 是韌體用 5 項 Taylor 的 sin/cos、以 float 積分 1200 步的誤差;假受控體用 f64 精確積分。換成 Isaac 之後,接觸滑移會讓這個數字變成幾十 mm(<a href="../../fleet/32-differential-drive-vehicle-model/">32 篇</a>實測 2~3%),容差要跟著改,而且要在換之前寫好。</p>
+<p>C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌體用 5 項 Taylor 的 sin/cos、以 float 積分 1200 步的誤差)+ 里程計對真值的系統性差(2% 距離)+ 受控體的接觸滑移(<code>--slip</code> × 距離、<code>--slip</code> × |θ|)。假受控體 slip = 0;Isaac 實測轉向滑移 3.1%、直行 0.5%,用 0.05——這個數字是先在 §6 量到、再寫回判準的,不是看結果調的。</p>
 <h2 id="2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</h2>
 <p><code>./run_loop.sh --negative bad-crc</code> 把每個 cmd_vel 的最後一個 byte 反相:</p>
 <pre><code>[run] fw ... cmd_frames=0 enc_frames=1199 bad_crc=300 rx_overflow=0
@@ -163,22 +163,79 @@
 <td>MMIO 輪詢是 Renode 最貴的操作</td>
 <td>量指令數;WFI + 中斷收訊(<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §5)</td>
 </tr>
+<tr>
+<td>Isaac 受控體第一步就 <code>AttributeError</code></td>
+<td>6.0.1 的 PhysX 介面沒有 <code>update</code></td>
+<td>列 <code>dir()</code> 找到 <code>simulate/fetch_results</code>,不猜</td>
+</tr>
+<tr>
+<td>車在 5 ms 內以 2.9 m/s 往上飛(32 篇「被彈飛」的形狀)</td>
+<td>地面的 <code>xformOpOrder</code> 寫成 [scale, translate]:USD 第一個列的是最外層,-0.05 的平移被 z 的 0.1 縮成 -0.005,<strong>地面頂面在 +45 mm</strong>,輪子起始陷入 45 mm</td>
+<td>探針印地面 bbox 頂面與靜止後的 z(所有東西都停在 +45 mm 就是線索)</td>
+</tr>
+<tr>
+<td>位置對到 3 mm、航向差一個正負號</td>
+<td>Gf 矩陣是 row-vector 慣例,yaw 用了 column-vector 的索引</td>
+<td>右輪 tick 比左輪多 → 左轉為正;韌體對、受控體錯</td>
+</tr>
+<tr>
+<td>閉環跑完 <code>run_loop.sh</code> 收不掉</td>
+<td>背景 <code>ssh -L</code> 繼承了腳本的 stdout 管線,kill 到包裝 shell 而不是 ssh</td>
+<td>隧道輸出導檔案、<code>exec</code> 起 ssh 讓 PID 就是它</td>
+</tr>
 </tbody>
 </table></div>
-<p>共同點:<strong>每一個的第一眼症狀都指向別的地方</strong>——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯。每一個都是先讀原始碼或加一個更近的觀測點才看到真因。</p>
-<h2 id="6-換成-isaac-sim-601要驗的七件事">6. 換成 Isaac Sim 6.0.1:要驗的七件事</h2>
-<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/isaac_plant.py"><code>plant/isaac_plant.py</code></a> 實作同一個 UDP 協定:用 <code>pxr</code> / <code>UsdPhysics</code> 直接建一台差速車(底盤 + 兩個球形輪 + 球關節腳輪),<code>DriveAPI</code> 的 angular 速度目標當馬達,<code>omni.physx</code> 手動步進,物理步長綁 calib 的 5 ms。它刻意不用 OmniGraph(<a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/">31 篇</a> §5:headless 下 <code>world.step(render=False)</code> 不 tick action graph)、也不依賴 <code>isaacsim.core.api</code> 或 <code>isaacsim.core.experimental</code> 任一邊(<a href="../../common/01-install-and-run-modes/">01 篇</a> §3 的命名空間搬家)。</p>
-<p>⚠ <strong>未在本 repo 環境驗證</strong>。每一條過了才能把標記拿掉:</p>
-<ol>
-<li>6.0.1 上 <code>omni.physx.get_physx_interface().update(dt, dt)</code> 是否仍是手動步進的正確介面;不是的話改用 experimental 的 <code>SimulationManager</code>。</li>
-<li><code>state:angular:physics:position</code> 在 PhysX 110 上會不會回寫關節角;不會的話腳本退回純運動學積分——結果照樣 ALL PASS,但那不是物理,log 要標明。</li>
-<li><code>timeStepsPerSecond</code> = 200 有沒有生效:讀回,並用一步後的輪角對 targetVelocity × dt。</li>
-<li>球形輪 + 球關節腳輪在 PhysX 110 上會不會被彈飛(<a href="../../fleet/32-differential-drive-vehicle-model/">32 篇</a>:腳輪半徑只有驅動輪一半時三輪叉車型在平地會翻)。</li>
-<li><code>DriveAPI</code> 的 <code>targetVelocity</code> 單位是<strong>度/秒</strong>:設 360 → 一秒後輪角 2π。</li>
-<li>同一份腳本跑一次,C1–C8 全綠;C3 容差按接觸滑移放寬並寫回判準。</li>
-<li>兩次 CSV 是否逐 byte 相同:PhysX GPU dynamics 不保證,CPU 模式較可能;<code>enableGPUDynamics</code> 要讀回。</li>
-</ol>
-<p>ROS 2 Jazzy 在這個拓撲裡的位置是<strong>上位</strong>:一個 rclpy 節點訂 <code>/cmd_vel</code>、發 <code>/odom</code>,對橋接講 UART 框包(或讓橋接直接開一個 UDP 給它)。Isaac 那側不需要 ros2 bridge——受控體介面是 UDP,不是 topic。要用 Isaac 內建的 Jazzy 也可以(<a href="../../6.0.1/14-ros2-bridge-6.0-architecture/">14 篇</a>),但那是另一條線,不在這一區的範圍。</p>
+<p>共同點:<strong>每一個的第一眼症狀都指向別的地方</strong>——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯、彈飛像腳輪或質量。每一個都是先讀原始碼或加一個更近的觀測點才看到真因;彈飛那一個,近一點的觀測點是「靜止後停在哪個高度」。</p>
+<h2 id="6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</h2>
+<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/isaac_plant.py"><code>plant/isaac_plant.py</code></a> 實作同一個受控體協定(TCP 版,因為 <code>ssh -L</code> 只轉 TCP):用 <code>pxr</code> / <code>UsdPhysics</code> 直接建一台差速車(Mesh 盒底盤 + 兩個球形輪 + 球關節腳輪),<code>DriveAPI</code> 的 angular 速度目標當馬達,<code>omni.physx</code> 手動步進,物理步長綁 calib 的 5 ms。它刻意不用 OmniGraph(<a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/">31 篇</a> §5:headless 下 <code>world.step(render=False)</code> 不 tick action graph)、也不依賴 <code>isaacsim.core.api</code> 或 <code>isaacsim.core.experimental</code> 任一邊(<a href="../../common/01-install-and-run-modes/">01 篇</a> §3 的命名空間搬家)。</p>
+<p>拓撲:Renode 與橋接留在本機 docker,只有受控體在 GPU 主機,<code>run_loop.sh</code> 的 <code>PLANT=remote</code> 自動開隧道。每一輪都重啟受控體——它的位姿與 tick 跨連線累積,重啟才是同一個起點。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>要驗的</th>
+<th>量到的(2026-09-15,<code>--probe</code> 模式)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>手動步進介面</td>
+<td>6.0.1 的 PhysX 介面<strong>沒有 <code>update</code></strong>(第一次跑就 <code>AttributeError</code>)。正確路徑:<code>IPhysxSimulation.attach_stage(stage_id)</code> → <code>simulate(dt, t)</code> → <code>fetch_results()</code>;timeline 不 play,否則 Kit 每個 update 自己再步一次</td>
+</tr>
+<tr>
+<td>2</td>
+<td>關節角讀法</td>
+<td><code>state:angular:physics:position</code> <strong>不會被寫回</strong>,步進前後都不存在。改從 <code>fetch_results</code> 寫回的 xform 算輪子相對底盤繞 Y 的角、跨步展開——那是物理輸出,滑移都在裡面</td>
+</tr>
+<tr>
+<td>3</td>
+<td>物理步長</td>
+<td><code>timeStepsPerSecond=200</code> 讀回 200,<code>SimulationManager.get_physics_dt()</code> = 0.005。標 Deprecated 但生效</td>
+</tr>
+<tr>
+<td>4</td>
+<td>彈飛</td>
+<td>修正後靜止 1 s 底盤 z = 50.0 mm(建模 50.0)。<strong>曾經彈飛</strong>,真因見 §5</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>targetVelocity</code> 單位</td>
+<td>設 360 跑 1 s → 輪角 6.235 rad(99.2%,drive 有落後);底盤前進 302.1 mm 對輪周 311.8 mm → <strong>滑移 3.1%</strong>,與 <a href="../../fleet/32-differential-drive-vehicle-model/">32 篇</a>的 2~3% 同量級</td>
+</tr>
+<tr>
+<td>6</td>
+<td>C1–C8</td>
+<td><strong>ALL PASS</strong>:C3 dx 3.4 / dy 2.0 mm、dθ 0.0276 rad(容差 87.8 mm / 0.0737 rad,slip 0.05);負對照位移 0、C2 紅。每步 52 ms 牆鐘(隧道約 +19 ms、Isaac 步進約 +3 ms)</td>
+</tr>
+<tr>
+<td>7</td>
+<td>決定性</td>
+<td>兩次跑 CSV <strong>全部欄位逐 byte 相同</strong>。<code>is_gpu_dynamics_enabled()</code> = True 而 <code>get_physics_sim_device()</code> = cpu——兩個值都記,決定性在這個組合下成立;GPU 求解沒測</td>
+</tr>
+</tbody>
+</table></div>
+<p>ROS 2 Jazzy 在這個拓撲裡的位置是<strong>上位</strong>:一個 rclpy 節點訂 <code>/cmd_vel</code>、發 <code>/odom</code>,對橋接講 UART 框包。Isaac 那側不需要 ros2 bridge——受控體介面是 TCP/UDP 文字協定,不是 topic。</p>
 <h2 id="7-建議的分階段">7. 建議的分階段</h2>
 <p>不要一開始就接 Isaac。順序:</p>
 <div class="tw"><table>
@@ -217,7 +274,7 @@
 </tr>
 </tbody>
 </table></div>
-<p>每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第三階段。</p>
+<p>每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第四階段。</p>
 <h2 id="8-檢查清單">8. 檢查清單</h2>
 <ul>
 <li>[ ] 判準寫在程式裡,開跑前定好,任一 FAIL 非零碼離開</li>

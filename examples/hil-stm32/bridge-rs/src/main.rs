@@ -34,6 +34,7 @@ struct Args {
     log: String,
     negative: String,
     boot_ms: u64,
+    slip: f64,
 }
 
 fn parse_args() -> Args {
@@ -49,6 +50,7 @@ fn parse_args() -> Args {
         log: "out/run.csv".into(),
         negative: "none".into(),
         boot_ms: 100,
+        slip: 0.0,
     };
     let v: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -66,6 +68,8 @@ fn parse_args() -> Args {
             "--log" => a.log = val,
             "--negative" => a.negative = val,
             "--boot-ms" => a.boot_ms = val.parse().expect("--boot-ms"),
+            // 受控體的接觸滑移比例:假受控體 0;Isaac 6.0.1 實測轉向 3.1%、直行 0.5%,用 0.05
+            "--slip" => a.slip = val.parse().expect("--slip"),
             other => {
                 eprintln!("未知參數 {other}");
                 std::process::exit(2);
@@ -177,8 +181,8 @@ fn main() {
     println!("[effect] g_dbg@0x{:08x} magic=0x{:08x} ({}) init_err={}",
         dbg_base, magic, if magic == dbg::MAGIC_VALUE { "ok" } else { "MISMATCH" },
         ec.read_u32_at(bus, dbg_base + 4 * dbg::INIT_ERR).unwrap());
-    println!("[effect] plant={} dt_ms={} steps={} report_every={} script={:?} negative={}",
-        a.plant, c.control_period_ms, steps, report_every, a.script, a.negative);
+    println!("[effect] plant={} dt_ms={} steps={} report_every={} script={:?} negative={} slip={}",
+        a.plant, c.control_period_ms, steps, report_every, a.script, a.negative, a.slip);
     println!("[effect] tim3 ARR={} (calib pwm_arr={}) track={} circ_um={} tpr={}",
         arr, c.pwm_arr, c.track_mm, c.wheel_circ_um, c.ticks_per_rev);
     if magic != dbg::MAGIC_VALUE {
@@ -328,7 +332,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     // 驗收
     let expect_time = steps as u64 * c.control_period_ms * 1000;
     let dist = (last_plant.x_mm.powi(2) + last_plant.y_mm.powi(2)).sqrt();
-    let tol_mm = 25.0 + 0.02 * dist;
+    // 容差 = 韌體數值誤差(25 mm / 0.03 rad)+ 里程計對真值的系統性差(2% 距離)+ 受控體滑移(--slip)
+    let tol_mm = 25.0 + (0.02 + a.slip) * dist;
+    let tol_rad = 0.03 + a.slip * last_plant.th_rad.abs();
     let dx = (last_odom.x_mm as f64 - last_plant.x_mm).abs();
     let dy = (last_odom.y_mm as f64 - last_plant.y_mm).abs();
     let dth = (last_odom.th_mrad as f64 / 1000.0 - last_plant.th_rad).abs();
@@ -339,8 +345,8 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             detail: format!("{} vs {}", t_end - t0, expect_time) },
         Check { name: "C2 車有動(腳本有命令時)", pass: !expect_move || dist > 100.0,
             detail: format!("plant 位移 {:.1} mm", dist) },
-        Check { name: "C3 韌體 odom 對受控體真值", pass: dx <= tol_mm && dy <= tol_mm && dth <= 0.03,
-            detail: format!("dx={dx:.1} dy={dy:.1} dth={dth:.4} (tol {tol_mm:.1} mm / 0.03 rad)") },
+        Check { name: "C3 韌體 odom 對受控體真值", pass: dx <= tol_mm && dy <= tol_mm && dth <= tol_rad,
+            detail: format!("dx={dx:.1} dy={dy:.1} dth={dth:.4} (tol {tol_mm:.1} mm / {tol_rad:.4} rad)") },
         Check { name: "C4 兩條獨立管道一致:每筆 CAN 狀態 duty == 同一時刻的 CCR 快照", pass: can_cmp_total > 0 && can_cmp_mismatch == 0,
             detail: format!("{} 筆比對,{} 筆不符", can_cmp_total, can_cmp_mismatch) },
         Check { name: "C5 odom 回報數 ≥ 90% 期望", pass: odom_count as f64 >= 0.9 * (steps / report_every) as f64,

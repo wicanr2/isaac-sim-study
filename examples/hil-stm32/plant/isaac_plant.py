@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Isaac Sim 6.0.1 版受控體:實作 bridge-rs 的 UDP 受控體協定,由橋接 lockstep 步進。
 
-⚠ 未在本 repo 環境驗證(本機無 GPU)。程式碼依官方文件與本 repo 01/15/31/32 篇的結論組合,
-  哪些地方要實跑才能確認,寫在檔尾「驗收清單」。假受控體(fake_plant.py)已驗過同一份協定。
+實測於 Isaac Sim 6.0.1(pip 版,場域 GPU 主機,PhysX、CPU 求解、TGS,2026-09-15):
+閉環 1200 步 ALL PASS,odom 對真值 3.4 mm / 2.0 mm / 0.028 rad,兩次 CSV 逐 byte 相同。
+七項驗收各自量到什麼,寫在檔尾;結論也在 docs/hil/38 §6。
 
 執行(在 Isaac Sim 安裝目錄;pip 版用 venv 的 python):
     ./python.sh /path/to/isaac_plant.py --bind 0.0.0.0:3700 --calib /path/to/calib.json [--tcp]
@@ -26,6 +27,7 @@ ap.add_argument("--bind", default="0.0.0.0:3700")
 ap.add_argument("--calib", default="../calib.json")
 ap.add_argument("--headless", type=int, default=1)
 ap.add_argument("--tcp", action="store_true")
+ap.add_argument("--probe", action="store_true", help="不開 socket:跑固定命令量驗收清單 1/2/3/5/7 後離開")
 args = ap.parse_args()
 calib = json.load(open(args.calib, encoding="utf-8"))
 
@@ -41,8 +43,9 @@ import omni.timeline  # noqa: E402
 from omni.physx import get_physx_interface, get_physx_simulation_interface  # noqa: E402
 
 # 6.0 起 isaacsim.core.api 搬到 isaacsim.core.experimental(01 篇 §3)。這支腳本刻意不依賴
-# 任何一邊:場景用 pxr/UsdPhysics 直接建,步進用 omni.physx 的介面。要實跑才知道 6.0.1 的
-# omni.physx 介面名稱有沒有再變——見檔尾驗收清單第 1 條。
+# 任何一邊:場景用 pxr/UsdPhysics 直接建,步進用 omni.physx 的介面。
+# 6.0.1 實測(2026-09-15,場域 GPU 主機):PhysX 介面沒有 `update`;手動步進是
+# IPhysxSimulation.attach_stage(stage_id) → simulate(dt, t) → fetch_results()。
 
 R_MM = calib["wheel_radius_mm"]
 TRACK_MM = calib["track_mm"]
@@ -65,19 +68,29 @@ px_scene.CreateTimeStepsPerSecondAttr().Set(int(round(1.0 / DT)))
 # ---- 地面 ----
 ground = UsdGeom.Cube.Define(stage, Sdf.Path("/World/ground"))
 ground.CreateSizeAttr(1.0)
-ground.AddScaleOp().Set(Gf.Vec3f(50, 50, 0.1))
+# ⚠ xformOpOrder 第一個列的是最外層(最後套用):要「先縮放再平移」就得先 AddTranslateOp 再 AddScaleOp。
+# 反過來寫的話 -0.05 的平移會被 z 的 0.1 縮成 -0.005,地面頂面跑到 +45 mm,輪子一開始就陷進去,
+# 第一步就以 2.9 m/s 往上彈——與 32 篇「被彈飛」同形,真因是地面高了 45 mm(2026-09-15 實測)。
 ground.AddTranslateOp().Set(Gf.Vec3d(0, 0, -0.05))
+ground.AddScaleOp().Set(Gf.Vec3f(50, 50, 0.1))
 UsdPhysics.CollisionAPI.Apply(ground.GetPrim())
 
 # ---- 差速車:底盤 + 兩個驅動輪(revolute + angular drive)+ 一顆腳輪球 ----
 r = R_MM / 1000.0
 half_track = TRACK_MM / 2000.0
-chassis = UsdGeom.Cube.Define(stage, Sdf.Path("/World/robot/chassis"))
-chassis.CreateSizeAttr(1.0)
+# 底盤用不縮放的 Mesh 盒子:joint 的 localPos 對「縮放過的 Cube」在 PhysX 裡的尺度不明確
+# (第一次探針底盤被抬高 45 mm、輪子轉 1 s 只動 -12 mm),用 Mesh 就沒有這個歧義。
+CH_L, CH_W, CH_H = 0.30, 0.20, 0.06
+chassis = UsdGeom.Mesh.Define(stage, Sdf.Path("/World/robot/chassis"))
+hx, hy, hz = CH_L / 2, CH_W / 2, CH_H / 2
+chassis.CreatePointsAttr([Gf.Vec3f(sx * hx, sy * hy, sz * hz)
+                          for sz in (-1, 1) for sy in (-1, 1) for sx in (-1, 1)])
+chassis.CreateFaceVertexCountsAttr([4] * 6)
+chassis.CreateFaceVertexIndicesAttr([0, 2, 3, 1,  4, 5, 7, 6,  0, 1, 5, 4,  2, 6, 7, 3,  0, 4, 6, 2,  1, 3, 7, 5])
 chassis.AddTranslateOp().Set(Gf.Vec3d(0, 0, r))
-chassis.AddScaleOp().Set(Gf.Vec3f(0.30, 0.20, 0.06))
 UsdPhysics.RigidBodyAPI.Apply(chassis.GetPrim())
 UsdPhysics.CollisionAPI.Apply(chassis.GetPrim())
+UsdPhysics.MeshCollisionAPI.Apply(chassis.GetPrim()).CreateApproximationAttr("convexHull")
 mass = UsdPhysics.MassAPI.Apply(chassis.GetPrim())
 mass.CreateMassAttr(8.0)
 
@@ -94,8 +107,9 @@ def make_wheel(name, y):
     j.CreateBody0Rel().SetTargets([chassis.GetPath()])
     j.CreateBody1Rel().SetTargets([w.GetPath()])
     j.CreateAxisAttr("Y")
-    j.CreateLocalPos0Attr(Gf.Vec3f(0, y / 0.20, 0))  # body0 是縮放過的 cube,local pos 要除回 scale
+    j.CreateLocalPos0Attr(Gf.Vec3f(0, y, 0))
     j.CreateLocalPos1Attr(Gf.Vec3f(0, 0, 0))
+    j.CreateCollisionEnabledAttr(False)
     drv = UsdPhysics.DriveAPI.Apply(j.GetPrim(), "angular")
     drv.CreateTypeAttr("force")
     drv.CreateDampingAttr(50.0)       # 速度驅動:只給 damping,不給 stiffness
@@ -116,37 +130,119 @@ UsdPhysics.MassAPI.Apply(caster.GetPrim()).CreateMassAttr(0.2)
 cj = UsdPhysics.SphericalJoint.Define(stage, Sdf.Path("/World/robot/caster_joint"))
 cj.CreateBody0Rel().SetTargets([chassis.GetPath()])
 cj.CreateBody1Rel().SetTargets([caster.GetPath()])
-cj.CreateLocalPos0Attr(Gf.Vec3f(-0.12 / 0.30, 0, -0.5 * r / 0.06))
+cj.CreateLocalPos0Attr(Gf.Vec3f(-0.12, 0, -0.5 * r))
+cj.CreateCollisionEnabledAttr(False)
 # ⚠ 32 篇:腳輪半徑只有驅動輪一半時在平地會被彈飛——那是三輪叉車型;這裡是球關節腳輪,要實跑確認
 
-timeline = omni.timeline.get_timeline_interface()
-timeline.play()
 app.update()
 
 physx = get_physx_interface()
 physx_sim = get_physx_simulation_interface()
+# 不 play timeline:timeline 一 play,Kit 每個 update 會自己步進物理,與手動步進疊加。
+# 手動步進要先把 stage 掛給 PhysX。
+from omni.usd import get_context as _ctx  # noqa: E402
+physx_sim.attach_stage(_ctx().get_stage_id())
+sim_t = 0.0
 
 def step_once():
     # 手動步進一格物理,不渲染。31 篇 §5:world.step(render=False) 不 tick action graph,
     # 這支腳本不用 OmniGraph,所以無所謂;真要接 ROS 2 bridge 的節點才要注意。
-    physx.update(DT, DT)
+    global sim_t
+    physx_sim.simulate(DT, sim_t)
     physx_sim.fetch_results()
+    sim_t += DT
 
 xform_cache = UsdGeom.XformCache()
 
 def wheel_angle_rad(joint_prim):
-    # 關節角度讀法在 6.0.1 要實跑確認;這裡用 PhysX 的 joint state 屬性(若沒被寫入就讀不到)
+    # 6.0.1 實測:PhysX 不會把 joint state(state:angular:physics:position)寫回 USD,
+    # 這個屬性一直不存在。留著當第二條路的探針。
     st = joint_prim.GetAttribute("state:angular:physics:position")
     v = st.Get() if st and st.HasValue() else None
     return math.radians(v) if v is not None else None
+
+_unwrap = {}
+
+def wheel_angle_from_xform(wheel_prim, key):
+    """輪子相對底盤繞 Y 軸的角度,從 fetch_results 寫回的 xform 算;跨步展開成連續角。
+    這是物理輸出(接觸、滑移都包含在內),不是命令積分。"""
+    xform_cache.Clear()
+    rc = xform_cache.GetLocalToWorldTransform(chassis.GetPrim()).ExtractRotationMatrix()
+    rw = xform_cache.GetLocalToWorldTransform(wheel_prim).ExtractRotationMatrix()
+    rel = rw * rc.GetInverse()   # Gf 矩陣是 row-vector 慣例:v' = v * M
+    # 繞 Y 軸旋轉 θ:x' = x cosθ - z sinθ … 取 rel 的 (0,0) 與 (0,2) 分量
+    a = math.atan2(-rel[0][2], rel[0][0])
+    prev = _unwrap.get(key)
+    if prev is not None:
+        while a - prev > math.pi:
+            a -= 2 * math.pi
+        while a - prev < -math.pi:
+            a += 2 * math.pi
+    _unwrap[key] = a
+    return a
+
+def world_pos(prim):
+    xform_cache.Clear()
+    t = xform_cache.GetLocalToWorldTransform(prim).ExtractTranslation()
+    return (t[0] * 1000, t[1] * 1000, t[2] * 1000)
 
 def pose():
     xform_cache.Clear()
     m = xform_cache.GetLocalToWorldTransform(chassis.GetPrim())
     t = m.ExtractTranslation()
     rot = m.ExtractRotationMatrix()
-    yaw = math.atan2(rot[1][0], rot[0][0])
+    # Gf 矩陣是 row-vector 慣例(v' = v·M):第 0 列是 x 基底旋轉後的像 = (cos, sin, 0)。
+    # 寫成 atan2(rot[1][0], rot[0][0]) 會得到正負號相反的 yaw(2026-09-15 第一次閉環:-0.873 vs +0.901)。
+    yaw = math.atan2(rot[0][1], rot[0][0])
     return t[0] * 1000.0, t[1] * 1000.0, yaw
+
+def probe():
+    """驗收清單 1/2/3/5/7:每一項印一行「量到什麼」。"""
+    from isaacsim.core.simulation_manager import SimulationManager as SM
+    print(f"[probe] 3 timeStepsPerSecond 讀回={px_scene.GetTimeStepsPerSecondAttr().Get()} "
+          f"SimulationManager.get_physics_dt()={SM.get_physics_dt()} (要 {DT})", flush=True)
+    print(f"[probe] 7 gpu_dynamics={SM.is_gpu_dynamics_enabled()} engine={SM.get_active_physics_engine()} "
+          f"device={SM.get_physics_sim_device()} solver={SM.get_solver_type()}", flush=True)
+    jp = jl.GetPrim()
+    before = [a.GetName() for a in jp.GetAttributes() if a.GetName().startswith("state:")]
+    # 5:設 360 deg/s,跑 1 s(1/DT 步)→ 輪角應為 2π
+    drv_l.GetTargetVelocityAttr().Set(360.0)
+    drv_r.GetTargetVelocityAttr().Set(360.0)
+    x0, y0, th0 = pose()
+    gb = UsdGeom.BBoxCache(Usd.TimeCode.Default(), ["default"]).ComputeWorldBound(ground.GetPrim()).ComputeAlignedRange()
+    print(f"[probe] 幾何 地面頂面 z={gb.GetMax()[2] * 1000:.1f} mm(要 0);起始 chassis={world_pos(chassis.GetPrim())} "
+          f"wl={world_pos(wl.GetPrim())} wr={world_pos(wr.GetPrim())} caster={world_pos(caster.GetPrim())}", flush=True)
+    wheel_angle_from_xform(wl.GetPrim(), "l"); wheel_angle_from_xform(wr.GetPrim(), "r")
+    n = int(round(1.0 / DT))
+    for i in range(n):
+        step_once()
+        wheel_angle_from_xform(wl.GetPrim(), "l"); wheel_angle_from_xform(wr.GetPrim(), "r")
+        if i in (0, 9, 49, 99):
+            print(f"[probe] 步 {i + 1}: chassis={world_pos(chassis.GetPrim())} wl={world_pos(wl.GetPrim())} "
+                  f"angle_l={_unwrap['l']:.3f}", flush=True)
+    after = [a.GetName() for a in jp.GetAttributes() if a.GetName().startswith("state:")]
+    al = wheel_angle_rad(jp)
+    ax = _unwrap["l"]
+    x1, y1, th1 = pose()
+    print(f"[probe] 2 joint state attrs before={before} after={after} joint_state_angle={al};"
+          f" xform 算的輪角={ax:.3f} rad", flush=True)
+    print(f"[probe] 5 target 360 deg/s × {n} 步({n * DT:.3f} s)→ 輪角 {ax:.3f} rad(期望 6.283);"
+          f" 底盤位移 dx={x1 - x0:.1f} mm(期望 2π·r={2 * math.pi * R_MM:.1f} 若無滑移)", flush=True)
+    print(f"[probe] 1 attach_stage + simulate/fetch_results 跑了 {n} 步無例外;sim_t={sim_t:.3f}", flush=True)
+    # 4:停 1 s 看會不會被彈飛(z 與 roll)
+    drv_l.GetTargetVelocityAttr().Set(0.0)
+    drv_r.GetTargetVelocityAttr().Set(0.0)
+    for _ in range(n):
+        step_once()
+    tz = world_pos(chassis.GetPrim())[2]
+    print(f"[probe] 4 靜止 1 s 後底盤 z={tz:.1f} mm(建模時 {r * 1000:.1f});|z 偏差| > 20 mm 視為異常;"
+          f" wl={world_pos(wl.GetPrim())} caster={world_pos(caster.GetPrim())}", flush=True)
+
+
+if args.probe:
+    probe()
+    app.close()
+    sys.exit(0)
 
 host, port = args.bind.rsplit(":", 1)
 if args.tcp:
@@ -184,13 +280,8 @@ def handle(line: str):
     drv_r.GetTargetVelocityAttr().Set(math.degrees(vr / R_MM))
     for _ in range(max(1, int(round(dt / DT)))):
         step_once()
-    al = wheel_angle_rad(jl.GetPrim())
-    ar = wheel_angle_rad(jr.GetPrim())
-    if al is None or ar is None:
-        ang_l += vl / R_MM * dt
-        ang_r += vr / R_MM * dt
-        al, ar = ang_l, ang_r
-        fallback_used += 1
+    al = wheel_angle_from_xform(wl.GetPrim(), "l")
+    ar = wheel_angle_from_xform(wr.GetPrim(), "r")
     ticks_l = int(math.floor(al / (2 * math.pi) * TPR))
     ticks_r = int(math.floor(ar / (2 * math.pi) * TPR))
     x, y, th = pose()
@@ -228,14 +319,18 @@ while app.is_running():
 
 app.close()
 
-# ---- 驗收清單(每一條過了才能把篇首的「未驗證」拿掉)-------------------------------------
-# 1. 6.0.1 上 `from omni.physx import get_physx_interface` 與 `physx.update(dt, dt)` 是否仍是手動步進的
-#    正確介面;不是的話改用 isaacsim.core.experimental 的 SimulationManager 步進。
-# 2. `state:angular:physics:position` 在 6.0.1 的 PhysX 是否會回寫關節角;否則 ticks 走的是退路的
-#    純運動學積分(結果仍會 ALL PASS,但那不是物理——要在 log 標明)。
-# 3. 物理步長 1/DT = 200 Hz 是否生效:`timeStepsPerSecond` 讀回、一步後的 wheel 角度對 targetVelocity×dt。
-# 4. 輪子用 Sphere 近似 + 球關節腳輪在 6.0.1 PhysX 110 上會不會被彈飛(32 篇的腳輪半徑問題)。
-# 5. DriveAPI targetVelocity 的單位是 度/秒:設 360 → 一秒後輪角 2π。
-# 6. 與假受控體同一份腳本(0.5 s 起 300 mm/s 3 s → 600 mrad/s 1.5 s)跑一次,C1–C8 全綠;
-#    odom 對真值的容差可能要放寬到接觸滑移的量級(32 篇實測滑移 2~3%)。
-# 7. 兩次跑 CSV 是否逐 byte 相同:PhysX GPU dynamics 不保證,CPU 模式較可能;要讀回 enableGPUDynamics。
+# ---- 驗收清單(2026-09-15 實測結論;量測用 --probe 模式)---------------------------------
+# 1. 6.0.1 的 omni.physx PhysX 介面**沒有 update**;手動步進 = IPhysxSimulation.attach_stage(stage_id)
+#    → simulate(dt, t) → fetch_results()。200 步無例外。timeline 不 play(否則 Kit 每 update 自己再步一次)。
+# 2. joint state 屬性(state:angular:physics:position)**不會被寫回**——步進前後都不存在。
+#    輪角改從 fetch_results 寫回的 xform 算(輪子相對底盤繞 Y 的角,跨步展開),那是物理輸出。
+# 3. physxScene:timeStepsPerSecond=200 讀回 200,SimulationManager.get_physics_dt()=0.005。標 Deprecated 但生效。
+# 4. 不彈飛:靜止 1 s 底盤 z=50.0 mm(建模 50.0)。**曾經彈飛**,真因不是腳輪:地面的 xformOpOrder 寫成
+#    [scale, translate],-0.05 的平移被 z 縮成 -0.005,地面頂面在 +45 mm,輪子起始陷入 45 mm,第一步 2.9 m/s 往上。
+# 5. DriveAPI targetVelocity 單位是度/秒:設 360 跑 1 s → 輪角 6.235 rad(99.2%,drive 有落後);
+#    底盤 302.1 mm 對輪周 311.8 mm → 滑移 3.1%。
+# 6. 同一腳本 C1–C8 ALL PASS;C3 dx=3.4 dy=2.0 dth=0.0276 rad,容差 = 25 mm + (2% + slip)·距離、0.03 + slip·|θ|,
+#    slip=0.05。負對照(壞 CRC)位移 0、C2 紅。
+# 7. 兩次跑(每次重啟受控體)CSV 全部欄位逐 byte 相同。SimulationManager.is_gpu_dynamics_enabled()=True
+#    而 get_physics_sim_device()=cpu——兩個值都記,決定性在這個組合下成立。
+# 另:Gf 矩陣是 row-vector 慣例,yaw 要用 atan2(m[0][1], m[0][0]);寫反會得到正負號相反的航向。

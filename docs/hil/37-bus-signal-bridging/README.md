@@ -109,14 +109,16 @@ MotorCmd { duty_l, duty_r: 0..1;  fwd_l, fwd_r, enabled: bool }
 PlantOut { ticks_l, ticks_r: i32 (累計,繞回);  x_mm, y_mm, th_rad (真值);  vl, vr }
 ```
 
-兩種後端,同一個 trait:`Fake`(Rust 內建,一階馬達 + 精確差速運動學)與 `Udp`(另一個行程)。UDP 是文字協定,一行一筆,受控體要以相同 `seq` 回覆,橋接等到才推進:
+三種後端,同一個 trait:`Fake`(Rust 內建,一階馬達 + 精確差速運動學)、`Udp` 與 `Tcp`(另一個行程;TCP 是給 `ssh -L` 隧道用的,ssh 只轉 TCP)。文字協定一行一筆,受控體要以相同 `seq` 回覆,橋接等到才推進:
 
 ```
 橋接 → 受控體:CMD <seq> <dt_ms> <duty_l 0..1000> <duty_r> <fwd_l> <fwd_r> <en>
 受控體 → 橋接:ENC <seq> <ticks_l> <ticks_r> <x_mm> <y_mm> <th_rad> <vl> <vr>
 ```
 
-[`plant/fake_plant.py`](../../../examples/hil-stm32/plant/fake_plant.py) 用 Python 實作同一個模型走 UDP(實測 ALL PASS);[`plant/isaac_plant.py`](../../../examples/hil-stm32/plant/isaac_plant.py) 是 Isaac Sim 6.0.1 版,**未驗證**,要驗的事在 [38 篇](../38-acceptance-and-failure-modes/README.md) §6。
+[`plant/fake_plant.py`](../../../examples/hil-stm32/plant/fake_plant.py) 用 Python 實作同一個模型(UDP / TCP,實測 ALL PASS);[`plant/isaac_plant.py`](../../../examples/hil-stm32/plant/isaac_plant.py) 是 Isaac Sim 6.0.1 版,在場域 GPU 主機實測 ALL PASS,七件事的結論在 [38 篇](../38-acceptance-and-failure-modes/README.md) §6。
+
+受控體在另一台主機時,`run_loop.sh` 的 `PLANT=remote` 讓 Renode 容器改掛 docker 的 bridge 網路,`ssh -L` 綁在 bridge 的閘道位址上——隧道只有容器看得到,Renode 的埠也沒有 publish 到主機。隧道的 stdout 要導到檔案、ssh 要用 `exec` 起,否則腳本收不掉(38 篇 §5)。實測隧道讓每步從 29.6 ms 變 48.6 ms(假受控體)/ 52 ms(Isaac)。
 
 橋接不做安全:`MotorCmd` 直接來自匯流排讀值,不夾限、不逾時。韌體停了車,`enabled` 就是 false,受控體自己會停。
 

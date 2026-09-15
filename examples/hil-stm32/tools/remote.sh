@@ -20,6 +20,6 @@ case "${1:-}" in
   ssh)    shift; "${SSH[@]}" "$HOST" "$@" ;;
   up)     "${SSH[@]}" "$HOST" "mkdir -p $3"; rsync -az -e "${SSH[*]}" "$2" "$HOST:$3" ;;
   down)   rsync -az -e "${SSH[*]}" "$HOST:$2" "$3" ;;
-  tunnel) L="$2"; [[ "$L" == *:* ]] || L="127.0.0.1:$L"; "${SSH[@]}" -N -L "$L:127.0.0.1:$3" "$HOST" ;;
+  tunnel) L="$2"; [[ "$L" == *:* ]] || L="127.0.0.1:$L"; exec "${SSH[@]}" -N -L "$L:127.0.0.1:$3" "$HOST" ;;
   *) sed -n 2,7p "$0"; exit 2 ;;
 esac

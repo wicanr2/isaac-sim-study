@@ -194,11 +194,12 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 <pre><code>MotorCmd { duty_l, duty_r: 0..1;  fwd_l, fwd_r, enabled: bool }
 PlantOut { ticks_l, ticks_r: i32 (累計,繞回);  x_mm, y_mm, th_rad (真值);  vl, vr }
 </code></pre>
-<p>兩種後端,同一個 trait:<code>Fake</code>(Rust 內建,一階馬達 + 精確差速運動學)與 <code>Udp</code>(另一個行程)。UDP 是文字協定,一行一筆,受控體要以相同 <code>seq</code> 回覆,橋接等到才推進:</p>
+<p>三種後端,同一個 trait:<code>Fake</code>(Rust 內建,一階馬達 + 精確差速運動學)、<code>Udp</code> 與 <code>Tcp</code>(另一個行程;TCP 是給 <code>ssh -L</code> 隧道用的,ssh 只轉 TCP)。文字協定一行一筆,受控體要以相同 <code>seq</code> 回覆,橋接等到才推進:</p>
 <pre><code>橋接 → 受控體:CMD &lt;seq&gt; &lt;dt_ms&gt; &lt;duty_l 0..1000&gt; &lt;duty_r&gt; &lt;fwd_l&gt; &lt;fwd_r&gt; &lt;en&gt;
 受控體 → 橋接:ENC &lt;seq&gt; &lt;ticks_l&gt; &lt;ticks_r&gt; &lt;x_mm&gt; &lt;y_mm&gt; &lt;th_rad&gt; &lt;vl&gt; &lt;vr&gt;
 </code></pre>
-<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/fake_plant.py"><code>plant/fake_plant.py</code></a> 用 Python 實作同一個模型走 UDP(實測 ALL PASS);<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/isaac_plant.py"><code>plant/isaac_plant.py</code></a> 是 Isaac Sim 6.0.1 版,<strong>未驗證</strong>,要驗的事在 <a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §6。</p>
+<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/fake_plant.py"><code>plant/fake_plant.py</code></a> 用 Python 實作同一個模型(UDP / TCP,實測 ALL PASS);<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/isaac_plant.py"><code>plant/isaac_plant.py</code></a> 是 Isaac Sim 6.0.1 版,在場域 GPU 主機實測 ALL PASS,七件事的結論在 <a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §6。</p>
+<p>受控體在另一台主機時,<code>run_loop.sh</code> 的 <code>PLANT=remote</code> 讓 Renode 容器改掛 docker 的 bridge 網路,<code>ssh -L</code> 綁在 bridge 的閘道位址上——隧道只有容器看得到,Renode 的埠也沒有 publish 到主機。隧道的 stdout 要導到檔案、ssh 要用 <code>exec</code> 起,否則腳本收不掉(38 篇 §5)。實測隧道讓每步從 29.6 ms 變 48.6 ms(假受控體)/ 52 ms(Isaac)。</p>
 <p>橋接不做安全:<code>MotorCmd</code> 直接來自匯流排讀值,不夾限、不逾時。韌體停了車,<code>enabled</code> 就是 false,受控體自己會停。</p>
 <h2 id="7-檢查清單">7. 檢查清單</h2>
 <ul>

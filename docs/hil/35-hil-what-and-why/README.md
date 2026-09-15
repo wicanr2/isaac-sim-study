@@ -4,7 +4,7 @@
 
 HIL(hardware-in-the-loop)就是把那顆 MCU 放回迴路裡:它跑真的韌體、講真的匯流排協定;Isaac Sim 只負責「馬達轉了會怎樣」。這一篇講它是什麼、跟 NVIDIA 課程裡的 HIL 差在哪、以及一旦迴路裡有三個時鐘,什麼事會變得不一樣。
 
-> **驗證狀態**:本篇的拓撲、時鐘與規則來自 [36](../36-stm32-firmware-on-renode/README.md)–[38](../38-acceptance-and-failure-modes/README.md) 篇實測的那套系統(Renode 1.16.1 上的 STM32F4 韌體 + Rust 橋接 + 假受控體,docker,2026-09-15)。§5 的數字是實跑值。Isaac Sim 6.0.1 那一側未在本 repo 環境驗證。
+> **驗證狀態**:本篇的拓撲、時鐘與規則來自 [36](../36-stm32-firmware-on-renode/README.md)–[38](../38-acceptance-and-failure-modes/README.md) 篇實測的那套系統(Renode 1.16.1 上的 STM32F4 韌體 + Rust 橋接 + 假受控體,docker,2026-09-15)。§5 的數字是實跑值。Isaac Sim 6.0.1 受控體在場域 GPU 主機實測(同日),數字在 [38 篇](../38-acceptance-and-failure-modes/README.md) §6。
 
 ## 1. 三個詞:MIL、SIL、HIL
 
@@ -90,6 +90,7 @@ STM32F4 韌體(Renode;之後是實板)
 - 6 s 腳本 = 1200 步 × 5 ms,牆鐘 35.5 s,**每步 29.6 ms,0.17× 實時**
 - Renode 虛擬時間結束於 6,000,000 µs 整,與 1200 × 5000 分毫不差
 - 同一腳本跑兩次,1201 行 CSV **逐 byte 相同**
+- 受控體換成 Isaac Sim 6.0.1(在另一台 GPU 主機,經 `ssh -L`):每步 52 ms,0.10× 實時;odom 對真值 3.4 mm / 0.028 rad;兩次 CSV 同樣逐 byte 相同(CPU 求解)
 
 前提是所有注入都要等到「確實進了週邊」才推進時間——沒有這個 ack,同一份輸入會因為執行緒排程而落在不同的步,決定性就沒了([37 篇](../37-bus-signal-bridging/README.md) §3)。
 
@@ -109,8 +110,8 @@ STM32F4 韌體(Renode;之後是實板)
 
 - **時序不算數。** Renode 的虛擬時間由指令數換算,中斷延遲、匯流排仲裁、DMA 競爭都不是實測值。最壞往返延遲與安全迴路的抖動只有實板算數。
 - **週邊是模型。** 「Renode 有這個型別」與「這個型別對你的韌體夠用」是兩件事,[36 篇](../36-stm32-firmware-on-renode/README.md) §3 有一張逐項驗過的表——包括一個計數週期差 1 的 timer。
-- **受控體是模型。** 假受控體是一階馬達 + 精確運動學;Isaac 的接觸力學會多出滑移(32 篇實測 2~3%),容差要跟著放。
-- **Isaac 側未驗。** 腳本在 [`examples/hil-stm32/plant/isaac_plant.py`](../../../examples/hil-stm32/plant/isaac_plant.py),協定已由假受控體驗過,腳本本身要實跑;要驗的七件事列在 [38 篇](../38-acceptance-and-failure-modes/README.md) §6。
+- **受控體是模型。** 假受控體是一階馬達 + 精確運動學;Isaac 的接觸力學多出滑移(這一區實測轉向 3.1%、直行 0.5%,[32 篇](../../fleet/32-differential-drive-vehicle-model/README.md)的 2~3% 同量級),容差跟著放。
+- **Isaac 側的車是教學用的簡化車。** Mesh 盒底盤 + 球形輪 + 球關節腳輪,不是真車資產;它證明的是「迴路接得通、判準抓得到」,不是某台車的動力學。GPU 求解沒測。
 
 ## 8. 檢查清單
 

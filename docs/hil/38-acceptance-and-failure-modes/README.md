@@ -1,8 +1,8 @@
 # 38 · 驗收與失敗形態:先閉環,再換 Isaac
 
-閉環跑完印出 `ALL PASS`,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時**一定會**變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後列出把受控體換成 Isaac Sim 6.0.1 時要驗的七件事。
+閉環跑完印出 `ALL PASS`,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時**一定會**變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後是把受控體換成 Isaac Sim 6.0.1 時七件事各量到什麼。
 
-> **驗證狀態**:§1–§5 全部在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 的 Isaac 腳本**未在本 repo 環境驗證**。
+> **驗證狀態**:§1–§5 在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 在場域 GPU 主機實測(Isaac Sim 6.0.1 pip 版,PhysX、CPU 求解、TGS;Renode 與橋接留在本機,受控體經 `ssh -L` 隧道,同日)。
 
 ## 1. 八項判準,在開跑前寫死
 
@@ -32,7 +32,7 @@
 
 任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 [30 篇](../../common/30-acceptance-probes-and-preregistration/README.md)。
 
-C3 的容差值得說明:0.9 mm 是韌體用 5 項 Taylor 的 sin/cos、以 float 積分 1200 步的誤差;假受控體用 f64 精確積分。換成 Isaac 之後,接觸滑移會讓這個數字變成幾十 mm([32 篇](../../fleet/32-differential-drive-vehicle-model/README.md)實測 2~3%),容差要跟著改,而且要在換之前寫好。
+C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌體用 5 項 Taylor 的 sin/cos、以 float 積分 1200 步的誤差)+ 里程計對真值的系統性差(2% 距離)+ 受控體的接觸滑移(`--slip` × 距離、`--slip` × |θ|)。假受控體 slip = 0;Isaac 實測轉向滑移 3.1%、直行 0.5%,用 0.05——這個數字是先在 §6 量到、再寫回判準的,不是看結果調的。
 
 ## 2. 負對照:全綠證明不了測試在驗東西
 
@@ -89,24 +89,30 @@ step 376: 前一步 CCR=297,這一步 CCR=298,下一步 CCR=306;CAN 框說 305
 | monitor 函式型別錯 | 數字參數被轉 int、週邊名被轉物件 | 字串加引號;函式收物件 |
 | C4 2/305 不符 | 一個視窗兩次控制步,中間值在邊界看不到 | 事件時刻快照(§4) |
 | 1 s 虛擬時間要 13.4 s | MMIO 輪詢是 Renode 最貴的操作 | 量指令數;WFI + 中斷收訊([36 篇](../36-stm32-firmware-on-renode/README.md) §5) |
+| Isaac 受控體第一步就 `AttributeError` | 6.0.1 的 PhysX 介面沒有 `update` | 列 `dir()` 找到 `simulate/fetch_results`,不猜 |
+| 車在 5 ms 內以 2.9 m/s 往上飛(32 篇「被彈飛」的形狀) | 地面的 `xformOpOrder` 寫成 [scale, translate]:USD 第一個列的是最外層,-0.05 的平移被 z 的 0.1 縮成 -0.005,**地面頂面在 +45 mm**,輪子起始陷入 45 mm | 探針印地面 bbox 頂面與靜止後的 z(所有東西都停在 +45 mm 就是線索) |
+| 位置對到 3 mm、航向差一個正負號 | Gf 矩陣是 row-vector 慣例,yaw 用了 column-vector 的索引 | 右輪 tick 比左輪多 → 左轉為正;韌體對、受控體錯 |
+| 閉環跑完 `run_loop.sh` 收不掉 | 背景 `ssh -L` 繼承了腳本的 stdout 管線,kill 到包裝 shell 而不是 ssh | 隧道輸出導檔案、`exec` 起 ssh 讓 PID 就是它 |
 
-共同點:**每一個的第一眼症狀都指向別的地方**——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯。每一個都是先讀原始碼或加一個更近的觀測點才看到真因。
+共同點:**每一個的第一眼症狀都指向別的地方**——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯、彈飛像腳輪或質量。每一個都是先讀原始碼或加一個更近的觀測點才看到真因;彈飛那一個,近一點的觀測點是「靜止後停在哪個高度」。
 
-## 6. 換成 Isaac Sim 6.0.1:要驗的七件事
+## 6. 換成 Isaac Sim 6.0.1:七件事各量到什麼
 
-[`plant/isaac_plant.py`](../../../examples/hil-stm32/plant/isaac_plant.py) 實作同一個 UDP 協定:用 `pxr` / `UsdPhysics` 直接建一台差速車(底盤 + 兩個球形輪 + 球關節腳輪),`DriveAPI` 的 angular 速度目標當馬達,`omni.physx` 手動步進,物理步長綁 calib 的 5 ms。它刻意不用 OmniGraph([31 篇](../../fleet/31-omnigraph-and-ros2-bridge-truth/README.md) §5:headless 下 `world.step(render=False)` 不 tick action graph)、也不依賴 `isaacsim.core.api` 或 `isaacsim.core.experimental` 任一邊([01 篇](../../common/01-install-and-run-modes/README.md) §3 的命名空間搬家)。
+[`plant/isaac_plant.py`](../../../examples/hil-stm32/plant/isaac_plant.py) 實作同一個受控體協定(TCP 版,因為 `ssh -L` 只轉 TCP):用 `pxr` / `UsdPhysics` 直接建一台差速車(Mesh 盒底盤 + 兩個球形輪 + 球關節腳輪),`DriveAPI` 的 angular 速度目標當馬達,`omni.physx` 手動步進,物理步長綁 calib 的 5 ms。它刻意不用 OmniGraph([31 篇](../../fleet/31-omnigraph-and-ros2-bridge-truth/README.md) §5:headless 下 `world.step(render=False)` 不 tick action graph)、也不依賴 `isaacsim.core.api` 或 `isaacsim.core.experimental` 任一邊([01 篇](../../common/01-install-and-run-modes/README.md) §3 的命名空間搬家)。
 
-⚠ **未在本 repo 環境驗證**。每一條過了才能把標記拿掉:
+拓撲:Renode 與橋接留在本機 docker,只有受控體在 GPU 主機,`run_loop.sh` 的 `PLANT=remote` 自動開隧道。每一輪都重啟受控體——它的位姿與 tick 跨連線累積,重啟才是同一個起點。
 
-1. 6.0.1 上 `omni.physx.get_physx_interface().update(dt, dt)` 是否仍是手動步進的正確介面;不是的話改用 experimental 的 `SimulationManager`。
-2. `state:angular:physics:position` 在 PhysX 110 上會不會回寫關節角;不會的話腳本退回純運動學積分——結果照樣 ALL PASS,但那不是物理,log 要標明。
-3. `timeStepsPerSecond` = 200 有沒有生效:讀回,並用一步後的輪角對 targetVelocity × dt。
-4. 球形輪 + 球關節腳輪在 PhysX 110 上會不會被彈飛([32 篇](../../fleet/32-differential-drive-vehicle-model/README.md):腳輪半徑只有驅動輪一半時三輪叉車型在平地會翻)。
-5. `DriveAPI` 的 `targetVelocity` 單位是**度/秒**:設 360 → 一秒後輪角 2π。
-6. 同一份腳本跑一次,C1–C8 全綠;C3 容差按接觸滑移放寬並寫回判準。
-7. 兩次 CSV 是否逐 byte 相同:PhysX GPU dynamics 不保證,CPU 模式較可能;`enableGPUDynamics` 要讀回。
+| # | 要驗的 | 量到的(2026-09-15,`--probe` 模式) |
+|---|---|---|
+| 1 | 手動步進介面 | 6.0.1 的 PhysX 介面**沒有 `update`**(第一次跑就 `AttributeError`)。正確路徑:`IPhysxSimulation.attach_stage(stage_id)` → `simulate(dt, t)` → `fetch_results()`;timeline 不 play,否則 Kit 每個 update 自己再步一次 |
+| 2 | 關節角讀法 | `state:angular:physics:position` **不會被寫回**,步進前後都不存在。改從 `fetch_results` 寫回的 xform 算輪子相對底盤繞 Y 的角、跨步展開——那是物理輸出,滑移都在裡面 |
+| 3 | 物理步長 | `timeStepsPerSecond=200` 讀回 200,`SimulationManager.get_physics_dt()` = 0.005。標 Deprecated 但生效 |
+| 4 | 彈飛 | 修正後靜止 1 s 底盤 z = 50.0 mm(建模 50.0)。**曾經彈飛**,真因見 §5 |
+| 5 | `targetVelocity` 單位 | 設 360 跑 1 s → 輪角 6.235 rad(99.2%,drive 有落後);底盤前進 302.1 mm 對輪周 311.8 mm → **滑移 3.1%**,與 [32 篇](../../fleet/32-differential-drive-vehicle-model/README.md)的 2~3% 同量級 |
+| 6 | C1–C8 | **ALL PASS**:C3 dx 3.4 / dy 2.0 mm、dθ 0.0276 rad(容差 87.8 mm / 0.0737 rad,slip 0.05);負對照位移 0、C2 紅。每步 52 ms 牆鐘(隧道約 +19 ms、Isaac 步進約 +3 ms) |
+| 7 | 決定性 | 兩次跑 CSV **全部欄位逐 byte 相同**。`is_gpu_dynamics_enabled()` = True 而 `get_physics_sim_device()` = cpu——兩個值都記,決定性在這個組合下成立;GPU 求解沒測 |
 
-ROS 2 Jazzy 在這個拓撲裡的位置是**上位**:一個 rclpy 節點訂 `/cmd_vel`、發 `/odom`,對橋接講 UART 框包(或讓橋接直接開一個 UDP 給它)。Isaac 那側不需要 ros2 bridge——受控體介面是 UDP,不是 topic。要用 Isaac 內建的 Jazzy 也可以([14 篇](../../6.0.1/14-ros2-bridge-6.0-architecture/README.md)),但那是另一條線,不在這一區的範圍。
+ROS 2 Jazzy 在這個拓撲裡的位置是**上位**:一個 rclpy 節點訂 `/cmd_vel`、發 `/odom`,對橋接講 UART 框包。Isaac 那側不需要 ros2 bridge——受控體介面是 TCP/UDP 文字協定,不是 topic。
 
 ## 7. 建議的分階段
 
@@ -120,7 +126,7 @@ ROS 2 Jazzy 在這個拓撲裡的位置是**上位**:一個 rclpy 節點訂 `/cm
 | Isaac | 受控體換 `isaac_plant.py` | §6 七項;C3 容差重定 |
 | 實板 | Renode 換實體 STM32,橋接換實板後端 | 全部重跑;**時序與最壞延遲在這裡才算數** |
 
-每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第三階段。
+每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第四階段。
 
 ## 8. 檢查清單
 

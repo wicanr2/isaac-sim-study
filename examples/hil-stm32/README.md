@@ -6,7 +6,8 @@
 BUILD=1 ./run_loop.sh            # 第一次:建韌體與橋接,然後跑 6 s 預設腳本
 ./run_loop.sh                    # 之後直接跑
 ./run_loop.sh --negative bad-crc # 負對照:每個命令 CRC 弄壞,驗收必須轉紅(rc=1)
-PLANT=udp ./run_loop.sh          # 受控體改走 UDP(plant/fake_plant.py,另一容器)
+PLANT=udp ./run_loop.sh          # 受控體改走 UDP(plant/fake_plant.py,另一容器);PLANT=tcp 同理走 TCP
+PLANT=remote ./run_loop.sh       # 受控體在場域 GPU 主機(先 tools/isaac_plant_ctl.sh start),自動開 ssh -L
 ./run_loop.sh --seconds 3 --script "0:200,0;2:0,0"
 ```
 
@@ -21,7 +22,8 @@ PLANT=udp ./run_loop.sh          # 受控體改走 UDP(plant/fake_plant.py,另�
 | `renode/` | vendor 的 1.16.1 `stm32f4.repl`(拿掉 `ApplySVD`)、開機腳本、`hil_hook.py`(IronPython:CAN/UART ↔ TCP,每筆注入回 ack)、`boot_check` / `perf_check` / `io_check` 三支驗收腳本 | 實測 |
 | `bridge-rs/` | Rust 橋接:External Control client、hook 對端、上位協定、Fake/UDP 受控體、lockstep 迴圈、八項驗收 | 實測 |
 | `plant/fake_plant.py` | UDP 版假受控體(Python),與 Rust 內建 `Fake` 同模型 | 實測 ALL PASS |
-| `plant/isaac_plant.py` | Isaac Sim 6.0.1 版受控體 | ⚠ **未驗證**,驗收清單在檔尾與 [38 篇 §6](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
+| `plant/isaac_plant.py` | Isaac Sim 6.0.1 版受控體(UDP / TCP;`--probe` 量驗收清單) | 場域 GPU 主機實測 ALL PASS;結論在檔尾與 [38 篇 §6](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
+| `tools/remote.sh`、`tools/isaac_plant_ctl.sh` | 場域 GPU 主機的連線包裝(主機資訊從機密入口腳本推出)與受控體 start/stop/log/load | 實測 |
 | `run_loop.sh` | 起 Renode 容器 → 橋接共用 netns → 跑 → 收 log → 停容器 | 實測 |
 
 ## 埠與訊號
@@ -44,3 +46,4 @@ PLANT=udp ./run_loop.sh          # 受控體改走 UDP(plant/fake_plant.py,另�
 - 6 s 預設腳本 = 1200 步:牆鐘 35.5 s,每步 29.6 ms,0.17× 實時;odom 對真值 0.9 mm / 0.9 mrad
 - 兩次跑 CSV 逐 byte 相同;`--negative bad-crc` → `bad_crc=300`、位移 0、C2 紅
 - 韌體 text 4732 B;WFI 讓 1 s 虛擬時間從 13.4 s 降到 1.83 s
+- Isaac 6.0.1 受控體(遠端,`ssh -L`):每步 52 ms;odom 對真值 3.4 / 2.0 mm、0.028 rad;滑移 3.1%;兩次 CSV 逐 byte 相同(CPU 求解)

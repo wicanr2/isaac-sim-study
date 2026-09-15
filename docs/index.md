@@ -64,7 +64,7 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 - [`examples/usd_peek.py`](../examples/usd_peek.py) —— 唯讀檢視 crate 場景裡某個 prim 的物理結構,並可把子樹匯出成 `.usda` 文字
 - [`examples/audit_asset_physics.py`](../examples/audit_asset_physics.py) —— 稽核一份 USD 有沒有**授權**質量/密度/碰撞;會一併走訪 instance prototype(否則 `Traverse()` 對 CAD 轉出的資產回 0 mesh)
 - [`examples/templates/`](../examples/templates/) —— 實驗紀錄範本:輪次表、分期敘事、場景檔 manifest、事前登記、失敗總表
-- [`examples/hil-stm32/`](../examples/hil-stm32/) —— HIL 閉環的全部程式碼:STM32F4 最小韌體、Renode 平台與 IronPython hook、Rust 橋接、假受控體、Isaac 6.0.1 受控體(未驗證);`./run_loop.sh` 一條指令跑
+- [`examples/hil-stm32/`](../examples/hil-stm32/) —— HIL 閉環的全部程式碼:STM32F4 最小韌體、Renode 平台與 IronPython hook、Rust 橋接、假受控體、Isaac 6.0.1 受控體(實測);`./run_loop.sh` 一條指令跑
 
 ## 其他
 
