@@ -80,7 +80,7 @@ mass = UsdPhysics.MassAPI.Apply(chassis.GetPrim())
 mass.CreateMassAttr(8.0)
 
 def make_wheel(name, y):
-    # 32 篇 §:UsdGeom.Cylinder 當碰撞體會出問題,輪子用 Sphere 近似(半徑 = 輪半徑)
+    # 32 篇:UsdGeom.Cylinder 當碰撞體會出問題,輪子用 Sphere 近似(半徑 = 輪半徑)
     w = UsdGeom.Sphere.Define(stage, Sdf.Path(f"/World/robot/{name}"))
     w.CreateRadiusAttr(r)
     w.AddTranslateOp().Set(Gf.Vec3d(0, y, r))
