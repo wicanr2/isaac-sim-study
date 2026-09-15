@@ -1,0 +1,11 @@
+[package]
+name = "hil-bridge"
+version = "0.1.0"
+edition = "2021"
+description = "Renode 匯流排訊號 ↔ 受控體 的 lockstep 橋接;只用 std,零 crate"
+
+[dependencies]
+
+[profile.release]
+opt-level = 2
+debug = 1

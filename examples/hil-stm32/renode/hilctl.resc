@@ -14,9 +14,9 @@ usart2 CreateFileBackend @/w/renode/out/usart2.txt true
 emulation CreateServerSocketTerminal 3456 "host_uart" false
 connector Connect usart1 host_uart
 
-# CAN 出口:monitor 級 IronPython hook(docs/hil/37 篇的「三條路」之一)
-include @/w/renode/can_hook.py
-can_hook_start 3600
+# CAN 與 UART 的 hook 出口:monitor 級 IronPython,對每筆注入回 ack(docs/hil/37 篇)
+include @/w/renode/hil_hook.py
+hil_hook_start 3600
 
 # External Control API:橋接用它推進時間、讀 TIM3 CCR、讀寫 GPIO
 emulation CreateExternalControlServer "ec" 3500

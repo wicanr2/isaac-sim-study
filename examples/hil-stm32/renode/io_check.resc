@@ -61,5 +61,5 @@ echo "    flags:"
 sysbus ReadDoubleWord 0x20000130
 echo "    rx_overflow (expect 0):"
 sysbus ReadDoubleWord 0x20000138
-can_hook_stats
+hil_hook_stats
 quit
