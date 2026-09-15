@@ -9,16 +9,16 @@
 <body>
 <header class="top">
   <a class="brand" href="">Isaac Sim 實戰筆記</a>
-  <nav class="tabs"><a href="" class="on">總覽</a><a href="common/">共通</a><a href="5.1/">5.1</a><a href="6.0.1/">6.0.1</a><a href="fleet/">車隊</a><a href="version-matrix.html">版本差異</a></nav>
+  <nav class="tabs"><a href="" class="on">總覽</a><a href="common/">共通</a><a href="5.1/">5.1</a><a href="6.0.1/">6.0.1</a><a href="fleet/">車隊</a><a href="hil/">HIL</a><a href="version-matrix.html">版本差異</a></nav>
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#三個入口">三個入口</a></li><li class="l2"><a href="#怎麼開始">怎麼開始</a></li><li class="l2"><a href="#工具">工具</a></li><li class="l2"><a href="#claude-code-skill">Claude Code skill</a></li><li class="l2"><a href="#範例程式">範例程式</a></li><li class="l2"><a href="#其他">其他</a></li></ul></aside>
+  <aside class="side"><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#入口">入口</a></li><li class="l2"><a href="#怎麼開始">怎麼開始</a></li><li class="l2"><a href="#工具">工具</a></li><li class="l2"><a href="#claude-code-skill">Claude Code skill</a></li><li class="l2"><a href="#範例程式">範例程式</a></li><li class="l2"><a href="#其他">其他</a></li></ul></aside>
   <main class="doc">
 <h1 id="isaac-sim-實戰筆記不碰-ui-的模擬工作流">Isaac Sim 實戰筆記:不碰 UI 的模擬工作流</h1>
 <p>NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件。但真正把它用在工程上——跑在遠端 GPU 伺服器、由程式建立與控制物理世界、接進既有系統——需要的是另一套「不碰 UI」的工作方法。</p>
 <p>這裡整理的是一段倉儲物流模擬專案(堆高機 AMR、貨架、派工系統整合)累積下來的東西:每篇從「要解決什麼根本問題」出發,標明哪些是官方機制、哪些是實測踩坑後的結論、哪些還只是推測。</p>
-<h2 id="三個入口">三個入口</h2>
+<h2 id="入口">入口</h2>
 <p><strong><a href="common">共通:機制與方法論</a></strong> · 23 篇
 引擎怎麼算一步、碰撞近似損掉什麼、質量該掛在哪一層、實驗怎麼設計才算數。這些在 5.1 與 6.0.1 上是同一套,因此不按版本分。</p>
 <p><strong><a href="5.1">Isaac Sim 5.1</a></strong> · 2 篇
@@ -27,6 +27,8 @@
 extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風險、6.0 的物理調參。</p>
 <p><strong><a href="fleet">車隊與多樓層</a></strong> · 4 篇
 多台車 + 多樓層自成一個問題域:OmniGraph 與 ROS 2 橋接、差速車動力學、電梯與門檻、感測器。這一區的失敗幾乎全部是「回傳成功、沒有錯誤、就是不對」。</p>
+<p><strong><a href="hil">HIL:把下位控制器放進迴路</a></strong> · 4 篇
+讓真的 STM32 韌體(跑在 Renode 裡)去驅動 Isaac 裡的車:Isaac 變成受控體,韌體講真的匯流排協定。純軟體、可在本機閉環實跑;三個時鐘域、匯流排訊號怎麼從模擬器出來、驗收怎麼寫才抓得到失敗。</p>
 <p><strong><a href="version-matrix.html">5.1 ↔ 6.0.1 差異速查</a></strong>
 跨版本排查時最花時間的不是「哪裡不一樣」,而是「這個症狀該不該歸給版本」。每一列都標出處篇章。</p>
 <h2 id="怎麼開始">怎麼開始</h2>
@@ -91,6 +93,14 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 <td><a href="fleet/34-lidar-and-sensor-plausible-but-wrong/">34 感測器的假數字</a></td>
 </tr>
 <tr>
+<td>想讓真的底盤韌體(STM32)驅動 Isaac 裡的車</td>
+<td><a href="hil/35-hil-what-and-why/">35 HIL 是什麼</a> → 36 → 37 → 38</td>
+</tr>
+<tr>
+<td>要把自己的韌體放進 Renode 模擬器</td>
+<td><a href="hil/36-stm32-firmware-on-renode/">36 STM32F4 韌體在 Renode 上開機</a></td>
+</tr>
+<tr>
 <td>手上有一台叉車/機器人,要把物理與關節建起來</td>
 <td><a href="common/26-forklift-physics-and-articulation/">26 從規格表到會動的叉車</a></td>
 </tr>
@@ -117,6 +127,7 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 <li><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/usd_peek.py"><code>examples/usd_peek.py</code></a> —— 唯讀檢視 crate 場景裡某個 prim 的物理結構,並可把子樹匯出成 <code>.usda</code> 文字</li>
 <li><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/audit_asset_physics.py"><code>examples/audit_asset_physics.py</code></a> —— 稽核一份 USD 有沒有<strong>授權</strong>質量/密度/碰撞;會一併走訪 instance prototype(否則 <code>Traverse()</code> 對 CAD 轉出的資產回 0 mesh)</li>
 <li><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/templates"><code>examples/templates/</code></a> —— 實驗紀錄範本:輪次表、分期敘事、場景檔 manifest、事前登記、失敗總表</li>
+<li><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32"><code>examples/hil-stm32/</code></a> —— HIL 閉環的全部程式碼:STM32F4 最小韌體、Renode 平台與 IronPython hook、Rust 橋接、假受控體、Isaac 6.0.1 受控體(未驗證);<code>./run_loop.sh</code> 一條指令跑</li>
 </ul>
 <h2 id="其他">其他</h2>
 <ul>

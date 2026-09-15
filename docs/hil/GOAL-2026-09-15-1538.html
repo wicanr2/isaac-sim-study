@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GOAL:isaac-sim-study 新增 HIL 教學區(docs/hil/,35–38) — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/">5.1</a><a href="../6.0.1/">6.0.1</a><a href="../fleet/">車隊</a><a href="../hil/" class="on">HIL</a><a href="../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#你是誰在哪">你是誰、在哪</a></li><li class="l2"><a href="#目標一句話">目標(一句話)</a></li><li class="l2"><a href="#拓撲">拓撲</a></li><li class="l2"><a href="#交付物">交付物</a></li><li class="l2"><a href="#篇章">篇章</a></li><li class="l2"><a href="#工作順序每步要有可驗訊號紅了換方法綠了換問題">工作順序(每步要有可驗訊號,紅了換方法、綠了換問題)</a></li><li class="l2"><a href="#硬規則">硬規則</a></li><li class="l2"><a href="#完成的定義">完成的定義</a></li></ul></aside>
+  <main class="doc">
+<h1 id="goalisaac-sim-study-新增-hil-教學區docshil3538">GOAL:isaac-sim-study 新增 HIL 教學區(docs/hil/,35–38)</h1>
+<p>產生時間:2026-09-15 15:38。決定與驗收條件的完整版在 <a href="https://github.com/wicanr2/isaac-sim-study/issues/1">issue #1</a>。</p>
+<h2 id="你是誰在哪">你是誰、在哪</h2>
+<ul>
+<li>repo:<code>isaac-sim-study</code>(公開,GitHub wicanr2/isaac-sim-study)</li>
+<li>完整決定與驗收條件:GitHub issue #1。先讀它,不要重問已定案的事。</li>
+<li>進場檢查:<code>git config user.email</code> 必須是 <code>wicanr2@gmail.com</code>。</li>
+</ul>
+<h2 id="目標一句話">目標(一句話)</h2>
+<p>用 Renode 1.16.1 模擬的 STM32F4 當下位運動控制器、Isaac Sim 6.0.1 當受控體、
+Rust 橋接程式串 Renode 匯流排訊號(UART / GPIO / Timer / CAN),
+做出<strong>純軟體、可在本機閉環實跑</strong>的 HIL 教學,四篇。</p>
+<h2 id="拓撲">拓撲</h2>
+<pre><code>上層 ROS 2 Jazzy --cmd_vel--&gt; Rust 橋接 --UART socket--&gt; Renode 內 STM32F4 韌體
+                                   ↕ External Control API(GPIO / TIM-&gt;CCR / run_for)
+                                   ↕ IronPython hook → TCP(CAN)
+                              受控體(可換):純 Python 假差速車 | Isaac Sim 6.0.1
+</code></pre>
+<h2 id="交付物">交付物</h2>
+<ol>
+<li><code>examples/hil-stm32/firmware/</code>  自寫開源最小韌體(C):裸機 superloop + 5 ms tick、
+   USART 框包協定 + CRC16、雙輪速 PID、編碼器計數。arm-none-eabi-gcc 在 docker 建。</li>
+<li><code>examples/hil-stm32/renode/</code>    平台描述(.repl)、開機腳本(.resc)、CAN hook(IronPython)</li>
+<li><code>examples/hil-stm32/bridge-rs/</code> Rust 橋接,只用 std、零 crate、<code>cargo build --offline</code></li>
+<li><code>examples/hil-stm32/plant/</code>     假受控體(Python)+ Isaac 6.0.1 receiver(標未驗證)</li>
+<li><code>docs/hil/{index.md, 35-*, 36-*, 37-*, 38-*}/README.md</code></li>
+<li><code>build_site.py</code> / <code>check_docs.py</code> 的 ZONES、<code>docs/index.md</code> 篇數、根 README、version-matrix</li>
+</ol>
+<h2 id="篇章">篇章</h2>
+<ul>
+<li>35 HIL 是什麼;與 NVIDIA 那頁的 Jetson 型 HIL 差在哪(硬體在上位 vs 下位);
+  三個時鐘(Renode 虛擬時間 / Isaac 模擬時間 / 牆鐘)為什麼是核心</li>
+<li>36 STM32F4 韌體在 Renode 開機:平台描述、「型別存在 ≠ 夠用」、觀測手段(SRAM 變數 vs printer)</li>
+<li>37 匯流排訊號串接:External Control 協定、UART socket、
+  「Renode 把 CAN 送出去的三條路與各自碰到哪一層」一節、lockstep</li>
+<li>38 驗收與失敗形態:負對照、假受控體先閉環再換 Isaac、數字怎麼量</li>
+</ul>
+<h2 id="工作順序每步要有可驗訊號紅了換方法綠了換問題">工作順序(每步要有可驗訊號,紅了換方法、綠了換問題)</h2>
+<ol>
+<li>Renode 探針:External Control 的 GPIO / run_for / sysbus 讀 TIM-&gt;CCR;
+   CAN 的 FrameSent 事件 + IronPython 開 TCP。<strong>這一步決定 37 篇的設計,先做。</strong></li>
+<li>韌體 + 平台描述,Renode 開機走到主迴圈(用 SRAM 變數證明,不只看 printer)</li>
+<li>Rust 橋接 + 假受控體閉環:cmd_vel → 輪速 → PID → duty → 受控體 → 編碼器 → 回 odom</li>
+<li>四篇正文 + 索引 + ZONES + 網站重建 + <code>check_docs.py</code> 全綠</li>
+<li>Isaac 6.0.1 側程式碼(標未驗證,附驗收清單)</li>
+</ol>
+<h2 id="硬規則">硬規則</h2>
+<ul>
+<li>[HARD] 證據等級:本機實跑過才寫定論;Isaac 側篇首明寫「未在本 repo 環境驗證」;
+  數字一律附量測條件(版本、環境、樣本數)。推測寫「假設待驗」並說怎麼驗。</li>
+<li>[HARD] 匿名化:不得出現公司名、客戶名、車型、內部代號、主機名/IP。
+  既有內部專案的 Renode 驗證紀錄(路徑不入 repo)只當<strong>踩坑紀錄來源</strong>,
+  全程唯讀,一行碼都不拷,引用時寫「既有內部專案在 Renode 1.16.1 實測」。</li>
+<li>[HARD] Renode 缺口:不繞路,修 Renode 原始碼(或 <code>i @file.cs</code> 執行期載入),
+  記錄 diff,往上游送 PR。不碰主機核心(vcan 只當對照寫,不當主線)。</li>
+<li>[HARD] 全部在 docker:<code>--rm --network none --cpus 2 --memory 2g --pids-limit 256
+  --log-opt max-size=10m --log-opt max-file=3 --user $(id -u):$(id -g)</code>。
+  映像:<code>antmicro/renode:latest</code>(1.16.1)、arm-none-eabi-gcc 12.2、<code>rust:1-slim-bookworm</code>。
+  禁止任何 docker prune / rmi。</li>
+<li>每次 Renode 跑約 1 分鐘、2 核;開跑前先說這一輪要回答什麼問題。</li>
+<li>「跑完沒產出」→ 先拿掉 <code>| tail</code> 看完整輸出,不准先猜。</li>
+<li>查詢回空要先做正對照(拿一個一定存在的東西試查法)。</li>
+<li>改完 markdown 跑 <code>build_site.py</code>(docker uv)與 <code>check_docs.py</code>;跨篇 §N 引用人工核一次。</li>
+<li>commit 繁中,附 Co-Authored-By,不放 Claude-Session 連結;push 前先問。</li>
+</ul>
+<h2 id="完成的定義">完成的定義</h2>
+<ul>
+<li><code>check_docs.py</code> 全綠,四篇被索引收錄,ZONES 含 hil</li>
+<li>本機一條指令跑出閉環 log:Renode 虛擬時間、橋接步數、假受控體位姿、韌體回報的 odom 三者對得上</li>
+<li>負對照至少一項(拔掉受控體或壞 CRC)必須轉紅</li>
+<li>Isaac 側附驗收清單,每項寫明「怎麼驗才能把未驗證標記拿掉」</li>
+<li>issue #1 的待實測四項每項有結論(通過 / 改了 Renode 什麼 / 為什麼不成)</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../">總覽</a> · <a href="../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

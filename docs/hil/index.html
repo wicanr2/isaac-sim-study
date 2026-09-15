@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HIL:把下位控制器放進迴路 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/">5.1</a><a href="../6.0.1/">6.0.1</a><a href="../fleet/">車隊</a><a href="../hil/" class="on">HIL</a><a href="../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#驗證狀態">驗證狀態</a></li><li class="l2"><a href="#這一區的主線">這一區的主線</a></li><li class="l2"><a href="#篇章">篇章</a></li><li class="l2"><a href="#怎麼讀">怎麼讀</a></li><li class="l2"><a href="#與其他區的關係">與其他區的關係</a></li></ul></aside>
+  <main class="doc">
+<h1 id="hil把下位控制器放進迴路">HIL:把下位控制器放進迴路</h1>
+<p>這一區的 4 篇處理的是 <strong>hardware-in-the-loop(HIL)</strong>:讓真的底盤控制器韌體——跑在 STM32 上、講真的匯流排協定——去驅動 Isaac Sim 裡的車。Isaac Sim 這時是「受控體」(馬達、輪子、編碼器),不是全部。</p>
+<p>做法是純軟體的:STM32F4 跑在 Renode 模擬器裡,一支 Rust 橋接程式把 Renode 的匯流排訊號(UART、GPIO、Timer PWM、CAN)接到受控體。同一份韌體之後燒到實板,橋接換一個後端,其餘不變。</p>
+<h2 id="驗證狀態">驗證狀態</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>部分</th>
+<th>狀態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>STM32F4 韌體、Renode 平台、IronPython hook、Rust 橋接、假受控體閉環</td>
+<td><strong>本機實測</strong>(Renode 1.16.1,docker,2026-09-15);數字都是實跑值</td>
+</tr>
+<tr>
+<td>Isaac Sim 6.0.1 的受控體腳本</td>
+<td>⚠ <strong>未在本 repo 環境驗證</strong>(本機無 GPU)。協定已用假受控體驗過,腳本附驗收清單</td>
+</tr>
+<tr>
+<td>實體 STM32 板</td>
+<td>未做。時序與最壞延遲只有實板算數,見 <a href="../hil/35-hil-what-and-why/">35 篇</a> §7</td>
+</tr>
+</tbody>
+</table></div>
+<p>全部程式碼在 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32"><code>examples/hil-stm32/</code></a>,一條指令跑閉環:<code>./run_loop.sh</code>。</p>
+<h2 id="這一區的主線">這一區的主線</h2>
+<blockquote>
+<p><strong>迴路裡的每一段都要能回答「它真的在跑嗎」,而答案不能只來自它自己。</strong></p>
+</blockquote>
+<ul>
+<li>模擬器說「這個週邊型別有」,不等於它對這支韌體夠用——要逐個暫存器驗</li>
+<li>橋接在步邊界取樣,看不到一步之內的中間值——要在事件發生的當下取樣</li>
+<li>全綠證明不了測試在驗東西——要有一個負對照讓它轉紅</li>
+<li>兩個「同一個模型」的實作,末端一致而中途差 ±1 tick——決定性是每個實作各自成立</li>
+</ul>
+<h2 id="篇章">篇章</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>主題</th>
+<th>一句話</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="../hil/35-hil-what-and-why/">35</a></td>
+<td>HIL 是什麼,為什麼硬體要放在下位</td>
+<td>NVIDIA 課程的 HIL 是 Jetson 跑感知,這裡是 MCU 跑底盤;三個時鐘域,lockstep 與 realtime 兩種模式同一套橋接;<strong>韌體沒有「模擬模式」、橋接不做安全、每輪要有生效證明</strong></td>
+</tr>
+<tr>
+<td><a href="../hil/36-stm32-firmware-on-renode/">36</a></td>
+<td>STM32F4 韌體在 Renode 上開機</td>
+<td>無 HAL、無 libc 的最小韌體;「型別存在 ≠ 夠用」逐項盤點(CCR 讀得回、PWM 通道是 GPIO 線、<strong>timer 週期是 ARR 不是 ARR+1</strong>、CAN 交握有回應但濾波器有坑);printer 與 SRAM 兩條觀測管道;<strong>WFI 讓 1 s 虛擬時間從 13.4 s 降到 1.83 s</strong>,配套是收訊要改中斷</td>
+</tr>
+<tr>
+<td><a href="../hil/37-bus-signal-bridging/">37</a></td>
+<td>匯流排訊號串接</td>
+<td>External Control 協定逐 byte;GPIO 讀的是輸出腳、寫的是輸入腳;IronPython hook 對每筆注入回 ack;<strong>CAN 送出模擬器的三條路各碰到哪一層</strong>;lockstep 迴圈六步與每步 29.6 ms 的成本;探埠的一個換行污染了握手</td>
+</tr>
+<tr>
+<td><a href="../hil/38-acceptance-and-failure-modes/">38</a></td>
+<td>驗收與失敗形態</td>
+<td>八項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;兩次 CSV 逐 byte 相同;<strong>步邊界取樣的 2/305 不符</strong>與事件時刻快照;這次踩到的六種失敗形態;換成 Isaac 6.0.1 要驗的七件事</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="怎麼讀">怎麼讀</h2>
+<p><strong>只想知道 HIL 跟「Isaac 裡跑純運動學」差在哪</strong> → <a href="../hil/35-hil-what-and-why/">35</a>。</p>
+<p><strong>要把自己的韌體放進 Renode</strong> → <a href="../hil/36-stm32-firmware-on-renode/">36</a>。先做 §3 那張盤點表,再開始寫程式。</p>
+<p><strong>要寫橋接、或想知道訊號怎麼從模擬器出來</strong> → <a href="../hil/37-bus-signal-bridging/">37</a>。</p>
+<p><strong>要決定「這個閉環算不算通了」</strong> → <a href="../hil/38-acceptance-and-failure-modes/">38</a>。</p>
+<h2 id="與其他區的關係">與其他區的關係</h2>
+<ul>
+<li>受控體換成 Isaac Sim 時,ROS 2 bridge 的機制在 <a href="../common/05-ros2-bridge/">05 篇</a>、6.0 的架構在 <a href="../6.0.1/14-ros2-bridge-6.0-architecture/">14 篇</a>;headless 下 OmniGraph 不 tick 的問題在 <a href="../fleet/31-omnigraph-and-ros2-bridge-truth/">31 篇</a> §5——這一區的 Isaac 腳本刻意不用 OmniGraph。</li>
+<li>差速車的物理(輪子碰撞體、腳輪、關節速度單位)在 <a href="../fleet/32-differential-drive-vehicle-model/">32 篇</a>;Isaac 受控體腳本的驗收清單直接引用它。</li>
+<li>時鐘漂移在 <a href="../common/29-long-run-error-budget-and-clock-drift/">29 篇</a> §2 講的是 Isaac 模擬時鐘與牆鐘;這一區多了第三個時鐘。</li>
+<li>驗收探針與預先登記:<a href="../common/30-acceptance-probes-and-preregistration/">30 篇</a>。這一區的八項判準就是照它的做法寫的。</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../">總覽</a> · <a href="../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

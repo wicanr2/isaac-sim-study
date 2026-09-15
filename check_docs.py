@@ -24,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 DOCS = ROOT / "docs"
-ZONES = ["common", "5.1", "6.0.1", "fleet"]
+ZONES = ["common", "5.1", "6.0.1", "fleet", "hil"]
 
 problems: list[str] = []
 
@@ -67,7 +67,8 @@ total = sum(counts.values())
 
 home = (DOCS / "index.md").read_text(encoding="utf-8")
 for zone, label in [("common", "共通:機制與方法論"), ("5.1", "Isaac Sim 5.1"),
-                    ("6.0.1", "Isaac Sim 6.0.1"), ("fleet", "車隊與多樓層")]:
+                    ("6.0.1", "Isaac Sim 6.0.1"), ("fleet", "車隊與多樓層"),
+                    ("hil", "HIL:把下位控制器放進迴路")]:
     m = re.search(rf"\[{re.escape(label)}\]\([^)]*\)\*\* · (\d+) 篇", home)
     if not m:
         fail(f"篇數  docs/index.md 找不到 {label} 的篇數宣告")

@@ -4,7 +4,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 
 這裡整理的是一段倉儲物流模擬專案(堆高機 AMR、貨架、派工系統整合)累積下來的東西:每篇從「要解決什麼根本問題」出發,標明哪些是官方機制、哪些是實測踩坑後的結論、哪些還只是推測。
 
-## 三個入口
+## 入口
 
 **[共通:機制與方法論](common/)** · 23 篇
 引擎怎麼算一步、碰撞近似損掉什麼、質量該掛在哪一層、實驗怎麼設計才算數。這些在 5.1 與 6.0.1 上是同一套,因此不按版本分。
@@ -17,6 +17,9 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 
 **[車隊與多樓層](fleet/)** · 4 篇
 多台車 + 多樓層自成一個問題域:OmniGraph 與 ROS 2 橋接、差速車動力學、電梯與門檻、感測器。這一區的失敗幾乎全部是「回傳成功、沒有錯誤、就是不對」。
+
+**[HIL:把下位控制器放進迴路](hil/)** · 4 篇
+讓真的 STM32 韌體(跑在 Renode 裡)去驅動 Isaac 裡的車:Isaac 變成受控體,韌體講真的匯流排協定。純軟體、可在本機閉環實跑;三個時鐘域、匯流排訊號怎麼從模擬器出來、驗收怎麼寫才抓得到失敗。
 
 **[5.1 ↔ 6.0.1 差異速查](version-matrix.md)**
 跨版本排查時最花時間的不是「哪裡不一樣」,而是「這個症狀該不該歸給版本」。每一列都標出處篇章。
@@ -38,6 +41,8 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 | 車在場景裡不動,或動得很奇怪 | [32 把車做成真的會動的車](fleet/32-differential-drive-vehicle-model/README.md) |
 | 要做電梯、多樓層 | [33 電梯與多樓層](fleet/33-elevator-and-multi-floor/README.md) |
 | 感測器讀數看起來正常但不對 | [34 感測器的假數字](fleet/34-lidar-and-sensor-plausible-but-wrong/README.md) |
+| 想讓真的底盤韌體(STM32)驅動 Isaac 裡的車 | [35 HIL 是什麼](hil/35-hil-what-and-why/README.md) → 36 → 37 → 38 |
+| 要把自己的韌體放進 Renode 模擬器 | [36 STM32F4 韌體在 Renode 上開機](hil/36-stm32-firmware-on-renode/README.md) |
 | 手上有一台叉車/機器人,要把物理與關節建起來 | [26 從規格表到會動的叉車](common/26-forklift-physics-and-articulation/README.md) |
 | 場域主機不能對外,資產抓不到 | [25 官方資產的預先下載與離線佈署](common/25-offline-assets-deployment/README.md) |
 
@@ -59,6 +64,7 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 - [`examples/usd_peek.py`](../examples/usd_peek.py) —— 唯讀檢視 crate 場景裡某個 prim 的物理結構,並可把子樹匯出成 `.usda` 文字
 - [`examples/audit_asset_physics.py`](../examples/audit_asset_physics.py) —— 稽核一份 USD 有沒有**授權**質量/密度/碰撞;會一併走訪 instance prototype(否則 `Traverse()` 對 CAD 轉出的資產回 0 mesh)
 - [`examples/templates/`](../examples/templates/) —— 實驗紀錄範本:輪次表、分期敘事、場景檔 manifest、事前登記、失敗總表
+- [`examples/hil-stm32/`](../examples/hil-stm32/) —— HIL 閉環的全部程式碼:STM32F4 最小韌體、Renode 平台與 IronPython hook、Rust 橋接、假受控體、Isaac 6.0.1 受控體(未驗證);`./run_loop.sh` 一條指令跑
 
 ## 其他
 

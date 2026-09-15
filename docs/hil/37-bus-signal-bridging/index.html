@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>37 · 匯流排訊號串接:External Control、hook,與 CAN 的三條出口 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../fleet/">車隊</a><a href="../../hil/" class="on">HIL</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/" class="on"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-每種訊號走哪裡">1. 每種訊號走哪裡</a></li><li class="l2"><a href="#2-external-control-api">2. External Control API</a></li><li class="l2"><a href="#3-hookironpython-一條-tcp每筆注入回-ack">3. hook:IronPython 一條 TCP,每筆注入回 ack</a></li><li class="l2"><a href="#4-can-送出模擬器的三條路各碰到哪一層">4. CAN 送出模擬器的三條路,各碰到哪一層</a></li><li class="l2"><a href="#5-lockstep-迴圈">5. lockstep 迴圈</a></li><li class="l2"><a href="#6-受控體介面">6. 受控體介面</a></li><li class="l2"><a href="#7-檢查清單">7. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="37-匯流排訊號串接external-controlhook與-can-的三條出口">37 · 匯流排訊號串接:External Control、hook,與 CAN 的三條出口</h1>
+<p>韌體在 Renode 裡跑起來之後,它的輸出在模擬器裡面:PWM 是 TIM3 的 CCR 值、方向是 GPIOB 的兩個腳、狀態回報在 CAN1 的 mailbox。要把這些拿到外面給受控體,又要把編碼器塞回去給韌體,Renode 1.16.1 給了兩條路:一個叫 External Control 的 TCP 二進位 API(時間、GPIO、匯流排讀寫),和它自己的 monitor 級 IronPython(可以掛週邊事件、也能開 socket)。CAN 還有第三條路,要碰主機核心。</p>
+<p>這一篇把每種訊號走哪條路、協定長什麼樣、以及 lockstep 迴圈怎麼靠 ack 做到決定性,寫清楚。</p>
+<blockquote>
+<p><strong>驗證狀態</strong>:全部在本機實測(Renode 1.16.1,Rust 1.98 std-only 橋接,docker,2026-09-15)。External Control 的線路協定是從官方 C client(<code>tools/external_control_client/lib/renode_api.c</code>,943 行)逐 byte 讀出來的,官方沒有文件;server 端對照 <code>renode</code> repo v1.16.1 的 <code>src/Renode/Network/ExternalControl/*.cs</code>。§4 的 SocketCAN 路線<strong>未實測</strong>(要主機載 <code>vcan</code> 模組),只寫接法。程式碼在 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/bridge-rs"><code>examples/hil-stm32/bridge-rs/</code></a> 與 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/hil_hook.py"><code>renode/hil_hook.py</code></a>。</p>
+</blockquote>
+<h2 id="1-每種訊號走哪裡">1. 每種訊號走哪裡</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>訊號</th>
+<th>方向</th>
+<th>出口</th>
+<th>為什麼</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>時間推進、目前時間</td>
+<td>橋接 → Renode</td>
+<td>External Control <code>run_for</code> / <code>get_time</code></td>
+<td>lockstep 的節拍</td>
+</tr>
+<tr>
+<td>PWM duty</td>
+<td>MCU → 受控體</td>
+<td>External Control <code>sysbus_read</code> TIM3 <code>CCR1/CCR2/ARR</code></td>
+<td>CCR 讀得回(<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3);訂閱 PWM 腳的邊緣事件每秒會有上萬筆</td>
+</tr>
+<tr>
+<td>方向、致能</td>
+<td>MCU → 受控體</td>
+<td>External Control <code>gpio_get</code> gpioPortB 8/9/10</td>
+<td>讀的是<strong>輸出腳</strong>(<code>Connections[n].IsSet</code>)</td>
+</tr>
+<tr>
+<td>急停</td>
+<td>受控體 → MCU</td>
+<td>External Control <code>gpio_set</code> gpioPortC 13</td>
+<td>寫的是<strong>輸入腳</strong>(<code>OnGPIO(n, v)</code>)</td>
+</tr>
+<tr>
+<td>韌體內部狀態</td>
+<td>MCU → 橋接</td>
+<td>External Control <code>sysbus_read</code> <code>g_dbg</code>(17 個字一次讀)</td>
+<td>生效證明與驗收用</td>
+</tr>
+<tr>
+<td>UART(上位協定)</td>
+<td>雙向</td>
+<td>IronPython hook(<code>usart1.WriteChar</code> / <code>CharReceived</code>)</td>
+<td>要 ack(§3);Renode 內建的 socket terminal 也能用但沒有 ack</td>
+</tr>
+<tr>
+<td>CAN</td>
+<td>雙向</td>
+<td>IronPython hook(<code>can1.OnFrameReceived</code> / <code>FrameSent</code>)</td>
+<td>不碰核心;三條路的取捨在 §4</td>
+</tr>
+</tbody>
+</table></div>
+<p>兩個 TCP 埠:3500(External Control)、3600(hook)。3456 的 socket terminal 留著當對照。</p>
+<h2 id="2-external-control-api">2. External Control API</h2>
+<p><code>emulation CreateExternalControlServer "ec" 3500</code> 起 server。Rust client 在 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/bridge-rs/src/ec.rs"><code>bridge-rs/src/ec.rs</code></a>,只用 std。線路全部 little-endian:</p>
+<p><strong>握手</strong>:client 送 <code>u16 count</code> + count 組 <code>(cmd u8, ver u8)</code>。1.16.1 的表是 <code>(1,0) (2,0) (3,0) (4,0) (5,1) (6,0)</code>——GPIO 是 v1,其餘 v0。server 回 1 byte:<code>5</code> 成功;<code>1</code> 是 FATAL,後面接 <code>u32 len</code> + 訊息。</p>
+<p><strong>命令框</strong>:<code>'R' 'E' cmd:u8 len:u32 data</code>。命令碼:1 RunFor、2 GetTime、3 GetMachine、4 ADC、5 GPIO、6 SystemBus。</p>
+<p><strong>回應</strong>:第 1 byte 是 return code,之後的形狀依 code 而定:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>code</th>
+<th>意思</th>
+<th>後面接什麼</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>COMMAND_FAILED</td>
+<td>cmd u8、len u32、訊息</td>
+</tr>
+<tr>
+<td>1</td>
+<td>FATAL_ERROR</td>
+<td>len u32、訊息(<strong>沒有 cmd</strong>)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>INVALID_COMMAND</td>
+<td>cmd u8</td>
+</tr>
+<tr>
+<td>3</td>
+<td>SUCCESS_WITH_DATA</td>
+<td>cmd u8、len u32、data</td>
+</tr>
+<tr>
+<td>4</td>
+<td>SUCCESS_WITHOUT_DATA</td>
+<td>cmd u8</td>
+</tr>
+<tr>
+<td>5</td>
+<td>SUCCESS_HANDSHAKE</td>
+<td>—</td>
+</tr>
+<tr>
+<td>6</td>
+<td>ASYNC_EVENT</td>
+<td>cmd u8、ed u32、len u32、data</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>RunFor</code> 的回應可能被 ASYNC_EVENT 插隊,client 要吃掉事件再等自己的 4。GPIO 事件的 data 是 <strong>16 bytes</strong>:<code>u64 timestamp_us</code> + <code>bool</code> + 7 bytes 填充——C 版用 <code>sizeof(struct)</code> 帶過,Rust 端要自己算。</p>
+<p><strong>實例描述子</strong>:GPIO 與 SystemBus 命令先用 <code>id=-1, md, name_len, name</code> 拿一個 <code>i32 id</code>,之後的命令都帶那個 id。名字用 <code>sysbus.gpioPortB</code> 或 <code>gpioPortB</code> 都解得到;sysbus 本身用 <code>"sysbus"</code>。</p>
+<p><strong>GPIO 語意</strong>(server 端 <code>GPIOPort.cs</code>):<code>GetState(id, pin)</code> 回 <code>peripheral.Connections[pin].IsSet</code>——<strong>輸出腳</strong>;<code>timer3</code> 也是 <code>INumberedGPIOOutput</code>,所以 PWM 通道用同一個命令讀得到。<code>SetState(id, pin, v)</code> 呼叫 <code>OnGPIO(pin, v)</code>——<strong>輸入腳</strong>。<code>RegisterEvent</code> 掛在輸出腳的狀態變化上。</p>
+<p><strong>SystemBus</strong>:<code>id i32, op u8(0 讀/1 寫), width u8(1/2/4/8), addr u64, count u32, data[]</code>。<code>count</code> 是「幾個 width」不是幾 byte;讀 17 個 u32 一個 RPC 就好。</p>
+<p>一個踩過的坑:<strong>探埠會污染握手</strong>。<code>run_loop.sh</code> 第一版用 bash 的 <code>echo &gt;/dev/tcp/127.0.0.1/3500</code> 等埠開,那個換行字元被 server 當成握手的第一個 byte,狀態機從此錯位,client 收到 <code>Encountered unknown command 0x00</code>。解法是不用會送資料的探測,橋接自己重試連線。</p>
+<h2 id="3-hookironpython-一條-tcp每筆注入回-ack">3. hook:IronPython 一條 TCP,每筆注入回 ack</h2>
+<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/hil_hook.py"><code>renode/hil_hook.py</code></a> 由 <code>.resc</code> 的 <code>include @hil_hook.py</code> 載入,跑在 Renode 的 monitor IronPython 裡。它掛兩個事件、開一個 <code>TcpListener</code>、起一條背景執行緒收注入:</p>
+<pre><code>can1.FrameSent      += 每個 MCU 送出的 CAN 訊框 → 寫到 socket
+usart1.CharReceived += 每個 MCU 送出的 UART byte → 湊 8 個寫到 socket
+socket 收到 CAN 紀錄  → can1.OnFrameReceived(frame) → 回 ack
+socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
+</code></pre>
+<p>紀錄固定 13 bytes:<code>u32 id | u8 len | u8[8] data</code>。<code>id &lt; 0xFFFF0000</code> 是 CAN;<code>0xFFFF0001</code> UART 進 MCU、<code>0xFFFF0002</code> UART 出 MCU、<code>0xFFFF0003</code> 匯流排快照、<code>0xFFFF00AC</code> ack。</p>
+<p><strong>為什麼要 ack。</strong> <code>WriteChar</code> 與 <code>OnFrameReceived</code> 都是從主機執行緒呼叫進週邊的——Renode 內建的 socket terminal 也是這樣做。橋接寫完 socket 就 <code>run_for</code> 的話,那些 byte 是在這一步之前還是之後進到週邊,由執行緒排程決定。有 ack,橋接等到「注入完成」才推進時間,同一份輸入就一定落在同一步。<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §3 的「兩次 CSV 逐 byte 相同」靠的就是這個。</p>
+<p><strong>匯流排快照。</strong> <code>FrameSent</code> handler 在送出 CAN 紀錄之後,立刻在同一個模擬時刻讀 <code>TIM3 CCR1/CCR2</code>,附一筆 <code>0xFFFF0003</code>。橋接拿它跟 CAN 訊框裡韌體自己回報的 duty 比——兩條獨立管道在<strong>同一個時刻</strong>比。為什麼不能拿步邊界讀到的 CCR 比,<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §4 有 2/305 筆的實例。</p>
+<p>限制:一次一個 client;IronPython 的執行緒是 .NET 執行緒,<code>_send</code> 用 <code>Monitor.Enter</code> 保護;檔案全 ASCII。</p>
+<h2 id="4-can-送出模擬器的三條路各碰到哪一層">4. CAN 送出模擬器的三條路,各碰到哪一層</h2>
+<p>Renode 1.16.1 把 CAN 訊框送到模擬器外面的<strong>官方</strong>管道只有 <code>CreateSocketCANBridge</code>,它接的是一個 Linux CAN 網路介面。沒有實體卡時那個介面是 <code>vcan</code>——名字容易誤會,它是純軟體的虛擬介面(像 <code>lo</code>),但它是核心模組(這台 <code>CONFIG_CAN_VCAN=m</code>),載入要 root。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>路</th>
+<th>碰核心嗎</th>
+<th>原理</th>
+<th>本篇狀態</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>① monitor 級 IronPython hook → TCP</strong></td>
+<td>不碰</td>
+<td>掛 <code>FrameSent</code>、呼叫 <code>OnFrameReceived()</code>;IronPython 用 .NET socket。整條在 Renode 行程內</td>
+<td><strong>實測,主線</strong></td>
+</tr>
+<tr>
+<td>② 容器內 <code>ip link add vcan0 type vcan</code>(<code>--cap-add NET_ADMIN</code>)</td>
+<td>碰,核心自動載入</td>
+<td>netlink 建未知型別的 link 時核心會 <code>request_module("rtnl-link-vcan")</code>;不用手打 modprobe,但主機一樣多載一個模組</td>
+<td>未實測</td>
+</tr>
+<tr>
+<td>③ 主機 <code>modprobe vcan</code> + <code>SocketCANBridge</code></td>
+<td>碰</td>
+<td>Renode 官方路線;橋接用 SocketCAN API 收發</td>
+<td>未實測</td>
+</tr>
+</tbody>
+</table></div>
+<p>②③ 是同一件事——都讓核心載入 <code>vcan.ko</code>,差別只在誰觸發。真正不碰核心的只有 ①。</p>
+<p>①在 Renode 端遇到缺口時的處理原則:<strong>不繞路,修 Renode 原始碼</strong>。1.16.1 對應的 <code>renode-infrastructure</code> commit 是 <code>add012af003a0f620d3da52828262676f374d121</code>;修週邊模型可以 <code>i @file.cs</code> 執行期編譯載入(既有內部專案用這招換掉 UART 模型),不必自建 Renode。目前這一區沒有需要改 Renode 的地方;已知的修正候選有三個:<code>STM32_Timer</code> 週期 ARR vs ARR+1、<code>OC1PE</code> 未實作、<code>STM32_UART</code> 的 TC 閂鎖(<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3)。</p>
+<h2 id="5-lockstep-迴圈">5. lockstep 迴圈</h2>
+<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/bridge-rs/src/main.rs"><code>bridge-rs/src/main.rs</code></a> 每一步(5 ms):</p>
+<pre><code>1. 上位腳本 → cmd_vel 框包 → hook UART 注入 → 等 ack        (每 20 ms 一次)
+2. External Control run_for(5 ms)
+3. 讀匯流排:CCR1/CCR2(2 RPC)、PB8/9/10(3 RPC)、g_dbg(1 RPC)、時間(1 RPC)
+4. 收 MCU 這一步吐出的 UART(odom)與 CAN(狀態 + 快照):flush → ack → drain 1 ms
+5. 受控體走 5 ms → 編碼器 tick → hook CAN 注入 → 等 ack
+6. 寫一行 CSV
+</code></pre>
+<p><strong>一步延遲</strong>:第 5 步注入的訊框,韌體在下一步的 <code>run_for</code> 裡才讀。6 s 跑完 <code>enc_frames</code> = 1199 = steps − 1。</p>
+<p><strong>每步成本</strong>(實測 29.6 ms,0.17× 實時):<code>run_for</code> 本身約 10 ms(<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §5),其餘是 7 個 External Control RPC、hook 的兩次 ack 往返、以及 drain 的 1 ms 逾時。要更快的話,順序是:把 drain 換成「等一個明確的 end-of-step 紀錄」(省 1 ms)、把 GPIO 三次讀合併成一次 <code>ODR</code> 匯流排讀(省 2 RPC)、最後才是把 <code>run_for</code> 拉長。</p>
+<h2 id="6-受控體介面">6. 受控體介面</h2>
+<p>橋接對受控體只暴露兩個結構:</p>
+<pre><code>MotorCmd { duty_l, duty_r: 0..1;  fwd_l, fwd_r, enabled: bool }
+PlantOut { ticks_l, ticks_r: i32 (累計,繞回);  x_mm, y_mm, th_rad (真值);  vl, vr }
+</code></pre>
+<p>兩種後端,同一個 trait:<code>Fake</code>(Rust 內建,一階馬達 + 精確差速運動學)與 <code>Udp</code>(另一個行程)。UDP 是文字協定,一行一筆,受控體要以相同 <code>seq</code> 回覆,橋接等到才推進:</p>
+<pre><code>橋接 → 受控體:CMD &lt;seq&gt; &lt;dt_ms&gt; &lt;duty_l 0..1000&gt; &lt;duty_r&gt; &lt;fwd_l&gt; &lt;fwd_r&gt; &lt;en&gt;
+受控體 → 橋接:ENC &lt;seq&gt; &lt;ticks_l&gt; &lt;ticks_r&gt; &lt;x_mm&gt; &lt;y_mm&gt; &lt;th_rad&gt; &lt;vl&gt; &lt;vr&gt;
+</code></pre>
+<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/fake_plant.py"><code>plant/fake_plant.py</code></a> 用 Python 實作同一個模型走 UDP(實測 ALL PASS);<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/isaac_plant.py"><code>plant/isaac_plant.py</code></a> 是 Isaac Sim 6.0.1 版,<strong>未驗證</strong>,要驗的事在 <a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §6。</p>
+<p>橋接不做安全:<code>MotorCmd</code> 直接來自匯流排讀值,不夾限、不逾時。韌體停了車,<code>enabled</code> 就是 false,受控體自己會停。</p>
+<h2 id="7-檢查清單">7. 檢查清單</h2>
+<ul>
+<li>[ ] 每種訊號說得出走哪條出口、讀的是輸出腳還是輸入腳</li>
+<li>[ ] External Control 的握手版本表對上 server(GPIO v1)</li>
+<li>[ ] 沒有任何探測會往 3500 埠送資料</li>
+<li>[ ] 每筆注入等到 ack 才 <code>run_for</code></li>
+<li>[ ] 兩條獨立管道的比對用同一時刻的快照,不用步邊界的讀值</li>
+<li>[ ] CAN 走哪條路、碰不碰核心,寫在 README</li>
+<li>[ ] Renode 缺口:修原始碼並記 commit,不繞路</li>
+<li>[ ] 一步延遲寫進判準</li>
+</ul>
+<hr />
+<p>延伸閱讀:<a href="../../hil/36-stm32-firmware-on-renode/">36 STM32F4 韌體在 Renode 上開機</a>、<a href="../../hil/38-acceptance-and-failure-modes/">38 驗收與失敗形態</a>、<a href="../../common/05-ros2-bridge/">05 ROS2 橋接</a>(Isaac 那一側的 UDP 解耦做法同源)。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

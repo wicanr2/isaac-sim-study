@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>38 · 驗收與失敗形態:先閉環,再換 Isaac — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../fleet/">車隊</a><a href="../../hil/" class="on">HIL</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-八項判準在開跑前寫死">1. 八項判準,在開跑前寫死</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601要驗的七件事">6. 換成 Isaac Sim 6.0.1:要驗的七件事</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="38-驗收與失敗形態先閉環再換-isaac">38 · 驗收與失敗形態:先閉環,再換 Isaac</h1>
+<p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後列出把受控體換成 Isaac Sim 6.0.1 時要驗的七件事。</p>
+<blockquote>
+<p><strong>驗證狀態</strong>:§1–§5 全部在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 的 Isaac 腳本<strong>未在本 repo 環境驗證</strong>。</p>
+</blockquote>
+<h2 id="1-八項判準在開跑前寫死">1. 八項判準,在開跑前寫死</h2>
+<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/run_loop.sh"><code>run_loop.sh</code></a> 一條指令:起 Renode 容器(<code>--network none</code>)、橋接容器共用它的 netns、跑完只停自己起的那一個。橋接開頭先印生效證明:</p>
+<pre><code>[effect] renode ec=127.0.0.1:3500 hook=127.0.0.1:3600 machine=hilctl boot_ms=100 t0_us=100000
+[effect] g_dbg@0x200000f8 magic=0x48494c31 (ok) init_err=0
+[effect] plant=fake dt_ms=5 steps=1200 report_every=4 script=&quot;0:0,0;0.5:300,0;3.5:0,600;5:0,0&quot; negative=none
+[effect] tim3 ARR=999 (calib pwm_arr=999) track=300 circ_um=314159 tpr=4096
+</code></pre>
+<p>每一行都是「這個變數進了系統」的證據:magic 對表示讀的是這支韌體、<code>ARR</code> 讀回值對上 calib 表示韌體吃的是同一份參數。</p>
+<p>預設腳本:0.5 s 起 v = 300 mm/s 走 3 s,再 w = 600 mrad/s 轉 1.5 s,然後停;共 6 s = 1200 步。八項判準:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>判準</th>
+<th>抓什麼失敗</th>
+<th>實測</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C1</td>
+<td>Renode 時間 == steps × dt</td>
+<td><code>run_for</code> 少跑或多跑、時鐘漂移</td>
+<td>6,000,000 vs 6,000,000</td>
+</tr>
+<tr>
+<td>C2</td>
+<td>腳本有命令時車有動(位移 &gt; 100 mm)</td>
+<td>整條命令鏈斷掉</td>
+<td>902.0 mm</td>
+</tr>
+<tr>
+<td>C3</td>
+<td>韌體 odom 對受控體真值</td>
+<td>編碼器方向、換算、里程計</td>
+<td>dx 0.0、dy 0.9 mm、dθ 0.9 mrad(容差 25 mm + 2% 距離 / 30 mrad)</td>
+</tr>
+<tr>
+<td>C4</td>
+<td>每筆 CAN 狀態框的 duty == 同一時刻的 CCR 快照</td>
+<td>兩條獨立管道不一致</td>
+<td>305 筆,0 不符</td>
+</tr>
+<tr>
+<td>C5</td>
+<td>odom 回報數 ≥ 90% 期望</td>
+<td>UART 出口掉資料</td>
+<td>305 / 300</td>
+</tr>
+<tr>
+<td>C6</td>
+<td>韌體 <code>bad_crc</code> == 橋接送壞的數</td>
+<td>CRC 檢查沒在跑</td>
+<td>0 vs 0</td>
+</tr>
+<tr>
+<td>C7</td>
+<td>韌體收到的 cmd == 送出且未壞的數</td>
+<td>UART 入口掉資料</td>
+<td>300 vs 300</td>
+</tr>
+<tr>
+<td>C8</td>
+<td>韌體收到的編碼器訊框 == steps − 1</td>
+<td>CAN 入口掉資料;一步延遲</td>
+<td>1199 vs 1199</td>
+</tr>
+</tbody>
+</table></div>
+<p>任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 <a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a>。</p>
+<p>C3 的容差值得說明:0.9 mm 是韌體用 5 項 Taylor 的 sin/cos、以 float 積分 1200 步的誤差;假受控體用 f64 精確積分。換成 Isaac 之後,接觸滑移會讓這個數字變成幾十 mm(<a href="../../fleet/32-differential-drive-vehicle-model/">32 篇</a>實測 2~3%),容差要跟著改,而且要在換之前寫好。</p>
+<h2 id="2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</h2>
+<p><code>./run_loop.sh --negative bad-crc</code> 把每個 cmd_vel 的最後一個 byte 反相:</p>
+<pre><code>[run] fw ... cmd_frames=0 enc_frames=1199 bad_crc=300 rx_overflow=0
+[run] plant  x=0.0 y=0.0 th=0.0000
+[FAIL] C2 車有動(腳本有命令時) — plant 位移 0.0 mm
+[PASS] C6 韌體 bad_crc == 橋接送壞的數 — 300 vs 300
+[PASS] C7 韌體收到的 cmd == 送出且未壞的數 — 0 vs 0
+[result] SOME FAIL
+</code></pre>
+<p>紅在對的地方(C2),而且 C6 說明了<strong>為什麼</strong>紅:300 個壞框包全部被韌體擋下,一個都沒漏。沒有 C6 的話,「車不動」與「UART 根本沒接上」在 C2 上長得一樣。</p>
+<p>負對照要跟正對照用同一條指令、同一份腳本,只差一個旗標。它不是額外的測試,是「這套測試有效」的證據。</p>
+<h2 id="3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</h2>
+<p>同一腳本跑兩次,1201 行 CSV(每步 31 個欄位:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)<strong>逐 byte 相同</strong>。靠的是 <a href="../../hil/37-bus-signal-bridging/">37 篇</a> §3 的 ack:每筆注入確認進了週邊才推進時間。</p>
+<p>但換一個「同一個模型」的實作就不一樣了。<code>plant/fake_plant.py</code>(Python,走 UDP)與橋接內建的 Rust <code>Fake</code> 是同一組公式、同一份 calib:</p>
+<ul>
+<li>末端位姿相同:x 902.0、y −0.9、θ 0.9019</li>
+<li>1200 步 × 8 個欄位裡有 <strong>462 個不同</strong>,第一個在第 227 步:<code>ticks_l</code> 2526 vs 2525</li>
+</ul>
+<p>差在 <code>floor(s / 周長 × 4096)</code> 的邊界——兩種語言的浮點運算在最後一位偶爾不同,落在整數邊界上就差 1 tick。<strong>決定性是每個實作各自成立的性質</strong>;要跨實作比對,用容差,不用相等。</p>
+<h2 id="4-步邊界取樣的盲點">4. 步邊界取樣的盲點</h2>
+<p>C4 第一版拿「這一步結束時讀到的 CCR」跟 CAN 訊框裡的 duty 比,305 筆有 2 筆不符。看那兩筆:</p>
+<pre><code>step 376: 前一步 CCR=297,這一步 CCR=298,下一步 CCR=306;CAN 框說 305
+</code></pre>
+<p>305 這個值在任何一個步邊界都沒出現過。原因:韌體的控制步由 SysTick 的 1 ms 中斷驅動,5 ms 一次;<code>run_for</code> 的邊界剛好落在 1985 ms 這種整數 tick 上時,那個 tick 的控制步這次算進本步、下次算進下一步。於是某個 5 ms 視窗裡跑了<strong>兩次</strong>控制步,第一次算出 305 並發了 CAN 框,第二次算出 298 蓋掉 CCR,橋接在邊界只看得到 298。<code>ctrl_steps</code> 總數對(6100 ms 剛好 1220 次),只是分佈在視窗之間有抖動。</p>
+<p>這是 <a href="../../hil/35-hil-what-and-why/">35 篇</a> §5「三個時鐘」的具體實例:韌體的 tick 與橋接的步是兩個時鐘,對齊只在平均意義上成立。解法不是放寬判準,是<strong>在事件發生的當下取樣</strong>——hook 的 <code>FrameSent</code> handler 在同一個模擬時刻讀 CCR 附回來,C4 改用它之後 305/305 一致。</p>
+<p>一般化:橋接在步邊界看到的是狀態的採樣,不是狀態的歷史。要比「同一時刻」的兩個量,取樣要發生在模擬器裡面。</p>
+<h2 id="5-這次踩到的失敗形態">5. 這次踩到的失敗形態</h2>
+<p>每一條:症狀 → 真因 → 什麼判準抓得到。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>症狀</th>
+<th>真因</th>
+<th>抓到它的</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>握手回 FATAL <code>Encountered unknown command 0x00</code></td>
+<td>腳本用 <code>echo &gt;/dev/tcp/...</code> 探埠,換行字元被 server 當握手第一 byte</td>
+<td>握手錯誤要讀出 server 的訊息,不能只看 code</td>
+</tr>
+<tr>
+<td><code>magic=0x00000000</code>、<code>ARR=65535</code></td>
+<td><code>LoadELF</code> 後機器暫停,<code>main</code> 沒跑,SRAM 全零、暫存器是重置值</td>
+<td>生效證明;修法是先 <code>run_for</code> 開機 100 ms</td>
+</tr>
+<tr>
+<td>CAN 注入「成功」但 FIFO 空</td>
+<td><code>FMR</code> 寫 <code>1</code> 把 <code>CAN2SB</code> 清成 0,bank 0 歸 CAN2,訊框被靜默濾掉</td>
+<td>探針讀 <code>RF0R.FMP0</code>;log 開 Debug 看 <code>dropped by filter</code></td>
+</tr>
+<tr>
+<td>注入呼叫丟例外</td>
+<td><code>FrameReceived</code> 事件帶兩個參數,handler 只收一個</td>
+<td>例外訊息本身;事件簽章先 <code>print dir()</code> 查</td>
+</tr>
+<tr>
+<td>monitor 函式型別錯</td>
+<td>數字參數被轉 int、週邊名被轉物件</td>
+<td>字串加引號;函式收物件</td>
+</tr>
+<tr>
+<td>C4 2/305 不符</td>
+<td>一個視窗兩次控制步,中間值在邊界看不到</td>
+<td>事件時刻快照(§4)</td>
+</tr>
+<tr>
+<td>1 s 虛擬時間要 13.4 s</td>
+<td>MMIO 輪詢是 Renode 最貴的操作</td>
+<td>量指令數;WFI + 中斷收訊(<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §5)</td>
+</tr>
+</tbody>
+</table></div>
+<p>共同點:<strong>每一個的第一眼症狀都指向別的地方</strong>——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯。每一個都是先讀原始碼或加一個更近的觀測點才看到真因。</p>
+<h2 id="6-換成-isaac-sim-601要驗的七件事">6. 換成 Isaac Sim 6.0.1:要驗的七件事</h2>
+<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/isaac_plant.py"><code>plant/isaac_plant.py</code></a> 實作同一個 UDP 協定:用 <code>pxr</code> / <code>UsdPhysics</code> 直接建一台差速車(底盤 + 兩個球形輪 + 球關節腳輪),<code>DriveAPI</code> 的 angular 速度目標當馬達,<code>omni.physx</code> 手動步進,物理步長綁 calib 的 5 ms。它刻意不用 OmniGraph(<a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/">31 篇</a> §5:headless 下 <code>world.step(render=False)</code> 不 tick action graph)、也不依賴 <code>isaacsim.core.api</code> 或 <code>isaacsim.core.experimental</code> 任一邊(<a href="../../common/01-install-and-run-modes/">01 篇</a> §3 的命名空間搬家)。</p>
+<p>⚠ <strong>未在本 repo 環境驗證</strong>。每一條過了才能把標記拿掉:</p>
+<ol>
+<li>6.0.1 上 <code>omni.physx.get_physx_interface().update(dt, dt)</code> 是否仍是手動步進的正確介面;不是的話改用 experimental 的 <code>SimulationManager</code>。</li>
+<li><code>state:angular:physics:position</code> 在 PhysX 110 上會不會回寫關節角;不會的話腳本退回純運動學積分——結果照樣 ALL PASS,但那不是物理,log 要標明。</li>
+<li><code>timeStepsPerSecond</code> = 200 有沒有生效:讀回,並用一步後的輪角對 targetVelocity × dt。</li>
+<li>球形輪 + 球關節腳輪在 PhysX 110 上會不會被彈飛(<a href="../../fleet/32-differential-drive-vehicle-model/">32 篇</a>:腳輪半徑只有驅動輪一半時三輪叉車型在平地會翻)。</li>
+<li><code>DriveAPI</code> 的 <code>targetVelocity</code> 單位是<strong>度/秒</strong>:設 360 → 一秒後輪角 2π。</li>
+<li>同一份腳本跑一次,C1–C8 全綠;C3 容差按接觸滑移放寬並寫回判準。</li>
+<li>兩次 CSV 是否逐 byte 相同:PhysX GPU dynamics 不保證,CPU 模式較可能;<code>enableGPUDynamics</code> 要讀回。</li>
+</ol>
+<p>ROS 2 Jazzy 在這個拓撲裡的位置是<strong>上位</strong>:一個 rclpy 節點訂 <code>/cmd_vel</code>、發 <code>/odom</code>,對橋接講 UART 框包(或讓橋接直接開一個 UDP 給它)。Isaac 那側不需要 ros2 bridge——受控體介面是 UDP,不是 topic。要用 Isaac 內建的 Jazzy 也可以(<a href="../../6.0.1/14-ros2-bridge-6.0-architecture/">14 篇</a>),但那是另一條線,不在這一區的範圍。</p>
+<h2 id="7-建議的分階段">7. 建議的分階段</h2>
+<p>不要一開始就接 Isaac。順序:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>階段</th>
+<th>迴路裡有什麼</th>
+<th>判準</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>骨架</td>
+<td>橋接 ↔ 假受控體,<strong>沒有韌體</strong>(橋接自己灌固定 duty)</td>
+<td>同一輸入跑兩次逐 byte 相同</td>
+</tr>
+<tr>
+<td>韌體</td>
+<td>加 Renode 裡的韌體</td>
+<td>C1–C8 全綠;負對照轉紅</td>
+</tr>
+<tr>
+<td>受控體換 UDP</td>
+<td>假受控體改另一個行程</td>
+<td>與內建版末端一致、途中容差內</td>
+</tr>
+<tr>
+<td>Isaac</td>
+<td>受控體換 <code>isaac_plant.py</code></td>
+<td>§6 七項;C3 容差重定</td>
+</tr>
+<tr>
+<td>實板</td>
+<td>Renode 換實體 STM32,橋接換實板後端</td>
+<td>全部重跑;<strong>時序與最壞延遲在這裡才算數</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第三階段。</p>
+<h2 id="8-檢查清單">8. 檢查清單</h2>
+<ul>
+<li>[ ] 判準寫在程式裡,開跑前定好,任一 FAIL 非零碼離開</li>
+<li>[ ] 生效證明每個變數一行</li>
+<li>[ ] 有一個負對照,跟正對照只差一個旗標,而且紅在對的地方</li>
+<li>[ ] 決定性用逐 byte 比驗過;跨實作用容差</li>
+<li>[ ] 要比「同一時刻」的兩個量,取樣在模擬器裡做</li>
+<li>[ ] 每個失敗形態記下「第一眼像什麼」與「真因是什麼」</li>
+<li>[ ] 換受控體之前,容差重新寫好</li>
+<li>[ ] 報告裡分清楚哪些階段做到了、哪些數字要等實板</li>
+</ul>
+<hr />
+<p>延伸閱讀:<a href="../../hil/35-hil-what-and-why/">35 HIL 是什麼</a>、<a href="../../hil/36-stm32-firmware-on-renode/">36 STM32F4 韌體在 Renode 上開機</a>、<a href="../../hil/37-bus-signal-bridging/">37 匯流排訊號串接</a>、<a href="../../common/30-acceptance-probes-and-preregistration/">30 驗收探針與實驗預先登記</a>、<a href="../../common/27-failure-mode-taxonomy/">27 失效模式分類學</a>。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

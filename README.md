@@ -4,9 +4,9 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 
 線上版:**<https://wicanr2.github.io/isaac-sim-study/>**
 
-## 教學文件依版本分三區
+## 教學文件的分區
 
-34 篇裡真正綁死版本的只有七篇,其餘的機制兩版共用,因此不複製成兩份。跨版本排查先看 **[5.1 ↔ 6.0.1 差異速查](docs/version-matrix.md)**。
+38 篇裡真正綁死版本的只有七篇,其餘的機制兩版共用,因此不複製成兩份。跨版本排查先看 **[5.1 ↔ 6.0.1 差異速查](docs/version-matrix.md)**。
 
 | 區 | 入口 | 篇數 | 收什麼 |
 |---|---|---|---|
@@ -14,6 +14,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 | 5.1 | [`docs/5.1/`](docs/5.1/) | 2 | 綁 `isaacsim.core.*` 命名空間的程式碼 |
 | 6.0.1 | [`docs/6.0.1/`](docs/6.0.1/) | 5 | 6.0.x 專屬的架構、後端與調參 |
 | 車隊 | [`docs/fleet/`](docs/fleet/) | 4 | 多車、多樓層、電梯、感測器(版本無關,但自成一域) |
+| HIL | [`docs/hil/`](docs/hil/) | 4 | 把 STM32 下位控制器(Renode 模擬)放進迴路,Isaac 當受控體;純軟體閉環實測 |
 
 
 ### 共通:機制與方法論
@@ -81,6 +82,17 @@ extension 架構重組、PhysX 換代(107→110)與 Newton 後端、從 5.1 搬�
 | [33](docs/fleet/33-elevator-and-multi-floor/README.md) | **電梯與多樓層** | articulation 的**根附著不能帶自由度**,轎廂因此升不起來,而 USD 檢查、joint、`DriveAPI` 全都在——證據要問自由度清單;承重接觸的三個數字(下沉 4.22 對理論 4.01、追隨誤差 27.2 對 28.3、橫向滑動 0.0)與三個量測坑(**靜態下沉不能在限位上量**、追隨誤差不能拿去比下沉需求、載重要對上設計條件);跳動 22 mm 是**指令形狀**不是接觸(只在速度不連續的三個瞬間出現,等速段為 0);**全零的陰性結果一定要配正對照**,否則「很穩」與「量尺沒在量」輸出一模一樣;門檻上 200 mm 的洞**只在開進去時發作**——方向不對稱本身就是幾何成因的指紋;⚠ **負對照證明「是這次改動之後才有的」,不證明「是這次改動造成的」**;擋住轎廂的是它自己的門片(差半個門厚),而**只量相對量的量尺量不到參考系有沒有動**;車在移動中的轎廂裡繼續開——兩道防線都沒寫錯,是聯集不完整 |
 | [34](docs/fleet/34-lidar-and-sensor-plausible-but-wrong/README.md) | **感測器的假數字** | 三次錯誤,**三次的輸出都是一組合理的數字**:感測器埋在自己的碰撞盒裡 → 240 束全回量程下限,**與「車貼著牆」在資料上完全一樣**;視角裝不下車體(上限 `180° − atan((車寬/2)/淨空)`,實測約 93.5°,±120° 根本放不下)——把幾何約束寫成程式裡的守衛;🔴 **正對照自己的幾何錯了**(從車體原點量而不是從感測器量,差 0.4 m;而牆與箱子落在同一判定帶),正解是閉環對照 2.095 → 1.048 → 2.095;三個獨立的「看不見」成因(形狀建太晚被 Hydra 收下、線寬是次像素、`displayColor` 只是提示);ROS 2 那側四個會讓數字說謊的量法(topic 在 ≠ 有人發、一次 spin 只處理一個 callback、不要換算成 Hz、沒訂閱者就不發);素材亮度**用量的不看檔名** |
 
+### HIL:把下位控制器放進迴路
+
+讓真的底盤韌體去驅動 Isaac 裡的車。STM32F4 跑在 Renode 1.16.1 裡,Rust 橋接把匯流排訊號(UART、GPIO、Timer PWM、CAN)接到受控體;假受控體閉環本機實測,Isaac 6.0.1 側⚠ 未驗證(附驗收清單)。程式碼在 [`examples/hil-stm32/`](examples/hil-stm32/)。
+
+| # | 主題 | 一句話 |
+|---|---|---|
+| [35](docs/hil/35-hil-what-and-why/README.md) | **HIL 是什麼,為什麼硬體要放在下位** | NVIDIA 課程的 HIL 是 Jetson 跑感知,這裡是 MCU 跑底盤——協定、CRC、安全閘門、閉環控制、時序四類邏輯純運動學版本一條都沒有;每個行程只認一種語言,橋接是唯一懂兩邊的;**三個時鐘域**(牆鐘、Renode 虛擬時間、Isaac 模擬時間),`lockstep` 實測 1200 步時間分毫不差、兩次 CSV 逐 byte 相同;三條規則:**韌體沒有「模擬模式」、橋接不做安全、每輪要有生效證明**;純軟體 HIL 的邊界——時序只有實板算數 |
+| [36](docs/hil/36-stm32-firmware-on-renode/README.md) | **STM32F4 韌體在 Renode 上開機** | 無 HAL、無 libc 的 4.7 KB 韌體,每個寫進週邊的位元都能回答「模擬器有沒有實作它」;平台描述 vendor 一份、拿掉會上網的 `ApplySVD`、版本鎖死;**「型別存在 ≠ 夠用」逐項盤點**:CCR 讀得回、PWM 通道是真的 GPIO 線、**timer 週期是 ARR 不是 ARR+1**(兩組量測)、CAN 交握有回應但 `FMR` 寫 `1` 會把 bank 0 劃給 CAN2 而訊框靜默丟掉;printer 與 SRAM 兩條觀測管道(機器沒跑時 SRAM 全零);**WFI 讓 1 s 虛擬時間從 13.4 s 降到 1.83 s**,配套是收訊改中斷——Renode 的 UART 有佇列,輪詢版「看起來也對」 |
+| [37](docs/hil/37-bus-signal-bridging/README.md) | **匯流排訊號串接** | External Control 協定逐 byte(握手 14 B、六種回應碼、GPIO 事件 16 B 含 7 bytes 填充);`GetState` 讀輸出腳、`SetState` 寫輸入腳;IronPython hook 一條 TCP 收發 CAN 與 UART,**每筆注入回 ack**——沒有 ack 就沒有決定性;`FrameSent` 當下快照 CCR 給橋接做同時刻比對;**CAN 送出模擬器的三條路各碰到哪一層**(只有 IronPython 那條不碰核心;`vcan` 是純軟體介面但是核心模組);lockstep 六步、一步延遲、每步 29.6 ms 的成本拆解;⚠ 用 `echo >/dev/tcp/…` 探埠會把一個換行送進握手 |
+| [38](docs/hil/38-acceptance-and-failure-modes/README.md) | **驗收與失敗形態** | 八項判準在開跑前寫死,生效證明四行;負對照 `--negative bad-crc` 紅在 C2 而 **C6 證明韌體擋了全部 300 個壞框包**;決定性:兩次 1201 行逐 byte 相同,但 Rust 與 Python 兩個「同一個模型」末端一致、途中 462 欄位差 ±1 tick——**決定性是每個實作各自成立**;**步邊界取樣的盲點**:2/305 筆 CAN duty 在任何邊界都沒出現過,一個視窗跑了兩次控制步,解法是事件時刻快照;六種失敗形態,每一種的第一眼症狀都指向別的地方;換成 Isaac 6.0.1 要驗的七件事;分五階段,這一區做到第三 |
+
 ## 兩條常見的入場路徑
 
 **完全不熟 Isaac Sim、但手上有一個「物理跑不對」的場景要修** → 直接讀 **[16](docs/6.0.1/16-model-tuning-for-6.0/README.md)**,它從「一個會被搬動的箱子由什麼組成」講起,不預設前置知識。
@@ -111,6 +123,7 @@ extension 架構重組、PhysX 換代(107→110)與 Newton 後端、從 5.1 搬�
 - [`examples/scan_physics.py`](examples/scan_physics.py) — 掃描場景所有 **authored** 物理屬性(區分「刻意設定」與「吃預設」),並列出各 prim 的 `apiSchemas`。跨版本/跨主機比對場景時的主力工具
 - [`examples/audit_asset_physics.py`](examples/audit_asset_physics.py) — 稽核一份 USD 有沒有**授權**質量/密度/碰撞近似;會一併走訪 instance prototype(否則 `Traverse()` 對 CAD 轉出的資產回 0 mesh)
 - [`examples/templates/`](examples/templates/) — 實驗紀錄範本:輪次表、分期敘事、場景檔 manifest、事前登記、失敗總表(用法見 [30 篇](docs/common/30-acceptance-probes-and-preregistration/README.md) §8)
+- [`examples/hil-stm32/`](examples/hil-stm32/) — HIL 閉環全部程式碼:STM32F4 最小韌體(C,無 HAL)、Renode 平台與 IronPython hook、Rust 橋接(std-only)、假受控體(Rust / Python UDP)、Isaac 6.0.1 受控體(未驗證)。`./run_loop.sh` 一條指令跑,`--negative bad-crc` 是負對照
 - [`examples/usd_peek.py`](examples/usd_peek.py) — 唯讀檢視 crate 場景裡某個 prim 的物理結構(貼了哪些 API、質量、碰撞近似、bbox),並可把子樹匯出成 `.usda` 文字。搭配 [16 篇](docs/6.0.1/16-model-tuning-for-6.0/README.md)
 
 ## 其他
