@@ -7,8 +7,8 @@
 //!
 //! 橋接不做安全:不夾限、不逾時、不幫忙停車。這裡只轉譯與紀錄。
 
-use std::io;
-use std::net::UdpSocket;
+use std::io::{self, BufRead, BufReader, Write};
+use std::net::{TcpStream, UdpSocket};
 use std::time::Duration;
 
 use crate::calib::Calib;
@@ -98,7 +98,7 @@ impl Plant for Fake {
     }
 }
 
-/// UDP 文字協定(一行一筆,ASCII,空白分隔):
+/// 文字協定(一行一筆,ASCII,空白分隔;UDP 與 TCP 同一份):
 ///   橋接 → 受控體:`CMD <seq> <dt_ms> <duty_l 0..1000> <duty_r> <fwd_l 0/1> <fwd_r> <en 0/1>\n`
 ///   受控體 → 橋接:`ENC <seq> <ticks_l> <ticks_r> <x_mm> <y_mm> <th_rad> <vl_mm_s> <vr_mm_s>\n`
 /// 受控體必須以相同 seq 回覆;橋接等到回覆才推進下一步(lockstep)。
@@ -117,35 +117,77 @@ impl Udp {
 
 impl Plant for Udp {
     fn step(&mut self, seq: u32, dt: f64, cmd: MotorCmd) -> io::Result<PlantOut> {
-        let line = format!(
-            "CMD {} {} {} {} {} {} {}\n",
-            seq,
-            (dt * 1000.0).round() as i64,
-            (cmd.duty_l * 1000.0).round() as i64,
-            (cmd.duty_r * 1000.0).round() as i64,
-            cmd.fwd_l as u8,
-            cmd.fwd_r as u8,
-            cmd.enabled as u8
-        );
-        self.sock.send(line.as_bytes())?;
+        self.sock.send(cmd_line(seq, dt, cmd).as_bytes())?;
         let mut buf = [0u8; 256];
         loop {
             let n = self.sock.recv(&mut buf)?;
-            let s = String::from_utf8_lossy(&buf[..n]);
-            let f: Vec<&str> = s.split_whitespace().collect();
-            if f.len() >= 9 && f[0] == "ENC" && f[1].parse::<u32>().ok() == Some(seq) {
-                let p = |i: usize| f[i].parse::<f64>().unwrap_or(0.0);
-                return Ok(PlantOut {
-                    ticks_l: f[2].parse().unwrap_or(0),
-                    ticks_r: f[3].parse().unwrap_or(0),
-                    x_mm: p(4),
-                    y_mm: p(5),
-                    th_rad: p(6),
-                    vl_mm_s: p(7),
-                    vr_mm_s: p(8),
-                });
+            if let Some(out) = parse_enc(&String::from_utf8_lossy(&buf[..n]), seq) {
+                return Ok(out);
             }
             // 舊的或格式不對的回覆:丟掉,繼續等對的 seq
         }
     }
+}
+
+/// TCP 版:同一份文字協定,一行一筆。用在受控體在另一台主機、走 `ssh -L` 隧道時
+/// (ssh 的 -L 只轉 TCP)。
+pub struct Tcp {
+    w: TcpStream,
+    r: BufReader<TcpStream>,
+}
+
+impl Tcp {
+    pub fn connect(addr: &str) -> io::Result<Tcp> {
+        let s = TcpStream::connect(addr)?;
+        s.set_nodelay(true)?;
+        s.set_read_timeout(Some(Duration::from_secs(30)))?;
+        let r = BufReader::new(s.try_clone()?);
+        Ok(Tcp { w: s, r })
+    }
+}
+
+impl Plant for Tcp {
+    fn step(&mut self, seq: u32, dt: f64, cmd: MotorCmd) -> io::Result<PlantOut> {
+        self.w.write_all(cmd_line(seq, dt, cmd).as_bytes())?;
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if self.r.read_line(&mut line)? == 0 {
+                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "受控體關閉連線"));
+            }
+            if let Some(out) = parse_enc(&line, seq) {
+                return Ok(out);
+            }
+        }
+    }
+}
+
+fn cmd_line(seq: u32, dt: f64, cmd: MotorCmd) -> String {
+    format!(
+        "CMD {} {} {} {} {} {} {}\n",
+        seq,
+        (dt * 1000.0).round() as i64,
+        (cmd.duty_l * 1000.0).round() as i64,
+        (cmd.duty_r * 1000.0).round() as i64,
+        cmd.fwd_l as u8,
+        cmd.fwd_r as u8,
+        cmd.enabled as u8
+    )
+}
+
+fn parse_enc(s: &str, seq: u32) -> Option<PlantOut> {
+    let f: Vec<&str> = s.split_whitespace().collect();
+    if f.len() >= 9 && f[0] == "ENC" && f[1].parse::<u32>().ok() == Some(seq) {
+        let p = |i: usize| f[i].parse::<f64>().unwrap_or(0.0);
+        return Some(PlantOut {
+            ticks_l: f[2].parse().unwrap_or(0),
+            ticks_r: f[3].parse().unwrap_or(0),
+            x_mm: p(4),
+            y_mm: p(5),
+            th_rad: p(6),
+            vl_mm_s: p(7),
+            vr_mm_s: p(8),
+        });
+    }
+    None
 }

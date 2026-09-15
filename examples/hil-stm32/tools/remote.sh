@@ -3,7 +3,7 @@
 #   tools/remote.sh ssh  '<指令>'                       在 Isaac 帳號執行
 #   tools/remote.sh up   <本機路徑> <遠端相對家目錄路徑>   rsync 上去(會先 mkdir -p)
 #   tools/remote.sh down <遠端相對家目錄路徑> <本機路徑>   rsync 回來
-#   tools/remote.sh tunnel <本機埠> <遠端埠>              ssh -L,前景,Ctrl-C 收
+#   tools/remote.sh tunnel <本機位址:埠|埠> <遠端埠>      ssh -L,前景,Ctrl-C 收(位址省略 = 127.0.0.1)
 # 遠端工作區固定 ~/hil-plant;不動家目錄其他東西。那台沒有 docker / root,只用既有 Isaac venv。
 set -Eeuo pipefail
 ENTRY="${HIL_REMOTE_ENTRY:-$HOME/00-機密/tainan/login_rtx6000.sh}"
@@ -20,6 +20,6 @@ case "${1:-}" in
   ssh)    shift; "${SSH[@]}" "$HOST" "$@" ;;
   up)     "${SSH[@]}" "$HOST" "mkdir -p $3"; rsync -az -e "${SSH[*]}" "$2" "$HOST:$3" ;;
   down)   rsync -az -e "${SSH[*]}" "$HOST:$2" "$3" ;;
-  tunnel) "${SSH[@]}" -N -L "127.0.0.1:$2:127.0.0.1:$3" "$HOST" ;;
+  tunnel) L="$2"; [[ "$L" == *:* ]] || L="127.0.0.1:$L"; "${SSH[@]}" -N -L "$L:127.0.0.1:$3" "$HOST" ;;
   *) sed -n 2,7p "$0"; exit 2 ;;
 esac

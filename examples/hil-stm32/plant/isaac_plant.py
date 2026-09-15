@@ -4,8 +4,9 @@
 ⚠ 未在本 repo 環境驗證(本機無 GPU)。程式碼依官方文件與本 repo 01/15/31/32 篇的結論組合,
   哪些地方要實跑才能確認,寫在檔尾「驗收清單」。假受控體(fake_plant.py)已驗過同一份協定。
 
-執行(在 Isaac Sim 安裝目錄):
-    ./python.sh /path/to/isaac_plant.py --bind 0.0.0.0:3700 --calib /path/to/calib.json
+執行(在 Isaac Sim 安裝目錄;pip 版用 venv 的 python):
+    ./python.sh /path/to/isaac_plant.py --bind 0.0.0.0:3700 --calib /path/to/calib.json [--tcp]
+--tcp:同一份協定改走 TCP(一行一筆),受控體在另一台主機、經 ssh -L 隧道時用。
 
 協定(與 fake_plant.py 相同):
     橋接 → 受控體:CMD <seq> <dt_ms> <duty_l 0..1000> <duty_r> <fwd_l 0/1> <fwd_r> <en 0/1>
@@ -24,6 +25,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--bind", default="0.0.0.0:3700")
 ap.add_argument("--calib", default="../calib.json")
 ap.add_argument("--headless", type=int, default=1)
+ap.add_argument("--tcp", action="store_true")
 args = ap.parse_args()
 calib = json.load(open(args.calib, encoding="utf-8"))
 
@@ -147,24 +149,31 @@ def pose():
     return t[0] * 1000.0, t[1] * 1000.0, yaw
 
 host, port = args.bind.rsplit(":", 1)
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.bind((host, int(port)))
-sock.settimeout(0.5)
-print(f"[isaac_plant] listening {args.bind} dt={DT} r={r} track={TRACK_MM}", flush=True)
+if args.tcp:
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((host, int(port)))
+    srv.listen(1)
+    srv.settimeout(0.5)
+else:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((host, int(port)))
+    sock.settimeout(0.5)
+print(f"[isaac_plant] listening {args.bind} {'tcp' if args.tcp else 'udp'} dt={DT} r={r} track={TRACK_MM}", flush=True)
 
 # 沒有 PhysX joint state 時的退路:用命令速度積分輪角(那就退化成純運動學,結果要標明)
 ang_l = ang_r = 0.0
-last_vl = last_vr = 0.0
+fallback_used = 0
 x0, y0, th0 = pose()
-while app.is_running():
-    try:
-        data, addr = sock.recvfrom(256)
-    except socket.timeout:
-        app.update()  # 讓 Kit 活著(headless 也要)
-        continue
-    f = data.decode("ascii", "replace").split()
+n_cmd = 0
+
+
+def handle(line: str):
+    """一筆 CMD → 步進 → 回 ENC 字串;格式不對回 None"""
+    global ang_l, ang_r, fallback_used, n_cmd
+    f = line.split()
     if len(f) != 8 or f[0] != "CMD":
-        continue
+        return None
     seq = int(f[1])
     dt = int(f[2]) / 1000.0
     en = f[7] == "1"
@@ -181,11 +190,41 @@ while app.is_running():
         ang_l += vl / R_MM * dt
         ang_r += vr / R_MM * dt
         al, ar = ang_l, ang_r
+        fallback_used += 1
     ticks_l = int(math.floor(al / (2 * math.pi) * TPR))
     ticks_r = int(math.floor(ar / (2 * math.pi) * TPR))
     x, y, th = pose()
-    reply = f"ENC {seq} {ticks_l} {ticks_r} {x - x0:.6f} {y - y0:.6f} {th - th0:.9f} {vl:.6f} {vr:.6f}\n"
-    sock.sendto(reply.encode("ascii"), addr)
+    n_cmd += 1
+    if n_cmd % 200 == 0:
+        print(f"[isaac_plant] {n_cmd} cmds x={x - x0:.1f} y={y - y0:.1f} th={th - th0:.4f} "
+              f"ticks=({ticks_l},{ticks_r}) joint_state_fallback={fallback_used}", flush=True)
+    return f"ENC {seq} {ticks_l} {ticks_r} {x - x0:.6f} {y - y0:.6f} {th - th0:.9f} {vl:.6f} {vr:.6f}\n"
+
+
+while app.is_running():
+    if args.tcp:
+        try:
+            conn, _ = srv.accept()
+        except socket.timeout:
+            app.update()
+            continue
+        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        print("[isaac_plant] client connected", flush=True)
+        with conn, conn.makefile("r", encoding="ascii", errors="replace") as rf:
+            for line in rf:
+                reply = handle(line)
+                if reply:
+                    conn.sendall(reply.encode("ascii"))
+        print("[isaac_plant] client disconnected", flush=True)
+        continue
+    try:
+        data, addr = sock.recvfrom(256)
+    except socket.timeout:
+        app.update()  # 讓 Kit 活著(headless 也要)
+        continue
+    reply = handle(data.decode("ascii", "replace"))
+    if reply:
+        sock.sendto(reply.encode("ascii"), addr)
 
 app.close()
 

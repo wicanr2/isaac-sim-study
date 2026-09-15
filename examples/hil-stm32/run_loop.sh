@@ -6,6 +6,8 @@
 #   ./run_loop.sh --negative bad-crc    # 負對照:每個命令的 CRC 都弄壞,驗收必須轉紅
 #   BUILD=1 ./run_loop.sh               # 先重建韌體與橋接
 #   PLANT=udp ./run_loop.sh             # 受控體改走 UDP:另起一個容器跑 plant/fake_plant.py
+#   PLANT=tcp ./run_loop.sh             # 同上但走 TCP(ssh -L 隧道用的那條路)
+#   PLANT=remote ./run_loop.sh          # 受控體在場域 GPU 主機:自動開 ssh -L 隧道,受控體那端要先起好(埠 3700,TCP)
 #
 # 全部在 docker:Renode 容器 --network none;橋接容器共用它的 netns(還是不通外網)。
 # 只停自己起的那一個容器(名稱帶 PID),不碰其他 docker 資源。
@@ -20,6 +22,7 @@ PLANT="${PLANT:-fake}"
 CPUS="${CPUS:-2}"
 NAME="hil-renode-$$"
 PNAME="hil-plant-$$"
+TUNNEL_PID=""
 COMMON=(--rm --cpus "$CPUS" --memory 2g --pids-limit 256
         --log-opt max-size=10m --log-opt max-file=3
         --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/w)
@@ -38,11 +41,19 @@ mkdir -p out renode/out
 cleanup() {
   docker stop -t 2 "$NAME" >/dev/null 2>&1 || true
   docker stop -t 2 "$PNAME" >/dev/null 2>&1 || true
+  [ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
 
-echo "[renode] 啟動 $NAME(Renode $RENODE_IMAGE,--network none,$CPUS 核)"
-docker run -d -i --name "$NAME" --network none --cpus "$CPUS" --memory 2g --pids-limit 256 \
+# 遠端受控體時 Renode 容器改掛 docker 預設 bridge 網路:容器能連到 bridge 的閘道位址,
+# ssh -L 就綁在那個閘道位址上——隧道只有容器看得到,Renode 的埠也沒有 publish 到主機。
+RENODE_NET=none
+if [ "$PLANT" = "remote" ]; then
+  RENODE_NET=bridge
+  GW=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
+fi
+echo "[renode] 啟動 $NAME(Renode $RENODE_IMAGE,--network $RENODE_NET,$CPUS 核)"
+docker run -d -i --name "$NAME" --network "$RENODE_NET" --cpus "$CPUS" --memory 2g --pids-limit 256 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w "$RENODE_IMAGE" \
   renode --disable-xwt --console -e "include @/w/renode/hilctl.resc" >/dev/null
@@ -51,13 +62,27 @@ docker run -d -i --name "$NAME" --network none --cpus "$CPUS" --memory 2g --pids
 # 把它當成握手的第一個 byte,狀態機從此錯位(2026-09-15 踩到)。改由橋接自己重試連線。
 
 PLANT_ARG=(--plant fake)
-if [ "$PLANT" = "udp" ]; then
-  echo "[plant] 啟動 $PNAME(plant/fake_plant.py,UDP 3700,與 Renode 同 netns)"
-  docker run -d --name "$PNAME" --network "container:$NAME" --cpus 1 --memory 512m --pids-limit 64 \
-    --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    -v "$PWD":/w -w /w/plant "$PY_IMAGE" python3 fake_plant.py --bind 0.0.0.0:3700 --calib ../calib.json >/dev/null
-  PLANT_ARG=(--plant udp:127.0.0.1:3700)
-fi
+case "$PLANT" in
+  udp|tcp)
+    TCPFLAG=(); [ "$PLANT" = tcp ] && TCPFLAG=(--tcp)
+    echo "[plant] 啟動 $PNAME(plant/fake_plant.py,$PLANT 3700,與 Renode 同 netns)"
+    docker run -d --name "$PNAME" --network "container:$NAME" --cpus 1 --memory 512m --pids-limit 64 \
+      --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
+      -v "$PWD":/w -w /w/plant "$PY_IMAGE" python3 fake_plant.py --bind 0.0.0.0:3700 --calib ../calib.json "${TCPFLAG[@]}" >/dev/null
+    PLANT_ARG=(--plant "$PLANT:127.0.0.1:3700")
+    ;;
+  remote)
+    echo "[tunnel] ssh -L $GW:3700 → 場域 GPU 主機 127.0.0.1:3700"
+    tools/remote.sh tunnel "$GW:3700" 3700 &
+    TUNNEL_PID=$!
+    for i in $(seq 1 40); do ss -ltn 2>/dev/null | grep -q "$GW:3700" && break; sleep 0.25; done
+    ss -ltn | grep -q "$GW:3700" || { echo "隧道沒起來"; exit 1; }
+    PLANT_ARG=(--plant "tcp:$GW:3700")
+    ;;
+  tcp:*|udp:*)
+    PLANT_ARG=(--plant "$PLANT")
+    ;;
+esac
 
 echo "[bridge] 開跑:${PLANT_ARG[*]} $*"
 set +e

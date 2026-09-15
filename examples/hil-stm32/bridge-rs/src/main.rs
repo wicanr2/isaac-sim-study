@@ -159,8 +159,10 @@ fn main() {
         Box::new(plant::Fake::new(c))
     } else if let Some(addr) = a.plant.strip_prefix("udp:") {
         Box::new(plant::Udp::connect(addr).expect("UDP plant"))
+    } else if let Some(addr) = a.plant.strip_prefix("tcp:") {
+        Box::new(plant::Tcp::connect(addr).expect("TCP plant"))
     } else {
-        eprintln!("--plant 只接受 fake 或 udp:host:port");
+        eprintln!("--plant 只接受 fake、udp:host:port 或 tcp:host:port");
         std::process::exit(2);
     };
 

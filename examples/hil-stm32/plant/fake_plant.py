@@ -9,7 +9,8 @@
   橋接 → 受控體:CMD <seq> <dt_ms> <duty_l 0..1000> <duty_r> <fwd_l 0/1> <fwd_r> <en 0/1>
   受控體 → 橋接:ENC <seq> <ticks_l> <ticks_r> <x_mm> <y_mm> <th_rad> <vl_mm_s> <vr_mm_s>
 
-用法:python3 fake_plant.py --bind 0.0.0.0:3700 --calib ../calib.json
+用法:python3 fake_plant.py --bind 0.0.0.0:3700 --calib ../calib.json [--tcp]
+--tcp:同一份協定改走 TCP(一行一筆),給 ssh -L 隧道用。
 """
 import argparse
 import json
@@ -61,29 +62,52 @@ def main() -> int:
     ap.add_argument("--bind", default="0.0.0.0:3700")
     ap.add_argument("--calib", default="../calib.json")
     ap.add_argument("--tau", type=float, default=0.050)
+    ap.add_argument("--tcp", action="store_true")
     a = ap.parse_args()
 
     calib = json.load(open(a.calib, encoding="utf-8"))
     plant = FakePlant(calib, a.tau)
     host, port = a.bind.rsplit(":", 1)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((host, int(port)))
-    print(f"[fake_plant] listening {a.bind} circ={plant.circ_mm:.3f}mm track={plant.track} tpr={plant.tpr} tau={a.tau}", flush=True)
+    print(f"[fake_plant] listening {a.bind} {'tcp' if a.tcp else 'udp'} circ={plant.circ_mm:.3f}mm track={plant.track} tpr={plant.tpr} tau={a.tau}", flush=True)
+    serve(plant, host, int(port), a.tcp)
 
+
+def handle(plant: FakePlant, line: str, n: int) -> str | None:
+    f = line.split()
+    if len(f) != 8 or f[0] != "CMD":
+        return None
+    seq = int(f[1])
+    dt = int(f[2]) / 1000.0
+    plant.step(dt, int(f[3]) / 1000.0, int(f[4]) / 1000.0, f[5] == "1", f[6] == "1", f[7] == "1")
+    if n % 1000 == 0:
+        print(f"[fake_plant] {n} steps x={plant.x:.1f} y={plant.y:.1f} th={plant.th:.4f}", flush=True)
+    return f"ENC {seq} {plant.ticks(plant.sl)} {plant.ticks(plant.sr)} {plant.x:.6f} {plant.y:.6f} {plant.th:.9f} {plant.vl:.6f} {plant.vr:.6f}\n"
+
+
+def serve(plant: FakePlant, host: str, port: int, tcp: bool) -> None:
     n = 0
+    if not tcp:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((host, port))
+        while True:
+            data, addr = sock.recvfrom(256)
+            n += 1
+            reply = handle(plant, data.decode("ascii", "replace"), n)
+            if reply:
+                sock.sendto(reply.encode("ascii"), addr)
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((host, port))
+    srv.listen(1)
     while True:
-        data, addr = sock.recvfrom(256)
-        f = data.decode("ascii", "replace").split()
-        if len(f) != 8 or f[0] != "CMD":
-            continue
-        seq = int(f[1])
-        dt = int(f[2]) / 1000.0
-        plant.step(dt, int(f[3]) / 1000.0, int(f[4]) / 1000.0, f[5] == "1", f[6] == "1", f[7] == "1")
-        reply = f"ENC {seq} {plant.ticks(plant.sl)} {plant.ticks(plant.sr)} {plant.x:.6f} {plant.y:.6f} {plant.th:.9f} {plant.vl:.6f} {plant.vr:.6f}\n"
-        sock.sendto(reply.encode("ascii"), addr)
-        n += 1
-        if n % 1000 == 0:
-            print(f"[fake_plant] {n} steps x={plant.x:.1f} y={plant.y:.1f} th={plant.th:.4f}", flush=True)
+        conn, _ = srv.accept()
+        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        with conn, conn.makefile("r", encoding="ascii", errors="replace") as rf:
+            for line in rf:
+                n += 1
+                reply = handle(plant, line, n)
+                if reply:
+                    conn.sendall(reply.encode("ascii"))
 
 
 if __name__ == "__main__":
