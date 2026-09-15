@@ -7,13 +7,17 @@
 # 遠端工作區固定 ~/hil-plant;不動家目錄其他東西。那台沒有 docker / root,只用既有 Isaac venv。
 set -Eeuo pipefail
 ENTRY="${HIL_REMOTE_ENTRY:-$HOME/00-機密/tainan/login_rtx6000.sh}"
-ISAAC_USER="${HIL_REMOTE_USER:-jinher002}"
+# Isaac 環境所在的帳號與入口腳本的帳號不同;帳號名放機密目錄的 hil-remote.env(HIL_REMOTE_USER=...),不進 repo
+ENV_FILE="${HIL_REMOTE_ENV:-$(dirname "$ENTRY")/hil-remote.env}"
+[ -f "$ENV_FILE" ] && . "$ENV_FILE"
+: "${HIL_REMOTE_USER:?請在 $ENV_FILE 設 HIL_REMOTE_USER}"
+ISAAC_USER="$HIL_REMOTE_USER"
 LINE=$(grep -m1 '^ssh' "$ENTRY")
 PORT=$(sed -E 's/.*-p ([0-9]+).*/\1/' <<<"$LINE")
 HOST=$(awk '{print $NF}' <<<"$LINE" | sed "s/^[^@]*@/$ISAAC_USER@/")
 SSH=(ssh -p "$PORT" -o BatchMode=yes -o ConnectTimeout=20)
 for arg in "${3:-}" "${2:-}"; do
-  case "${1:-}" in up|down) if [[ "$arg" == '~'* || "$arg" == /users/* ]] && [[ "$arg" != '~/hil-plant/'* ]]; then
+  case "${1:-}" in up|down) if [[ "$arg" == '~'* || "$arg" == /* ]] && [[ "$arg" != '~/hil-plant/'* ]]; then
     echo "拒絕:遠端路徑必須在 ~/hil-plant/ 底下(得到 $arg)" >&2; exit 4; fi;; esac
 done
 case "${1:-}" in
