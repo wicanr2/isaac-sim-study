@@ -67,6 +67,10 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 
 **匯流排快照。** `FrameSent` handler 在送出 CAN 紀錄之後,立刻在同一個模擬時刻讀 `TIM3 CCR1/CCR2`,附一筆 `0xFFFF0003`。橋接拿它跟 CAN 訊框裡韌體自己回報的 duty 比——兩條獨立管道在**同一個時刻**比。為什麼不能拿步邊界讀到的 CCR 比,[38 篇](../38-acceptance-and-failure-modes/README.md) §4 有 2/305 筆的實例。
 
+**機器在跑的時候,注入不能直接呼叫週邊。** `lockstep` 下注入時機器是暫停的,從背景執行緒直接 `WriteChar` 沒事。`realtime` 下機器在跑,同一行會卡死——第一個命令進得去,第二個 `WriteChar` 永遠不回來(模擬執行緒與注入執行緒搶週邊的鎖)。Renode 自己的外部裝置(socket terminal 的 `UARTBackend`、`CANHub`)走的是 `machine.HandleTimeDomainEvent(handler, arg, timestamp)`:把呼叫排進機器的時間域,在下一個同步點由模擬執行緒執行。hook 的 `_deliver` 照這條:`IsStarted` 為真就排隊,否則直呼。時間戳要用 `TimeDomainsManager.Instance.GetEffectiveVirtualTimeStamp()`——`VirtualTimeStamp` 只有註冊過的模擬執行緒能讀,從 hook 的執行緒讀會丟 `Tried to obtain a virtual time stamp of an unregistered thread`。
+
+**關掉 Nagle。** 紀錄 13 bytes、一筆一答。`lockstep` 下 ack 是當時唯一的出站資料,立刻送;`realtime` 下 `FrameSent` 不斷從模擬執行緒寫小封包,ack 排在未確認資料後面,等對端的 delayed ACK——每步 42 ms,全部是這個。`client.NoDelay = True` 之後 hook 每步 2.4 ms。橋接那一側從一開始就 `set_nodelay(true)`,只設一邊不夠。
+
 限制:一次一個 client;IronPython 的執行緒是 .NET 執行緒,`_send` 用 `Monitor.Enter` 保護;檔案全 ASCII。
 
 ## 4. CAN 送出模擬器的三條路,各碰到哪一層
@@ -96,7 +100,7 @@ Renode 1.16.1 把 CAN 訊框送到模擬器外面的**官方**管道只有 `Crea
 ```
 1. 上位腳本 → cmd_vel 框包 → hook UART 注入 → 等 ack        (每 20 ms 一次)
 2. External Control run_for(5 ms)
-3. 讀匯流排:CCR1/CCR2(2 RPC)、PB8/9/10(3 RPC)、g_dbg(1 RPC)、時間(1 RPC)
+3. 讀匯流排:CCR1/CCR2(相鄰,1 RPC)、PB8/9/10(3 RPC)、g_dbg(1 RPC)、時間(1 RPC)
 4. 收 MCU 這一步吐出的 UART(odom)與 CAN(狀態 + 快照):flush → ack → drain 1 ms
 5. 受控體走 5 ms → 編碼器 tick → hook CAN 注入 → 等 ack
 6. 寫一行 CSV
@@ -104,7 +108,9 @@ Renode 1.16.1 把 CAN 訊框送到模擬器外面的**官方**管道只有 `Crea
 
 **一步延遲**:第 5 步注入的訊框,韌體在下一步的 `run_for` 裡才讀。6 s 跑完 `enc_frames` = 1199 = steps − 1。
 
-**每步成本**(實測 29.6 ms,0.17× 實時):`run_for` 本身約 10 ms([36 篇](../36-stm32-firmware-on-renode/README.md) §5),其餘是 7 個 External Control RPC、hook 的兩次 ack 往返、以及 drain 的 1 ms 逾時。要更快的話,順序是:把 drain 換成「等一個明確的 end-of-step 紀錄」(省 1 ms)、把 GPIO 三次讀合併成一次 `ODR` 匯流排讀(省 2 RPC)、最後才是把 `run_for` 拉長。
+**每步成本**:主機閒時 8–13 ms(分段:`run_for` 9.3 ms、hook 2.2 ms、`ec_read` 1.0 ms),主機另有負載時 29.6 ms——橋接每步印 `[run] per-step wall: ec_read/hook/plant/run_for` 四段,看數字不用猜。要更快的話,順序是:把 drain 換成「等一個明確的 end-of-step 紀錄」(省 1 ms)、把 GPIO 三次讀合併成一次 `ODR` 匯流排讀(省 2 RPC)、最後才是把 `run_for` 拉長。
+
+`--mode realtime` 用同一個迴圈,只換第 2 步:開跑前經 hook 送 `START`(`0xFFFF0010`,hook 呼叫 `StartAll()` 後 ack),每步不再 `run_for`,改 sleep 到下一個 5 ms 牆鐘刻度;受控體的 dt 用實際過了多久;跑完送 `PAUSE`(`0xFFFF0011`)。每步 5.0–5.2 ms(`ec_read` 1.8 + hook 2.4 + sleep 0.4),三個時鐘的分歧與後果量在 [35 篇](../35-hil-what-and-why/README.md) §5.1。
 
 ## 6. 受控體介面
 

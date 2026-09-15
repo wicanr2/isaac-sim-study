@@ -19,6 +19,8 @@
 #                          samples the bus only at step boundaries; a value that lives and
 #                          dies inside one step is invisible there. This is how the bridge
 #                          compares two independent channels at the same instant.
+#   id == 0xFFFF0010       START, bridge -> Renode: let the emulation run freely (realtime mode).
+#   id == 0xFFFF0011       PAUSE, bridge -> Renode: pause it again. Both are acked.
 #   id == 0xFFFF00AC       ACK, Renode -> bridge, data[0] = running counter.
 #                          Sent after each injected record (CAN or UART) has been
 #                          handed to the peripheral. The bridge waits for it before
@@ -37,17 +39,23 @@ from System.Net import IPAddress
 from System.Net.Sockets import TcpListener
 from System.Threading import Thread, ThreadStart
 from Antmicro.Renode.Core.CAN import CANMessageFrame
+from Antmicro.Renode.Time import TimeDomainsManager
 
 ID_UART_TO_MCU   = 0xFFFF0001
 ID_UART_FROM_MCU = 0xFFFF0002
 ID_BUS_SNAPSHOT  = 0xFFFF0003
+ID_START         = 0xFFFF0010
+ID_PAUSE         = 0xFFFF0011
 ID_ACK           = 0xFFFF00AC
 TIM3_CCR1        = 0x40000434
 TIM3_CCR2        = 0x40000438
 
 _st = {"listener": None, "stream": None, "thread": None, "running": False,
        "can_sent": 0, "can_injected": 0, "uart_out": 0, "uart_in": 0, "acks": 0,
-       "lock": System.Object()}
+       "lock": System.Object(), "trace": False}
+
+def mc_hil_hook_trace(on=1):
+    _st["trace"] = bool(int(on))
 
 def _record(rid, data):
     b = System.Array.CreateInstance(System.Byte, 13)
@@ -104,7 +112,20 @@ def _ack():
     _st["acks"] = (_st["acks"] + 1) & 0xFF
     _send(_record(ID_ACK, [_st["acks"]]))
 
+def _deliver(machine, handler, arg_type, arg):
+    # When the emulation is running, a peripheral must not be poked from a foreign thread:
+    # WriteChar / OnFrameReceived raise interrupts and touch the CPU. Renode's own externals
+    # (socket terminals, CAN hubs) queue the call on the machine's time domain instead.
+    # When paused (lockstep) the direct call is what makes the injection land before the
+    # next run_for, so keep it.
+    if emulationManager.CurrentEmulation.IsStarted:
+        machine.HandleTimeDomainEvent[arg_type](System.Action[arg_type](handler), arg,
+                                                TimeDomainsManager.Instance.GetEffectiveVirtualTimeStamp())
+    else:
+        handler(arg)
+
 def _rx_loop():
+    machine = self.Machine
     can1 = self.Machine["sysbus.can1"]
     usart1 = self.Machine["sysbus.usart1"]
     lst = _st["listener"]
@@ -113,6 +134,9 @@ def _rx_loop():
             client = lst.AcceptTcpClient()
         except Exception:
             break
+        # 13-byte records answered one at a time: with Nagle on, an ack queued behind
+        # unacknowledged FrameSent records waits for the peer's delayed ACK (~40 ms).
+        client.NoDelay = True
         stream = client.GetStream()
         _st["stream"] = stream
         buf = System.Array.CreateInstance(System.Byte, 13)
@@ -131,17 +155,28 @@ def _rx_loop():
             rid = int(buf[0]) | (int(buf[1]) << 8) | (int(buf[2]) << 16) | (int(buf[3]) << 24)
             n = int(buf[4])
             data = [int(buf[5 + i]) for i in range(n)]
-            if rid == ID_UART_TO_MCU:
+            if rid == ID_START:
+                emulationManager.CurrentEmulation.StartAll()
+                print "hil_hook: START"
+                _ack()
+            elif rid == ID_PAUSE:
+                emulationManager.CurrentEmulation.PauseAll()
+                _ack()
+            elif rid == ID_UART_TO_MCU:
                 if n == 0:
                     _flush_uart()
                 else:
+                    if _st["trace"]:
+                        print "hil_hook: uart_in %d bytes" % n
                     for x in data:
-                        usart1.WriteChar(System.Byte(x))
+                        _deliver(machine, usart1.WriteChar, System.Byte, System.Byte(x))
                     _st["uart_in"] += n
+                    if _st["trace"]:
+                        print "hil_hook: uart_in done"
                 _ack()
             elif rid < 0xFFFF0000:
                 frame = CANMessageFrame(System.UInt32(rid), System.Array[System.Byte](data), False, False, False, False)
-                can1.OnFrameReceived(frame)
+                _deliver(machine, can1.OnFrameReceived, CANMessageFrame, frame)
                 _st["can_injected"] += 1
                 _ack()
         _st["stream"] = None

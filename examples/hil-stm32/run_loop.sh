@@ -69,7 +69,7 @@ echo "[renode] 啟動 $NAME(Renode $RENODE_IMAGE,--network $RENODE_NET,$CPUS 核
 docker run -d -i --name "$NAME" --network "$RENODE_NET" --cpus "$CPUS" --memory 2g --pids-limit 256 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w "$RENODE_IMAGE" \
-  renode --disable-xwt --console -e "\$bin=@$ELF" -e "include @/w/renode/${RESC:-hilctl}.resc" >/dev/null
+  renode --disable-xwt --console -e "\$bin=@$ELF" -e "\$quantum=\"${QUANTUM:-0.0001}\"" -e "include @/w/renode/${RESC:-hilctl}.resc" >/dev/null
 
 # 不用 bash 的 /dev/tcp 探埠:`echo >/dev/tcp/...` 會送一個換行,External Control server
 # 把它當成握手的第一個 byte,狀態機從此錯位(2026-09-15 踩到)。改由橋接自己重試連線。

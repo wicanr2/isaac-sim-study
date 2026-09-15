@@ -1,0 +1,15 @@
+# 自由跑(realtime 模式的形狀):Renode 自己推進時間,量 3 s 牆鐘走了多少虛擬時間。
+# 用法:renode -e "$bin=@..." -e "$quantum=0.001" -e "include @/w/renode/perf_freerun.resc"
+$quantum ?= "0.0001"
+include @/w/renode/hilctl.resc
+emulation SetGlobalQuantum $quantum
+echo "[freerun] quantum:"
+echo $quantum
+start
+python "import time; time.sleep(3.0)"
+pause
+echo "[freerun] virtual time after 3.0 s wall:"
+machine ElapsedVirtualTime
+echo "[freerun] instructions:"
+cpu ExecutedInstructions
+quit

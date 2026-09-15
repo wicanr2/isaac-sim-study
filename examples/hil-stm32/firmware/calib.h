@@ -9,6 +9,7 @@
 #define REPORT_PERIOD_MS         20
 #define CMD_TIMEOUT_MS           500
 #define PWM_ARR                  999
+#define PWM_PSC                  0  /* 載波 = 定時器時脈 / (PSC+1) / (ARR+1) */
 #define DUTY_FULL_SCALE          1000
 #define WHEEL_SPEED_FULL_MM_S    1000
 #define PI_KP_Q8                 128

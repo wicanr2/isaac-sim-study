@@ -7,6 +7,7 @@
   "report_period_ms": 20,
   "cmd_timeout_ms": 500,
   "pwm_arr": 999,
+  "pwm_prescaler": 0,
   "duty_full_scale": 1000,
   "wheel_speed_at_full_duty_mm_s": 1000.0,
   "pi_kp_q8": 128,

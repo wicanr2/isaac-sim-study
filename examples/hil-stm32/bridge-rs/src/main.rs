@@ -36,6 +36,7 @@ struct Args {
     boot_ms: u64,
     slip: f64,
     dbg_extra: u32,
+    mode: String,
 }
 
 fn parse_args() -> Args {
@@ -53,6 +54,7 @@ fn parse_args() -> Args {
         boot_ms: 100,
         slip: 0.0,
         dbg_extra: 0,
+        mode: "lockstep".into(),
     };
     let v: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -74,6 +76,8 @@ fn parse_args() -> Args {
             "--slip" => a.slip = val.parse().expect("--slip"),
             // g_dbg 第 17 字之後的韌體專屬欄位數(FreeRTOS 版 9 個),跑完印出
             "--dbg-extra" => a.dbg_extra = val.parse().expect("--dbg-extra"),
+            // lockstep(預設):橋接推進 Renode;realtime:Renode 自由跑,橋接以牆鐘 dt 取樣/注入
+            "--mode" => a.mode = val,
             other => {
                 eprintln!("未知參數 {other}");
                 std::process::exit(2);
@@ -133,7 +137,6 @@ mod dbg {
 
 const TIM3_BASE: u64 = 0x4000_0400;
 const TIM3_CCR1: u64 = TIM3_BASE + 0x34;
-const TIM3_CCR2: u64 = TIM3_BASE + 0x38;
 const TIM3_ARR: u64 = TIM3_BASE + 0x2C;
 const DIR_L_PIN: i32 = 8;
 const DIR_R_PIN: i32 = 9;
@@ -185,8 +188,13 @@ fn main() {
     println!("[effect] g_dbg@0x{:08x} magic=0x{:08x} ({}) init_err={}",
         dbg_base, magic, if magic == dbg::MAGIC_VALUE { "ok" } else { "MISMATCH" },
         ec.read_u32_at(bus, dbg_base + 4 * dbg::INIT_ERR).unwrap());
-    println!("[effect] plant={} dt_ms={} steps={} report_every={} script={:?} negative={} slip={}",
-        a.plant, c.control_period_ms, steps, report_every, a.script, a.negative, a.slip);
+    println!("[effect] mode={} plant={} dt_ms={} steps={} report_every={} script={:?} negative={} slip={}",
+        a.mode, a.plant, c.control_period_ms, steps, report_every, a.script, a.negative, a.slip);
+    let realtime = a.mode == "realtime";
+    if !realtime && a.mode != "lockstep" {
+        eprintln!("--mode 只接受 lockstep 或 realtime");
+        std::process::exit(2);
+    }
     println!("[effect] tim3 ARR={} (calib pwm_arr={}) track={} circ_um={} tpr={}",
         arr, c.pwm_arr, c.track_mm, c.wheel_circ_um, c.ticks_per_rev);
     if magic != dbg::MAGIC_VALUE {
@@ -212,6 +220,18 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let mut can_cmp_total = 0u32;
     let mut can_cmp_mismatch = 0u32;
     let wall0 = Instant::now();
+    let renode_t_start = t0;
+    let mut plant_t_s = 0.0f64;
+    let mut max_lag_us: i64 = 0;
+    // 每步各段的牆鐘累計(realtime 模式下步長由這些決定,不是由 dt)
+    let mut t_ec = Duration::ZERO;
+    let mut t_hook = Duration::ZERO;
+    let mut t_sleep = Duration::ZERO;
+    let mut t_plant = Duration::ZERO;
+    if realtime {
+        hk.emulation_start().expect("start");
+        hk.wait_acks().expect("ack");
+    }
 
     for k in 0..steps {
         let t_s = k as f64 * dt_s;
@@ -230,12 +250,23 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             hk.wait_acks().expect("ack");
         }
 
-        // 2. 推進 Renode
-        ec.run_for_us(c.control_period_ms * 1000).expect("run_for");
+        // 2. 推進 Renode(lockstep)/ 等到下一個牆鐘刻度(realtime)
+        let ph = Instant::now();
+        if realtime {
+            let target = wall0 + Duration::from_secs_f64((k as f64 + 1.0) * dt_s);
+            let now = Instant::now();
+            if target > now {
+                std::thread::sleep(target - now);
+            }
+        } else {
+            ec.run_for_us(c.control_period_ms * 1000).expect("run_for");
+        }
+        t_sleep += ph.elapsed();
 
         // 3. 讀匯流排
-        let ccr1 = ec.read_u32_at(bus, TIM3_CCR1).unwrap();
-        let ccr2 = ec.read_u32_at(bus, TIM3_CCR2).unwrap();
+        let ph = Instant::now();
+        let ccr = ec.read_u32s_at(bus, TIM3_CCR1, 2).unwrap();
+        let (ccr1, ccr2) = (ccr[0], ccr[1]);
         let dir_l = ec.gpio_get(gpio_b, DIR_L_PIN).unwrap();
         let dir_r = ec.gpio_get(gpio_b, DIR_R_PIN).unwrap();
         let en = ec.gpio_get(gpio_b, MOTOR_EN_PIN).unwrap();
@@ -247,8 +278,16 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         let duty_l_dbg = d[dbg::DUTY_L as usize] as i32;
         let flags = d[dbg::FLAGS as usize];
         let t_us = ec.time_us().unwrap();
+        if realtime {
+            let wall_us = wall0.elapsed().as_micros() as i64;
+            let lag = wall_us - (t_us - renode_t_start) as i64;
+            if lag > max_lag_us { max_lag_us = lag; }
+        }
+
+        t_ec += ph.elapsed();
 
         // 4. 收 MCU 的輸出
+        let ph = Instant::now();
         hk.uart_flush_request().unwrap();
         hk.wait_acks().unwrap();
         hk.drain(Duration::from_millis(1)).unwrap();
@@ -286,7 +325,10 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             }
         }
 
+        t_hook += ph.elapsed();
+
         // 5. 受控體
+        let ph = Instant::now();
         let cmd = MotorCmd {
             duty_l: ccr1 as f64 / (arr as f64 + 1.0),
             duty_r: ccr2 as f64 / (arr as f64 + 1.0),
@@ -294,13 +336,25 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             fwd_r: dir_r,
             enabled: en,
         };
-        let out = pl.step(k, dt_s, cmd).expect("plant step");
+        let plant_dt = if realtime {
+            // 受控體走「真的過了多久」——牆鐘;Renode 若跟不上,三個時鐘就在這裡分開
+            let now_s = wall0.elapsed().as_secs_f64();
+            let d = now_s - plant_t_s;
+            plant_t_s = now_s;
+            d
+        } else {
+            dt_s
+        };
+        let out = pl.step(k, plant_dt, cmd).expect("plant step");
         last_plant = out;
+        t_plant += ph.elapsed();
+        let ph = Instant::now();
         let mut enc = [0u8; 8];
         enc[..4].copy_from_slice(&out.ticks_l.to_le_bytes());
         enc[4..].copy_from_slice(&out.ticks_r.to_le_bytes());
         hk.can_send(c.can_id_encoder, &enc).unwrap();
         hk.wait_acks().unwrap();
+        t_hook += ph.elapsed();
 
         // 6. 紀錄
         let (cv, cw) = cmd_at(&script, t_s);
@@ -313,6 +367,10 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             last_odom.flags, cs.0, cs.1).unwrap();
     }
 
+    if realtime {
+        hk.emulation_pause().expect("pause");
+        hk.wait_acks().expect("ack");
+    }
     let wall = wall0.elapsed();
     let t_end = ec.time_us().unwrap();
     let bad_crc = ec.read_u32_at(bus, dbg_base + 4 * dbg::BAD_CRC).unwrap();
@@ -325,6 +383,23 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     println!("[run] steps={} renode_t_us={} wall={:.2}s ({:.1} ms/step, x{:.2} realtime)",
         steps, t_end, wall.as_secs_f64(), wall.as_secs_f64() * 1000.0 / steps as f64,
         (t_end as f64 / 1e6) / wall.as_secs_f64());
+    println!("[run] per-step wall: ec_read={:.1} ms hook={:.1} ms plant={:.1} ms {}={:.1} ms",
+        t_ec.as_secs_f64() * 1000.0 / steps as f64, t_hook.as_secs_f64() * 1000.0 / steps as f64,
+        t_plant.as_secs_f64() * 1000.0 / steps as f64,
+        if realtime { "sleep" } else { "run_for" }, t_sleep.as_secs_f64() * 1000.0 / steps as f64);
+    if realtime {
+        // 三個時鐘:牆鐘(橋接)、Renode 虛擬時間(韌體)、受控體時間(plant_t_s)
+        let renode_el = (t_end - renode_t_start) as f64 / 1e6;
+        println!("[clocks] wall={:.3}s renode={:.3}s plant={:.3}s  renode/wall={:.3}  max_lag(wall-renode)={:.1} ms",
+            wall.as_secs_f64(), renode_el, plant_t_s, renode_el / wall.as_secs_f64(), max_lag_us as f64 / 1000.0);
+        let ratio = renode_el / wall.as_secs_f64();
+        if ratio < 0.9 {
+            // 八項判準驗的是一致性,抓不到這件事:Renode 跑不到實時,韌體的每個 control_period
+            // 看到的是 control_period/ratio 牆鐘的編碼器增量,速度迴路會把車壓到 ratio 倍的速度。
+            println!("[warn] Renode 只跑到 {:.2}x 實時:韌體每 {} ms 看到的是 {:.1} ms 牆鐘的編碼器增量,閉環速度會低到約 {:.0}%",
+                ratio, c.control_period_ms, c.control_period_ms as f64 / ratio, ratio * 100.0);
+        }
+    }
     println!("[run] fw tick_ms={} ctrl_steps={} cmd_frames={} enc_frames={} bad_crc={} rx_overflow={}",
         tick_ms, ctrl_steps, cmd_frames, enc_frames, bad_crc, rx_overflow);
     println!("[run] odom_frames={} can_status_frames={} sent_cmds={} corrupted={}",
@@ -339,6 +414,8 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
 
     // 驗收
     let expect_time = steps as u64 * c.control_period_ms * 1000;
+    let renode_el_us = t_end - t0;
+    let expect_odom = if realtime { renode_el_us / (c.report_period_ms * 1000) } else { (steps / report_every) as u64 };
     let dist = (last_plant.x_mm.powi(2) + last_plant.y_mm.powi(2)).sqrt();
     // 容差 = 韌體數值誤差(25 mm / 0.03 rad)+ 里程計對真值的系統性差(2% 距離)+ 受控體滑移(--slip)
     let tol_mm = 25.0 + (0.02 + a.slip) * dist;
@@ -349,23 +426,29 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let expect_move = script.iter().any(|&(_, v, w)| v != 0 || w != 0);
 
     let checks = vec![
-        Check { name: "C1 時間完整性 renode_t == steps*dt", pass: t_end - t0 == expect_time,
-            detail: format!("{} vs {}", t_end - t0, expect_time) },
+        // realtime:Renode 跑多快由主機決定,不是驗收項;驗收的是「三個時鐘互相一致」——
+        // Renode 時間要有在走,而且不能明顯超前牆鐘。Renode 的實時節拍是以量子為單位追牆鐘,
+        // 量到虛擬時間領先牆鐘最多 +1.8%(quantum 1 ms、3 s),所以留 5% + 20 ms。
+        Check { name: if realtime { "C1 (realtime) 0 < Renode 時間 ≤ 牆鐘 + 5%" } else { "C1 時間完整性 renode_t == steps*dt" },
+            pass: if realtime { renode_el_us > 0 && renode_el_us as f64 <= wall.as_micros() as f64 * 1.05 + 20_000.0 } else { renode_el_us == expect_time },
+            detail: format!("{} vs {}", renode_el_us, if realtime { wall.as_micros() as u64 } else { expect_time }) },
         Check { name: "C2 車有動(腳本有命令時)", pass: !expect_move || dist > 100.0,
             detail: format!("plant 位移 {:.1} mm", dist) },
         Check { name: "C3 韌體 odom 對受控體真值", pass: dx <= tol_mm && dy <= tol_mm && dth <= tol_rad,
             detail: format!("dx={dx:.1} dy={dy:.1} dth={dth:.4} (tol {tol_mm:.1} mm / {tol_rad:.4} rad)") },
         Check { name: "C4 兩條獨立管道一致:每筆 CAN 狀態 duty == 同一時刻的 CCR 快照", pass: can_cmp_total > 0 && can_cmp_mismatch == 0,
             detail: format!("{} 筆比對,{} 筆不符", can_cmp_total, can_cmp_mismatch) },
-        Check { name: "C5 odom 回報數 ≥ 90% 期望", pass: odom_count as f64 >= 0.9 * (steps / report_every) as f64,
-            detail: format!("{} / {}", odom_count, steps / report_every) },
+        // odom 是韌體按「它的」時間每 report_period 送一次,期望值用 Renode 時間算,不用牆鐘
+        Check { name: "C5 odom 回報數 ≥ 90% 期望(按 Renode 時間)", pass: odom_count as f64 >= 0.9 * expect_odom as f64,
+            detail: format!("{} / {}", odom_count, expect_odom) },
         Check { name: "C6 韌體 bad_crc == 橋接送壞的數", pass: bad_crc == corrupted,
             detail: format!("{bad_crc} vs {corrupted}") },
         Check { name: "C7 韌體收到的 cmd == 送出且未壞的數", pass: cmd_frames == sent_cmds - corrupted,
             detail: format!("{cmd_frames} vs {}", sent_cmds - corrupted) },
         // 最後一步注入的訊框要下一個 run_for 才被讀到:lockstep 固有的一步延遲
-        Check { name: "C8 韌體收到的編碼器訊框 == steps-1(一步延遲)", pass: enc_frames == steps - 1,
-            detail: format!("{enc_frames} vs {}", steps - 1) },
+        Check { name: if realtime { "C8 (realtime) 韌體收到的編碼器訊框 ≥ 90% steps" } else { "C8 韌體收到的編碼器訊框 == steps-1(一步延遲)" },
+            pass: if realtime { enc_frames as f64 >= 0.9 * steps as f64 } else { enc_frames == steps - 1 },
+            detail: format!("{enc_frames} vs {}", if realtime { steps } else { steps - 1 }) },
     ];
     let mut all = true;
     for ch in &checks {

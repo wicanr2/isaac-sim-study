@@ -2,9 +2,13 @@
 :description: 同 hilctl.resc,但 TIM3/TIM4 換成修正版 STM32_Timer_Fixed(renode/upstream/)
 
 $bin ?= @/w/firmware/build/hilctl.elf
+# 同步量子:Renode 每隔多久讓所有週邊對齊一次。預設 100 µs(Renode 出廠值)。
+# 自由跑(realtime 模式)時它是每秒同步點的數量,直接影響能跑到幾倍實時(docs/hil/35 篇 §5)。
+$quantum ?= "0.0001"
 
 using sysbus
 mach create "hilctl"
+emulation SetGlobalQuantum $quantum
 i @/w/renode/upstream/STM32_Timer_Fixed.cs
 machine LoadPlatformDescription @/w/renode/upstream/stm32f4-timerfix.repl
 

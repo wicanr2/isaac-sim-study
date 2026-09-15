@@ -26,6 +26,7 @@ lines = [
     f"#define REPORT_PERIOD_MS         {c['report_period_ms']}",
     f"#define CMD_TIMEOUT_MS           {c['cmd_timeout_ms']}",
     f"#define PWM_ARR                  {c['pwm_arr']}",
+    f"#define PWM_PSC                  {c.get('pwm_prescaler', 0)}  /* 載波 = 定時器時脈 / (PSC+1) / (ARR+1) */",
     f"#define DUTY_FULL_SCALE          {c['duty_full_scale']}",
     f"#define WHEEL_SPEED_FULL_MM_S    {int(round(c['wheel_speed_at_full_duty_mm_s']))}",
     f"#define PI_KP_Q8                 {c['pi_kp_q8']}",

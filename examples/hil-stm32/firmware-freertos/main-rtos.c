@@ -166,7 +166,7 @@ static void gpio_init(void)
 static void pwm_init(void)
 {
     RCC_APB1ENR |= RCC_APB1ENR_TIM3;
-    TIM3_PSC   = 0;
+    TIM3_PSC   = PWM_PSC;
     TIM3_ARR   = PWM_ARR;
     TIM3_CCR1  = 0;
     TIM3_CCR2  = 0;

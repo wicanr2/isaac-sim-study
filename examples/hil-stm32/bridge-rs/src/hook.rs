@@ -8,6 +8,8 @@ use std::time::Duration;
 pub const ID_UART_TO_MCU: u32 = 0xFFFF_0001;
 pub const ID_UART_FROM_MCU: u32 = 0xFFFF_0002;
 pub const ID_BUS_SNAPSHOT: u32 = 0xFFFF_0003;
+pub const ID_START: u32 = 0xFFFF_0010;
+pub const ID_PAUSE: u32 = 0xFFFF_0011;
 pub const ID_ACK: u32 = 0xFFFF_00AC;
 
 #[derive(Debug, Clone)]
@@ -66,6 +68,19 @@ impl Hook {
             self.write_rec(ID_UART_TO_MCU, chunk)?;
             self.pending_acks += 1;
         }
+        Ok(())
+    }
+
+    /// realtime 模式:讓 Renode 自由跑 / 暫停(經 hook 的 StartAll / PauseAll)。
+    pub fn emulation_start(&mut self) -> io::Result<()> {
+        self.write_rec(ID_START, &[])?;
+        self.pending_acks += 1;
+        Ok(())
+    }
+
+    pub fn emulation_pause(&mut self) -> io::Result<()> {
+        self.write_rec(ID_PAUSE, &[])?;
+        self.pending_acks += 1;
         Ok(())
     }
 
