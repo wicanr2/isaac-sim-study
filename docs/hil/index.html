@@ -13,10 +13,10 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#驗證狀態">驗證狀態</a></li><li class="l2"><a href="#這一區的主線">這一區的主線</a></li><li class="l2"><a href="#篇章">篇章</a></li><li class="l2"><a href="#怎麼讀">怎麼讀</a></li><li class="l2"><a href="#與其他區的關係">與其他區的關係</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#驗證狀態">驗證狀態</a></li><li class="l2"><a href="#這一區的主線">這一區的主線</a></li><li class="l2"><a href="#篇章">篇章</a></li><li class="l2"><a href="#怎麼讀">怎麼讀</a></li><li class="l2"><a href="#與其他區的關係">與其他區的關係</a></li></ul></aside>
   <main class="doc">
 <h1 id="hil把下位控制器放進迴路">HIL:把下位控制器放進迴路</h1>
-<p>這一區的 4 篇處理的是 <strong>hardware-in-the-loop(HIL)</strong>:讓真的底盤控制器韌體——跑在 STM32 上、講真的匯流排協定——去驅動 Isaac Sim 裡的車。Isaac Sim 這時是「受控體」(馬達、輪子、編碼器),不是全部。</p>
+<p>這一區的 5 篇處理的是 <strong>hardware-in-the-loop(HIL)</strong>:讓真的底盤控制器韌體——跑在 STM32 上、講真的匯流排協定——去驅動 Isaac Sim 裡的車。Isaac Sim 這時是「受控體」(馬達、輪子、編碼器),不是全部。</p>
 <p>做法是純軟體的:STM32F4 跑在 Renode 模擬器裡,一支 Rust 橋接程式把 Renode 的匯流排訊號(UART、GPIO、Timer PWM、CAN)接到受控體。同一份韌體之後燒到實板,橋接換一個後端,其餘不變。</p>
 <h2 id="驗證狀態">驗證狀態</h2>
 <div class="tw"><table>
@@ -28,7 +28,7 @@
 </thead>
 <tbody>
 <tr>
-<td>STM32F4 韌體、Renode 平台、IronPython hook、Rust 橋接、假受控體閉環</td>
+<td>STM32F4 韌體(裸機與 FreeRTOS 兩版)、Renode 平台、IronPython hook、Rust 橋接、假受控體閉環</td>
 <td><strong>本機實測</strong>(Renode 1.16.1,docker,2026-09-15);數字都是實跑值</td>
 </tr>
 <tr>
@@ -84,11 +84,13 @@
 </tr>
 </tbody>
 </table></div>
+<p>| <a href="../hil/39-freertos-firmware-in-the-loop/">39</a> | 同一台車換 FreeRTOS | 三個 task 一條 ISR,協定、暫存器、控制律、<code>g_dbg</code> 版面與裸機版逐字相同,橋接不改;<code>ctrl_missed=0</code>、stack 餘量、<code>rx_wakeups=300</code>;末端位姿相同而途中 CCR 差在相位;<strong>RTOS 才踩到的 Renode 缺口:port 先寫 CVR 再寫 LOAD,SysTick 第一個週期跑 2^24 cycle(233 ms)</strong>,裸機版永遠不會踩到——修在 NVIC 不改 port.c |</p>
 <h2 id="怎麼讀">怎麼讀</h2>
 <p><strong>只想知道 HIL 跟「Isaac 裡跑純運動學」差在哪</strong> → <a href="../hil/35-hil-what-and-why/">35</a>。</p>
 <p><strong>要把自己的韌體放進 Renode</strong> → <a href="../hil/36-stm32-firmware-on-renode/">36</a>。先做 §3 那張盤點表,再開始寫程式。</p>
 <p><strong>要寫橋接、或想知道訊號怎麼從模擬器出來</strong> → <a href="../hil/37-bus-signal-bridging/">37</a>。</p>
 <p><strong>要決定「這個閉環算不算通了」</strong> → <a href="../hil/38-acceptance-and-failure-modes/">38</a>。</p>
+<p><strong>韌體跑 RTOS,不是裸機</strong> → <a href="../hil/39-freertos-firmware-in-the-loop/">39</a>。§4 那個缺口是換韌體就要重新盤點週邊的理由。</p>
 <h2 id="與其他區的關係">與其他區的關係</h2>
 <ul>
 <li>受控體換成 Isaac Sim 時,ROS 2 bridge 的機制在 <a href="../common/05-ros2-bridge/">05 篇</a>、6.0 的架構在 <a href="../6.0.1/14-ros2-bridge-6.0-architecture/">14 篇</a>;headless 下 OmniGraph 不 tick 的問題在 <a href="../fleet/31-omnigraph-and-ros2-bridge-truth/">31 篇</a> §5——這一區的 Isaac 腳本刻意不用 OmniGraph。</li>

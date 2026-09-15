@@ -81,6 +81,7 @@
 
 /* ---- NVIC ---------------------------------------------------------------- */
 #define NVIC_ISER(n)  REG(0xE000E100u + 4u * (n))
+#define NVIC_IPR(irq) (*(volatile uint8_t *)(0xE000E400u + (irq)))
 
 /* ---- bxCAN CAN1 @0x40006400 -------------------------------------------- */
 #define CAN1_BASE     0x40006400u

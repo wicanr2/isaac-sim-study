@@ -35,6 +35,7 @@ struct Args {
     negative: String,
     boot_ms: u64,
     slip: f64,
+    dbg_extra: u32,
 }
 
 fn parse_args() -> Args {
@@ -51,6 +52,7 @@ fn parse_args() -> Args {
         negative: "none".into(),
         boot_ms: 100,
         slip: 0.0,
+        dbg_extra: 0,
     };
     let v: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -70,6 +72,8 @@ fn parse_args() -> Args {
             "--boot-ms" => a.boot_ms = val.parse().expect("--boot-ms"),
             // 受控體的接觸滑移比例:假受控體 0;Isaac 6.0.1 實測轉向 3.1%、直行 0.5%,用 0.05
             "--slip" => a.slip = val.parse().expect("--slip"),
+            // g_dbg 第 17 字之後的韌體專屬欄位數(FreeRTOS 版 9 個),跑完印出
+            "--dbg-extra" => a.dbg_extra = val.parse().expect("--dbg-extra"),
             other => {
                 eprintln!("未知參數 {other}");
                 std::process::exit(2);
@@ -325,6 +329,10 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         tick_ms, ctrl_steps, cmd_frames, enc_frames, bad_crc, rx_overflow);
     println!("[run] odom_frames={} can_status_frames={} sent_cmds={} corrupted={}",
         odom_count, can_status_count, sent_cmds, corrupted);
+    if a.dbg_extra > 0 {
+        let extra = ec.read_u32s_at(bus, dbg_base + 4 * dbg::WORDS as u64, a.dbg_extra).unwrap();
+        println!("[run] fw extra {:?}", extra);
+    }
     println!("[run] plant  x={:.1} y={:.1} th={:.4}", last_plant.x_mm, last_plant.y_mm, last_plant.th_rad);
     println!("[run] odom   x={} y={} th={:.4} (seq {})", last_odom.x_mm, last_odom.y_mm,
         last_odom.th_mrad as f64 / 1000.0, last_odom.seq);

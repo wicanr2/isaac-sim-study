@@ -1,0 +1,42 @@
+--- a/src/Emulator/Cores/Arm-M/NVIC.cs
++++ b/src/Emulator/Cores/Arm-M/NVIC.cs
+@@ -676,7 +676,19 @@
+         {
+             Registers.SysTickControl.Define(RegisterCollection)
+                 .WithFlag(0,
+-                    changeCallback: (_, value) => systick.Get(isNextAccessSecure).Enabled = value,
++                    changeCallback: (_, value) =>
++                    {
++                        var timer = systick.Get(isNextAccessSecure);
++                        if(value)
++                        {
++                            // ARMv7-M B3.3.3: when ENABLE goes from 0 to 1 the counter loads the RELOAD value
++                            // and starts counting down. Without this, a write sequence of CVR=0, RVR=n, CSR.ENABLE=1
++                            // (the order used by FreeRTOS ports) starts the first period from the reset value
++                            // 0xFFFFFF instead of n.
++                            timer.LoadReloadValue();
++                        }
++                        timer.Enabled = value;
++                    },
+                     valueProviderCallback: _ => systick.Get(isNextAccessSecure).Enabled,
+                     name: "ENABLE")
+                 .WithFlag(1,
+@@ -1870,12 +1882,17 @@
+ 
+             public void UpdateSystickValue()
+             {
++                LoadReloadValue();
++                CountFlag = false;
++            }
++
++            public void LoadReloadValue()
++            {
+                 if(reloadValue != 0)
+                 {
+                     // Write to this register does not trigger the SysTick exception logic - we can't write zero to timer value as it would trigger an event.
+                     systick.Value = reloadValue;
+                 }
+-                CountFlag = false;
+             }
+ 
+             public bool IsSecure { get; }

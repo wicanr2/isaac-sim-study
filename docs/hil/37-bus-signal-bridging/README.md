@@ -85,7 +85,9 @@ Renode 1.16.1 把 CAN 訊框送到模擬器外面的**官方**管道只有 `Crea
 
 這一區用這條路修了 `STM32_Timer` 的三個缺口([`renode/upstream/`](../../../examples/hil-stm32/renode/upstream/)):計數週期 ARR+1、OCxPE 預載、致能時就驅動 PWM 腳。每一項有一支探針(原版紅、修正版綠)與一條上游樣式的 Robot 測試(原版 3 紅、修正版 3 綠);修正版接進閉環 `TIMERFIX=1 ./run_loop.sh` 仍 ALL PASS,而且 `.resc` 印出 timer 的型別名當生效證明——沒有這一行,「修正版也綠」與「根本沒載入」看起來一樣。第四個候選 `STM32_UART` 的 TC 閂鎖在 1.16.1 上**無法重現**(CPU 寫 DR 後 TC 正常設回、TCIE 拉中斷);既有內部紀錄的條件是 DMA 傳送,這裡沒走那條路,不下結論。
 
-修正以上游樣式放在 fork(`wicanr2/renode-infrastructure`,分支 `stm32-timer-period-preload-fixes`,基於 1.16.1 的 commit):`STM32_Timer.cs` + NUnit `STM32_TimerTests.cs`。驗證到哪裡:上游版檔案對 1.16.1 組件編譯 0 warning、NUnit 修正版 4/4 綠、原版 0/4、Robot 3/3、閉環迴歸 ALL PASS;**沒做**完整 Renode 建置與上游全部測試。**尚未送 PR**(2026-09-15 決定:分支留在 fork,之後要送隨時可以);送了之後這一段要補連結。
+第五個缺口是 FreeRTOS 版才踩到的:`NVIC` 的 SysTick 在 ENABLE 0→1 時不從 RELOAD 載入([39 篇](../39-freertos-firmware-in-the-loop/README.md) §4),NUnit 原版 1/2 紅、修正版 2/2 綠。
+
+修正以上游樣式放在 fork(`wicanr2/renode-infrastructure`,分支 `stm32-timer-period-preload-fixes`,基於 1.16.1 的 commit),兩個 commit:`STM32_Timer.cs` + `STM32_TimerTests.cs`、`NVIC.cs` + `NVIC_SysTickTests.cs`。驗證到哪裡:上游版檔案對 1.16.1 組件編譯 0 warning、NUnit 修正版 4/4 綠、原版 0/4、Robot 3/3、閉環迴歸 ALL PASS;**沒做**完整 Renode 建置與上游全部測試。**尚未送 PR**(2026-09-15 決定:分支留在 fork,之後要送隨時可以);送了之後這一段要補連結。
 
 ## 5. lockstep 迴圈
 

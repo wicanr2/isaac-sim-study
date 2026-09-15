@@ -1,6 +1,6 @@
 # HIL:把下位控制器放進迴路
 
-這一區的 4 篇處理的是 **hardware-in-the-loop(HIL)**:讓真的底盤控制器韌體——跑在 STM32 上、講真的匯流排協定——去驅動 Isaac Sim 裡的車。Isaac Sim 這時是「受控體」(馬達、輪子、編碼器),不是全部。
+這一區的 5 篇處理的是 **hardware-in-the-loop(HIL)**:讓真的底盤控制器韌體——跑在 STM32 上、講真的匯流排協定——去驅動 Isaac Sim 裡的車。Isaac Sim 這時是「受控體」(馬達、輪子、編碼器),不是全部。
 
 做法是純軟體的:STM32F4 跑在 Renode 模擬器裡,一支 Rust 橋接程式把 Renode 的匯流排訊號(UART、GPIO、Timer PWM、CAN)接到受控體。同一份韌體之後燒到實板,橋接換一個後端,其餘不變。
 
@@ -8,7 +8,7 @@
 
 | 部分 | 狀態 |
 |---|---|
-| STM32F4 韌體、Renode 平台、IronPython hook、Rust 橋接、假受控體閉環 | **本機實測**(Renode 1.16.1,docker,2026-09-15);數字都是實跑值 |
+| STM32F4 韌體(裸機與 FreeRTOS 兩版)、Renode 平台、IronPython hook、Rust 橋接、假受控體閉環 | **本機實測**(Renode 1.16.1,docker,2026-09-15);數字都是實跑值 |
 | Isaac Sim 6.0.1 的受控體腳本 | **場域 GPU 主機實測**(pip 版 6.0.1,PhysX、CPU 求解,同日):閉環 ALL PASS,odom 對真值 3.4 mm / 0.028 rad,兩次 CSV 逐 byte 相同。GPU 求解沒測 |
 | 實體 STM32 板 | 未做。時序與最壞延遲只有實板算數,見 [35 篇](35-hil-what-and-why/README.md) §7 |
 
@@ -32,6 +32,7 @@
 | [37](37-bus-signal-bridging/README.md) | 匯流排訊號串接 | External Control 協定逐 byte;GPIO 讀的是輸出腳、寫的是輸入腳;IronPython hook 對每筆注入回 ack;**CAN 送出模擬器的三條路各碰到哪一層**;lockstep 迴圈六步與每步 29.6 ms 的成本;探埠的一個換行污染了握手 |
 | [38](38-acceptance-and-failure-modes/README.md) | 驗收與失敗形態 | 八項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;兩次 CSV 逐 byte 相同;**步邊界取樣的 2/305 不符**與事件時刻快照;十種失敗形態;換成 Isaac 6.0.1 的七件事各量到什麼——**PhysX 介面沒有 `update`、joint state 不寫回、地面 xformOpOrder 反了讓車飛起來**、滑移 3.1% |
 
+| [39](39-freertos-firmware-in-the-loop/README.md) | 同一台車換 FreeRTOS | 三個 task 一條 ISR,協定、暫存器、控制律、`g_dbg` 版面與裸機版逐字相同,橋接不改;`ctrl_missed=0`、stack 餘量、`rx_wakeups=300`;末端位姿相同而途中 CCR 差在相位;**RTOS 才踩到的 Renode 缺口:port 先寫 CVR 再寫 LOAD,SysTick 第一個週期跑 2^24 cycle(233 ms)**,裸機版永遠不會踩到——修在 NVIC 不改 port.c |
 ## 怎麼讀
 
 **只想知道 HIL 跟「Isaac 裡跑純運動學」差在哪** → [35](35-hil-what-and-why/README.md)。
@@ -41,6 +42,8 @@
 **要寫橋接、或想知道訊號怎麼從模擬器出來** → [37](37-bus-signal-bridging/README.md)。
 
 **要決定「這個閉環算不算通了」** → [38](38-acceptance-and-failure-modes/README.md)。
+
+**韌體跑 RTOS,不是裸機** → [39](39-freertos-firmware-in-the-loop/README.md)。§4 那個缺口是換韌體就要重新盤點週邊的理由。
 
 ## 與其他區的關係
 

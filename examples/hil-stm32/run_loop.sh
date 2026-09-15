@@ -7,6 +7,7 @@
 #   BUILD=1 ./run_loop.sh               # 先重建韌體與橋接
 #   PLANT=udp ./run_loop.sh             # 受控體改走 UDP:另起一個容器跑 plant/fake_plant.py
 #   PLANT=tcp ./run_loop.sh             # 同上但走 TCP(ssh -L 隧道用的那條路)
+#   FW=freertos ./run_loop.sh           # 韌體換成 FreeRTOS 版(firmware-freertos/)
 #   TIMERFIX=1 ./run_loop.sh            # TIM3 換成 renode/upstream/STM32_Timer_Fixed.cs(執行期載入的修正版)
 #   PLANT=remote ./run_loop.sh          # 受控體在場域 GPU 主機:自動開 ssh -L 隧道,受控體那端要先起好(埠 3700,TCP)
 #
@@ -21,6 +22,14 @@ RUST_IMAGE="${RUST_IMAGE:-rust:1-slim-bookworm}"
 PY_IMAGE="${PY_IMAGE:-ghcr.io/astral-sh/uv:python3.12-bookworm-slim}"   # 只用標準庫
 PLANT="${PLANT:-fake}"
 RESC=hilctl; [ "${TIMERFIX:-0}" = 1 ] && RESC=hilctl-timerfix
+FW="${FW:-baremetal}"
+case "$FW" in
+  baremetal) ELF=/w/firmware/build/hilctl.elf; SYM=firmware/build/hilctl.sym; EXTRA=() ;;
+  # FreeRTOS 版在原版 Renode 1.16.1 上第一個 SysTick 週期是 2^24 cycle(233 ms,NVIC 缺口,見 renode/upstream/),
+  # 開機等待拉到 400 ms;修了 NVIC 之後可以回 100
+  freertos)  ELF=/w/firmware-freertos/build/hilctl-rtos.elf; SYM=firmware-freertos/build/hilctl-rtos.sym; EXTRA=(--boot-ms 400 --dbg-extra 9) ;;
+  *) echo "FW 只接受 baremetal 或 freertos"; exit 2 ;;
+esac
 CPUS="${CPUS:-2}"
 NAME="hil-renode-$$"
 PNAME="hil-plant-$$"
@@ -30,13 +39,14 @@ COMMON=(--rm --cpus "$CPUS" --memory 2g --pids-limit 256
         --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD":/w)
 
 if [ "${BUILD:-0}" = "1" ]; then
-  echo "[build] firmware"
+  echo "[build] firmware(裸機 + FreeRTOS)"
   docker run "${COMMON[@]}" --network none -w /w/firmware "$ARM_IMAGE" make
+  docker run "${COMMON[@]}" --network none -w /w/firmware-freertos "$ARM_IMAGE" make
   echo "[build] bridge"
   docker run "${COMMON[@]}" --network none -w /w/bridge-rs -e CARGO_HOME=/tmp/cargo "$RUST_IMAGE" \
     cargo build --release --offline
 fi
-test -f firmware/build/hilctl.elf || { echo "沒有 firmware/build/hilctl.elf,先 BUILD=1"; exit 2; }
+test -f "${ELF#/w/}" || { echo "沒有 ${ELF#/w/},先 BUILD=1"; exit 2; }
 test -x bridge-rs/target/release/hil-bridge || { echo "沒有橋接執行檔,先 BUILD=1"; exit 2; }
 
 mkdir -p out renode/out
@@ -59,7 +69,7 @@ echo "[renode] 啟動 $NAME(Renode $RENODE_IMAGE,--network $RENODE_NET,$CPUS 核
 docker run -d -i --name "$NAME" --network "$RENODE_NET" --cpus "$CPUS" --memory 2g --pids-limit 256 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w "$RENODE_IMAGE" \
-  renode --disable-xwt --console -e "include @/w/renode/${RESC:-hilctl}.resc" >/dev/null
+  renode --disable-xwt --console -e "\$bin=@$ELF" -e "include @/w/renode/${RESC:-hilctl}.resc" >/dev/null
 
 # 不用 bash 的 /dev/tcp 探埠:`echo >/dev/tcp/...` 會送一個換行,External Control server
 # 把它當成握手的第一個 byte,狀態機從此錯位(2026-09-15 踩到)。改由橋接自己重試連線。
@@ -94,7 +104,7 @@ set +e
 docker run --rm --network "container:$NAME" --cpus "$CPUS" --memory 1g --pids-limit 128 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w -w /w "$RUST_IMAGE" \
-  ./bridge-rs/target/release/hil-bridge --log out/run.csv "${PLANT_ARG[@]}" "$@"
+  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "$@"
 rc=$?
 set -e
 docker logs "$NAME" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > out/renode.log || true

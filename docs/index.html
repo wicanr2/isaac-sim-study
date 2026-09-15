@@ -27,7 +27,7 @@
 extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風險、6.0 的物理調參。</p>
 <p><strong><a href="fleet">車隊與多樓層</a></strong> · 4 篇
 多台車 + 多樓層自成一個問題域:OmniGraph 與 ROS 2 橋接、差速車動力學、電梯與門檻、感測器。這一區的失敗幾乎全部是「回傳成功、沒有錯誤、就是不對」。</p>
-<p><strong><a href="hil">HIL:把下位控制器放進迴路</a></strong> · 4 篇
+<p><strong><a href="hil">HIL:把下位控制器放進迴路</a></strong> · 5 篇
 讓真的 STM32 韌體(跑在 Renode 裡)去驅動 Isaac 裡的車:Isaac 變成受控體,韌體講真的匯流排協定。純軟體、可在本機閉環實跑;三個時鐘域、匯流排訊號怎麼從模擬器出來、驗收怎麼寫才抓得到失敗。</p>
 <p><strong><a href="version-matrix.html">5.1 ↔ 6.0.1 差異速查</a></strong>
 跨版本排查時最花時間的不是「哪裡不一樣」,而是「這個症狀該不該歸給版本」。每一列都標出處篇章。</p>
@@ -99,6 +99,10 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 <tr>
 <td>要把自己的韌體放進 Renode 模擬器</td>
 <td><a href="hil/36-stm32-firmware-on-renode/">36 STM32F4 韌體在 Renode 上開機</a></td>
+</tr>
+<tr>
+<td>韌體跑 FreeRTOS,想放進 HIL 迴路</td>
+<td><a href="hil/39-freertos-firmware-in-the-loop/">39 同一台車換 FreeRTOS</a></td>
 </tr>
 <tr>
 <td>手上有一台叉車/機器人,要把物理與關節建起來</td>

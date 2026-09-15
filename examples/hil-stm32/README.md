@@ -8,6 +8,7 @@ BUILD=1 ./run_loop.sh            # 第一次:建韌體與橋接,然後跑 6 s �
 ./run_loop.sh --negative bad-crc # 負對照:每個命令 CRC 弄壞,驗收必須轉紅(rc=1)
 PLANT=udp ./run_loop.sh          # 受控體改走 UDP(plant/fake_plant.py,另一容器);PLANT=tcp 同理走 TCP
 PLANT=remote ./run_loop.sh       # 受控體在場域 GPU 主機(先 tools/isaac_plant_ctl.sh start),自動開 ssh -L
+FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正版 STM32_Timer(renode/upstream/)
 ./run_loop.sh --seconds 3 --script "0:200,0;2:0,0"
 ```
 
@@ -19,6 +20,7 @@ PLANT=remote ./run_loop.sh       # 受控體在場域 GPU 主機(先 tools/isaac
 |---|---|---|
 | `calib.json` | 韌體、橋接、受控體共用的唯一參數來源;`tools/gen_calib.py` 產 `firmware/calib.h` | — |
 | `firmware/` | 裸機 STM32F4 韌體(C,無 HAL / libc):USART1 框包 + CRC16(中斷收訊)、TIM3 PWM、方向/致能 GPIO、PC13 急停、bxCAN 編碼器與狀態、5 ms PI、20 ms odom、WFI | Renode 1.16.1 實測 |
+| `firmware-freertos/` | 同一台車的 FreeRTOS V11.3.1 版(三個 task + USART1 ISR;kernel 最小子集 vendor 在 `kernel/`,MIT);`FW=freertos ./run_loop.sh` | Renode 實測 ALL PASS |
 | `renode/` | vendor 的 1.16.1 `stm32f4.repl`(拿掉 `ApplySVD`)、開機腳本、`hil_hook.py`(IronPython:CAN/UART ↔ TCP,每筆注入回 ack)、`boot_check` / `perf_check` / `io_check` 三支驗收腳本 | 實測 |
 | `bridge-rs/` | Rust 橋接:External Control client、hook 對端、上位協定、Fake/UDP 受控體、lockstep 迴圈、八項驗收 | 實測 |
 | `plant/fake_plant.py` | UDP 版假受控體(Python),與 Rust 內建 `Fake` 同模型 | 實測 ALL PASS |

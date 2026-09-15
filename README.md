@@ -6,7 +6,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 
 ## 教學文件的分區
 
-38 篇裡真正綁死版本的只有七篇,其餘的機制兩版共用,因此不複製成兩份。跨版本排查先看 **[5.1 ↔ 6.0.1 差異速查](docs/version-matrix.md)**。
+39 篇裡真正綁死版本的只有七篇,其餘的機制兩版共用,因此不複製成兩份。跨版本排查先看 **[5.1 ↔ 6.0.1 差異速查](docs/version-matrix.md)**。
 
 | 區 | 入口 | 篇數 | 收什麼 |
 |---|---|---|---|
@@ -14,7 +14,7 @@ NVIDIA Isaac Sim 的教學多半從 GUI 開始:開視窗、點選單、拖物件
 | 5.1 | [`docs/5.1/`](docs/5.1/) | 2 | 綁 `isaacsim.core.*` 命名空間的程式碼 |
 | 6.0.1 | [`docs/6.0.1/`](docs/6.0.1/) | 5 | 6.0.x 專屬的架構、後端與調參 |
 | 車隊 | [`docs/fleet/`](docs/fleet/) | 4 | 多車、多樓層、電梯、感測器(版本無關,但自成一域) |
-| HIL | [`docs/hil/`](docs/hil/) | 4 | 把 STM32 下位控制器(Renode 模擬)放進迴路,Isaac 6.0.1 當受控體;閉環實測 |
+| HIL | [`docs/hil/`](docs/hil/) | 5 | 把 STM32 下位控制器(Renode 模擬)放進迴路,Isaac 6.0.1 當受控體;閉環實測 |
 
 
 ### 共通:機制與方法論
@@ -92,6 +92,7 @@ extension 架構重組、PhysX 換代(107→110)與 Newton 後端、從 5.1 搬�
 | [36](docs/hil/36-stm32-firmware-on-renode/README.md) | **STM32F4 韌體在 Renode 上開機** | 無 HAL、無 libc 的 4.7 KB 韌體,每個寫進週邊的位元都能回答「模擬器有沒有實作它」;平台描述 vendor 一份、拿掉會上網的 `ApplySVD`、版本鎖死;**「型別存在 ≠ 夠用」逐項盤點**:CCR 讀得回、PWM 通道是真的 GPIO 線、**timer 週期是 ARR 不是 ARR+1**(兩組量測)、CAN 交握有回應但 `FMR` 寫 `1` 會把 bank 0 劃給 CAN2 而訊框靜默丟掉;printer 與 SRAM 兩條觀測管道(機器沒跑時 SRAM 全零);**WFI 讓 1 s 虛擬時間從 13.4 s 降到 1.83 s**,配套是收訊改中斷——Renode 的 UART 有佇列,輪詢版「看起來也對」 |
 | [37](docs/hil/37-bus-signal-bridging/README.md) | **匯流排訊號串接** | External Control 協定逐 byte(握手 14 B、六種回應碼、GPIO 事件 16 B 含 7 bytes 填充);`GetState` 讀輸出腳、`SetState` 寫輸入腳;IronPython hook 一條 TCP 收發 CAN 與 UART,**每筆注入回 ack**——沒有 ack 就沒有決定性;`FrameSent` 當下快照 CCR 給橋接做同時刻比對;**CAN 送出模擬器的三條路各碰到哪一層**(只有 IronPython 那條不碰核心;`vcan` 是純軟體介面但是核心模組);lockstep 六步、一步延遲、每步 29.6 ms 的成本拆解;⚠ 用 `echo >/dev/tcp/…` 探埠會把一個換行送進握手 |
 | [38](docs/hil/38-acceptance-and-failure-modes/README.md) | **驗收與失敗形態** | 八項判準在開跑前寫死,生效證明四行;負對照 `--negative bad-crc` 紅在 C2 而 **C6 證明韌體擋了全部 300 個壞框包**;決定性:兩次 1201 行逐 byte 相同,但 Rust 與 Python 兩個「同一個模型」末端一致、途中 462 欄位差 ±1 tick——**決定性是每個實作各自成立**;**步邊界取樣的盲點**:2/305 筆 CAN duty 在任何邊界都沒出現過,一個視窗跑了兩次控制步,解法是事件時刻快照;十種失敗形態,每一種的第一眼症狀都指向別的地方;換成 Isaac 6.0.1 的七件事各量到什麼——PhysX 介面沒有 `update`、joint state 不寫回、**地面 xformOpOrder 反了讓車在 5 ms 內以 2.9 m/s 飛起來**(所有東西靜止後都停在 +45 mm 就是線索)、yaw 差一個正負號、滑移 3.1%;分五階段,這一區做到第四 |
+| [39](docs/hil/39-freertos-firmware-in-the-loop/README.md) | **同一台車換 FreeRTOS** | Cortex-M4F 是官方 port,Renode 三個核心例外都有;vendor V11.3.1 最小子集、自給 4 個 libc 符號、hard-float;三個 task 一條 ISR,協定、暫存器、控制律、`g_dbg` 版面與裸機版逐字相同,**橋接一行不改**;`xTaskDelayUntil` 的回傳值變成「錯過週期」計數(實測 0);末端位姿與裸機版相同、途中 CCR 差在相位;**RTOS 才踩到的 Renode 缺口:port 先寫 CVR 再寫 LOAD,SysTick 第一週期 2^24 cycle = 233 ms 沒有任何錯誤**,修在 NVIC(ENABLE 0→1 載入 RELOAD)不改 port.c;換一支韌體,週邊要重新盤點 |
 
 ## 兩條常見的入場路徑
 
@@ -123,7 +124,7 @@ extension 架構重組、PhysX 換代(107→110)與 Newton 後端、從 5.1 搬�
 - [`examples/scan_physics.py`](examples/scan_physics.py) — 掃描場景所有 **authored** 物理屬性(區分「刻意設定」與「吃預設」),並列出各 prim 的 `apiSchemas`。跨版本/跨主機比對場景時的主力工具
 - [`examples/audit_asset_physics.py`](examples/audit_asset_physics.py) — 稽核一份 USD 有沒有**授權**質量/密度/碰撞近似;會一併走訪 instance prototype(否則 `Traverse()` 對 CAD 轉出的資產回 0 mesh)
 - [`examples/templates/`](examples/templates/) — 實驗紀錄範本:輪次表、分期敘事、場景檔 manifest、事前登記、失敗總表(用法見 [30 篇](docs/common/30-acceptance-probes-and-preregistration/README.md) §8)
-- [`examples/hil-stm32/`](examples/hil-stm32/) — HIL 閉環全部程式碼:STM32F4 最小韌體(C,無 HAL)、Renode 平台與 IronPython hook、Rust 橋接(std-only)、假受控體(Rust / Python UDP)、Isaac 6.0.1 受控體(場域 GPU 主機實測)。`./run_loop.sh` 一條指令跑,`--negative bad-crc` 是負對照,`PLANT=remote` 經 `ssh -L` 接遠端受控體
+- [`examples/hil-stm32/`](examples/hil-stm32/) — HIL 閉環全部程式碼:STM32F4 最小韌體(C,無 HAL)、Renode 平台與 IronPython hook、FreeRTOS V11.3.1 版韌體、Rust 橋接(std-only)、假受控體(Rust / Python UDP)、Isaac 6.0.1 受控體(場域 GPU 主機實測)。`./run_loop.sh` 一條指令跑,`--negative bad-crc` 是負對照,`PLANT=remote` 經 `ssh -L` 接遠端受控體
 - [`examples/usd_peek.py`](examples/usd_peek.py) — 唯讀檢視 crate 場景裡某個 prim 的物理結構(貼了哪些 API、質量、碰撞近似、bbox),並可把子樹匯出成 `.usda` 文字。搭配 [16 篇](docs/6.0.1/16-model-tuning-for-6.0/README.md)
 
 ## 其他

@@ -1,0 +1,27 @@
+# FreeRTOS 版開機驗收:scheduler 起來、ctrl_task 在跑、沒 assert / stack overflow。
+# g_dbg @0x200000d8(hilctl-rtos.sym):magic +0, tick +4, ctrl_steps +8, flags +38, init_err +3C,
+#   ctrl_missed +44, report_missed +48, rx_wakeups +4C, stack_min_ctrl +50, stack_min_rx +54,
+#   stack_min_report +58, assert_line +5C, stack_overflow +60, malloc_failed +64
+$bin=@/w/firmware-freertos/build/hilctl-rtos.elf
+include @/w/renode/hilctl.resc
+emulation RunFor "0.500"
+echo "[rtos] magic / tick_ms(~500) / ctrl_steps(~100) / flags(4) / init_err(0):"
+sysbus ReadDoubleWord 0x200000D8
+sysbus ReadDoubleWord 0x200000DC
+sysbus ReadDoubleWord 0x200000E0
+sysbus ReadDoubleWord 0x20000110
+sysbus ReadDoubleWord 0x20000114
+echo "[rtos] ctrl_missed / report_missed / rx_wakeups:"
+sysbus ReadDoubleWord 0x2000011C
+sysbus ReadDoubleWord 0x20000120
+sysbus ReadDoubleWord 0x20000124
+echo "[rtos] stack_min ctrl / rx / report(word,>0):"
+sysbus ReadDoubleWord 0x20000128
+sysbus ReadDoubleWord 0x2000012C
+sysbus ReadDoubleWord 0x20000130
+echo "[rtos] assert_line / stack_overflow / malloc_failed(全 0):"
+sysbus ReadDoubleWord 0x20000134
+sysbus ReadDoubleWord 0x20000138
+sysbus ReadDoubleWord 0x2000013C
+hil_hook_stats
+quit

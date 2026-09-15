@@ -1,0 +1,23 @@
+# SysTick 第一個週期:ARMv7-M B3.3.3:ENABLE 由 0→1 時計數器從 SYST_RVR 載入再倒數。
+# FreeRTOS ARM_CM4F port 的順序:CTRL=0 → CVR=0 → LOAD=71999 → CTRL=7。
+mach create "p"
+machine LoadPlatformDescription @/w/renode/stm32f4-1.16.1.repl
+sysbus WriteDoubleWord 0xE000E010 0
+sysbus WriteDoubleWord 0xE000E018 0
+sysbus WriteDoubleWord 0xE000E014 71999
+sysbus WriteDoubleWord 0xE000E010 7
+echo "[S1] port 順序(CVR=0 在 LOAD 之前)。啟用後 10 us(720 cycle)讀 CVR:硬體期望 ~71279;若 ~16.7M 表示第一週期是 2^24"
+emulation RunFor "0.00001"
+sysbus ReadDoubleWord 0xE000E018
+emulation RunFor "0.0005"
+echo "[S1] 0.51 ms 後 CVR(硬體期望 ~35279):"
+sysbus ReadDoubleWord 0xE000E018
+machine Reset
+sysbus WriteDoubleWord 0xE000E010 0
+sysbus WriteDoubleWord 0xE000E014 71999
+sysbus WriteDoubleWord 0xE000E018 0
+sysbus WriteDoubleWord 0xE000E010 7
+echo "[S2] 裸機順序(LOAD 在 CVR=0 之前)。啟用後 10 us 讀 CVR:"
+emulation RunFor "0.00001"
+sysbus ReadDoubleWord 0xE000E018
+quit

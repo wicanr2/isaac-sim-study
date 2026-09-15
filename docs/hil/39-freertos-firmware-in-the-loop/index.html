@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>39 · 同一台車換 FreeRTOS:RTOS 韌體放進 HIL 迴路差在哪 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../../">總覽</a><a href="../../common/">共通</a><a href="../../5.1/">5.1</a><a href="../../6.0.1/">6.0.1</a><a href="../../fleet/">車隊</a><a href="../../hil/" class="on">HIL</a><a href="../../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/" class="on"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-stm32f4-跑-freertos-要什麼">1. STM32F4 跑 FreeRTOS 要什麼</a></li><li class="l2"><a href="#2-三個-task一條-isr">2. 三個 task,一條 ISR</a></li><li class="l2"><a href="#3-閉環結果跟裸機版比">3. 閉環結果:跟裸機版比</a></li><li class="l2"><a href="#4-rtos-才會踩到的-renode-缺口systick-的第一個週期">4. RTOS 才會踩到的 Renode 缺口:SysTick 的第一個週期</a></li><li class="l2"><a href="#5-什麼沒變">5. 什麼沒變</a></li><li class="l2"><a href="#6-檢查清單">6. 檢查清單</a></li></ul></aside>
+  <main class="doc">
+<h1 id="39-同一台車換-freertosrtos-韌體放進-hil-迴路差在哪">39 · 同一台車換 FreeRTOS:RTOS 韌體放進 HIL 迴路差在哪</h1>
+<p><a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a>的韌體是裸機 superloop:一個 <code>for(;;)</code> 輪詢 UART、CAN、時間,尾端 WFI。真實的下位機大多不長這樣——它跑 RTOS,收訊、控制、回報各是一個 task,由排程器決定誰先跑。這一篇把同一台車、同一份協定、同一個橋接,韌體換成 FreeRTOS V11.3.1,看 HIL 迴路裡什麼變了、什麼沒變,以及 RTOS 才會踩到的一個 Renode 缺口。</p>
+<blockquote>
+<p><strong>驗證狀態</strong>:全部在本機實測(Renode 1.16.1、arm-none-eabi-gcc 12.2、FreeRTOS-Kernel V11.3.1、docker 2 核,2026-09-15)。程式碼在 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/firmware-freertos"><code>examples/hil-stm32/firmware-freertos/</code></a>;跑法 <code>FW=freertos ./run_loop.sh</code>。受控體是假受控體;Isaac 那一側的接法與 <a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §6 相同,本篇沒有再跑一次。</p>
+</blockquote>
+<h2 id="1-stm32f4-跑-freertos-要什麼">1. STM32F4 跑 FreeRTOS 要什麼</h2>
+<p>Cortex-M4F 是 FreeRTOS 的官方 port(<code>portable/GCC/ARM_CM4F</code>),核心只靠三個例外:<strong>SVC</strong>(啟動第一個 task)、<strong>PendSV</strong>(context switch)、<strong>SysTick</strong>(tick)。Renode 的 <code>CortexM</code> 模型三個都有,官方測試裡就有 FreeRTOS demo。實際要準備的:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>這一區的做法</th>
+<th>為什麼</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>kernel 原始碼</td>
+<td>vendor V11.3.1 的最小子集進 repo(<code>tasks.c</code> <code>queue.c</code> <code>list.c</code>、<code>include/</code>、ARM_CM4F port、<code>heap_4.c</code>,1.5 MB,MIT)</td>
+<td>版本鎖;建置維持 <code>--network none</code></td>
+</tr>
+<tr>
+<td>libc</td>
+<td>工具鏈映像沒有 newlib。kernel 只呼叫 <code>memcpy</code> <code>memset</code> <code>strcpy</code> <code>strlen</code>,自己給 4 個函式與 2 個標頭(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/firmware-freertos/libc-min"><code>libc-min/</code></a>)</td>
+<td>每一個連進來的符號都知道是誰</td>
+</tr>
+<tr>
+<td>浮點 ABI</td>
+<td><code>-mfloat-abi=hard -mfpu=fpv4-sp-d16</code></td>
+<td>ARM_CM4F port 會開 FPU、存 FP 暫存器;裸機版是 soft-float,兩者不能混連</td>
+</tr>
+<tr>
+<td>向量表</td>
+<td>SVC / PendSV / SysTick 三格指到 port 的處理函式(<code>FreeRTOSConfig.h</code> 用 <code>#define</code> 對名字)</td>
+<td>其餘與裸機版相同</td>
+</tr>
+<tr>
+<td>中斷優先權</td>
+<td><code>configPRIO_BITS 4</code>、核心 15(最低)、<code>MAX_SYSCALL</code> 5;USART1 IRQ 設 6</td>
+<td>呼叫 <code>FromISR</code> API 的中斷,數值要 ≥ MAX_SYSCALL(較不緊急);Renode 的 <code>nvic priorityMask: 0xF0</code> 就是 4 位元</td>
+</tr>
+<tr>
+<td>tick</td>
+<td>1 kHz,<code>configCPU_CLOCK_HZ 72000000</code></td>
+<td>與平台描述的 <code>systickFrequency</code> 一致;Renode 不看 RCC</td>
+</tr>
+</tbody>
+</table></div>
+<p>大小:text 8176 B、bss 12.9 KB(12 KB 是 heap:三個 task + idle 的 TCB 與 stack)。</p>
+<h2 id="2-三個-task一條-isr">2. 三個 task,一條 ISR</h2>
+<pre><code>rx_task     優先權 2   ulTaskNotifyTake 睡到 USART1 ISR 通知 → ring buffer 解框包 → 更新設定點
+ctrl_task   優先權 3   xTaskDelayUntil 每 5 ms:收 CAN 編碼器、量測、PI、PWM、安全閘門
+report_task 優先權 1   xTaskDelayUntil 每 20 ms:odom(USART1)、馬達狀態(CAN)
+idle hook              WFI
+USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM_ISR
+</code></pre>
+<p>設計上跟裸機版<strong>刻意只差「誰排程」</strong>:協定、暫存器、控制律、<code>g_dbg</code> 前 17 個字的版面逐字相同,橋接一行都不用改。差異在三個地方:</p>
+<ul>
+<li><strong>收訊不再輪詢。</strong> ISR 塞 ring buffer 後用 task notification 叫醒 <code>rx_task</code>;沒資料時它睡著,不佔 CPU。裸機版是每 1 ms 醒來看一眼。</li>
+<li><strong>週期由 <code>xTaskDelayUntil</code> 保證。</strong> 它回 <code>pdFALSE</code> 表示「這一輪已經晚了,沒有真的睡」——那就是錯過週期,記進 <code>g_dbg.ctrl_missed</code>。裸機版的 <code>next_ctrl += 5</code> 會默默追趕,看不出來。</li>
+<li><strong><code>proto_send</code> 包在 critical section 裡。</strong> USART1 只有一條 TX 線,<code>rx_task</code> 回 PONG 與 <code>report_task</code> 送 odom 可能交錯——裸機版沒有這個問題,因為只有一條執行流。</li>
+</ul>
+<p><code>g_dbg</code> 第 17 字之後多了 RTOS 才有的觀測:<code>ctrl_missed</code>、<code>report_missed</code>、<code>rx_wakeups</code>、三個 task 的 stack high-water mark、<code>assert_line</code>、<code>stack_overflow</code>、<code>malloc_failed</code>。橋接用 <code>--dbg-extra 9</code> 跑完印出。</p>
+<h2 id="3-閉環結果跟裸機版比">3. 閉環結果:跟裸機版比</h2>
+<p>同一條指令、同一份腳本(0.5 s 起 300 mm/s 走 3 s → 600 mrad/s 轉 1.5 s → 停),假受控體:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>裸機</th>
+<th>FreeRTOS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C1–C8</td>
+<td>ALL PASS</td>
+<td>ALL PASS</td>
+</tr>
+<tr>
+<td>末端位姿 plant / odom</td>
+<td>902.0, −0.9, 0.9019 / 902, 0, 0.9010</td>
+<td><strong>相同</strong></td>
+</tr>
+<tr>
+<td>每步牆鐘</td>
+<td>29.7 ms</td>
+<td>28.8 ms</td>
+</tr>
+<tr>
+<td>兩次跑 CSV</td>
+<td>逐 byte 相同</td>
+<td>逐 byte 相同</td>
+</tr>
+<tr>
+<td>負對照 <code>--negative bad-crc</code></td>
+<td><code>bad_crc=300</code>、位移 0、C2 紅</td>
+<td>同</td>
+</tr>
+<tr>
+<td><code>ctrl_missed</code> / <code>report_missed</code></td>
+<td>—(量不到)</td>
+<td><strong>0 / 0</strong></td>
+</tr>
+<tr>
+<td><code>rx_wakeups</code></td>
+<td>—</td>
+<td>300(= 300 個框包,每個一次喚醒:10 bytes 在同一個 ISR 進來)</td>
+</tr>
+<tr>
+<td>stack 餘量 ctrl / rx / report(word,配 256)</td>
+<td>—</td>
+<td>189 / 197 / 179</td>
+</tr>
+<tr>
+<td><code>ctrl_steps</code>(6 s + 開機)</td>
+<td>1220</td>
+<td>1233</td>
+</tr>
+</tbody>
+</table></div>
+<p>兩份 CSV 逐步比對:末端相同,但途中 <code>ccr1</code> 在 389/1200 步不同、<code>odom_seq</code> 全部不同。原因是<strong>相位</strong>:RTOS 版開機晚了 235 ms(§4),橋接的第 k 步對到韌體的另一個 tick;控制律一樣,只是取樣點錯開。這是 <a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §4「步邊界取樣」的另一個面向——同一個系統換一個相位,逐步的數字就不同,末端才是該比的量。</p>
+<p><code>ctrl_missed = 0</code> 是這一篇最重要的一個數字:在 Renode 的虛擬時間裡,5 ms 的控制週期一次都沒錯過。但它<strong>只證明虛擬時間下沒錯過</strong>——<a href="../../hil/35-hil-what-and-why/">35 篇</a> §7 講過,時序只有實板算數。這個欄位的價值是在實板上會變成真的量測。</p>
+<h2 id="4-rtos-才會踩到的-renode-缺口systick-的第一個週期">4. RTOS 才會踩到的 Renode 缺口:SysTick 的第一個週期</h2>
+<p>第一次跑 FreeRTOS 版,500 ms 只走了 265 個 tick。逐段量:</p>
+<pre><code>   2 ms  PC 在 idle hook 的 WFI,執行 25,333 條指令,tick 0
+ 222 ms  PC 同一處,指令數一條都沒增加,tick 0
+ 252 ms  tick 15,之後以 1 kHz 走
+</code></pre>
+<p>CPU 從 2 ms 起就睡在 WFI,235 ms 內沒有任何中斷叫醒它。2^24 個 72 MHz 週期 = 233 ms——SysTick 是 24 位元計數器,第一個週期跑了滿量程。</p>
+<p>用兩支探針對照(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/upstream/probe_systick.resc"><code>renode/upstream/probe_systick.resc</code></a>):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>暫存器寫入順序</th>
+<th>啟用後 10 µs 讀 CVR</th>
+<th>意思</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FreeRTOS port:CTRL=0 → <strong>CVR=0 → LOAD=71999</strong> → CTRL=7</td>
+<td><code>0xFFFD2F</code></td>
+<td>從 0xFFFFFF 起跑</td>
+</tr>
+<tr>
+<td>裸機版:CTRL=0 → <strong>LOAD=71999 → CVR=0</strong> → CTRL=7</td>
+<td><code>0x1166F</code></td>
+<td>從 71999 起跑,正確</td>
+</tr>
+</tbody>
+</table></div>
+<p>ARMv7-M(B3.3.3)規定 <code>ENABLE</code> 由 0 變 1 時計數器從 <code>SYST_RVR</code> 載入。Renode 1.16.1 的 <code>NVIC.SysTick</code> 只在寫 CVR 時載入,而且只在 RELOAD 已經非零時——port 的順序下 RELOAD 還是 0,什麼都沒發生,啟用時也不載入,計數器就從重置值起跑。</p>
+<p>裸機版永遠不會踩到,因為它先寫 LOAD。FreeRTOS 的 <code>port.c</code> 是第三方碼、在硬體上也正確,<strong>韌體不改</strong>;修在 Renode:<code>NVIC.cs</code> 的 ENABLE 0→1 加一次 <code>LoadReloadValue()</code>,NUnit 兩條(兩種順序)——原版 1/2 紅、修正版 2/2 綠,進 fork 的第二個 commit(<a href="../../hil/37-bus-signal-bridging/">37 篇</a> §4)。修正版的 NVIC 進不了 1.16.1 的平台描述(CPU 模型對 <code>nvic</code> 參數型別檢查,改名的類掛不上),所以閉環仍在原版上跑,<code>run_loop.sh</code> 對 FreeRTOS 版把開機等待從 100 ms 拉到 400 ms;NVIC 修了之後可以回 100。</p>
+<p>這個缺口的形狀值得記:<strong>同一個週邊,兩支韌體用不同順序寫暫存器,一支正常、一支慢 233 ms</strong>,而慢的那支沒有任何錯誤——它只是「開機比較久」。<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3 的盤點是拿裸機韌體的存取樣式去驗的,換一支韌體就有新的樣式要驗。</p>
+<h2 id="5-什麼沒變">5. 什麼沒變</h2>
+<ul>
+<li>橋接、hook、External Control、受控體、八項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。</li>
+<li><code>g_dbg</code> 前 17 字的版面。橋接靠 <code>magic</code> 確認讀對東西,靠符號表找位址;FreeRTOS 版的 <code>g_dbg</code> 在 <code>0x200000d8</code>(裸機 <code>0x200000f8</code>),<code>--sym</code> 換一份就好。</li>
+<li>三條規則(35 篇 §6):沒有模擬模式、橋接不做安全、生效證明。<code>[effect]</code> 那幾行多印了 <code>g_dbg</code> 位址與 magic。</li>
+</ul>
+<h2 id="6-檢查清單">6. 檢查清單</h2>
+<ul>
+<li>[ ] kernel 版本鎖死、vendor 進 repo,LICENSE 一起</li>
+<li>[ ] 每個連進來的 libc 符號知道是誰提供的</li>
+<li>[ ] 浮點 ABI 與 port 一致(CM4F = hard)</li>
+<li>[ ] 中斷優先權:能用 <code>FromISR</code> 的中斷數值 ≥ <code>configMAX_SYSCALL_INTERRUPT_PRIORITY</code></li>
+<li>[ ] 週期性 task 用 <code>xTaskDelayUntil</code>,回傳值記成「錯過週期」計數</li>
+<li>[ ] 共用的輸出裝置(UART TX)有互斥</li>
+<li>[ ] stack high-water mark 進觀測結構</li>
+<li>[ ] 換韌體之後重新盤點週邊——存取樣式變了,模型的缺口也會變</li>
+<li>[ ] 跨韌體比對用末端位姿,不用逐步</li>
+</ul>
+<hr />
+<p>延伸閱讀:<a href="../../hil/36-stm32-firmware-on-renode/">36 STM32F4 韌體在 Renode 上開機</a>、<a href="../../hil/37-bus-signal-bridging/">37 匯流排訊號串接</a>、<a href="../../hil/38-acceptance-and-failure-modes/">38 驗收與失敗形態</a>、<a href="../../hil/35-hil-what-and-why/">35 HIL 是什麼</a>。</p>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../../">總覽</a> · <a href="../../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

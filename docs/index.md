@@ -18,7 +18,7 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 **[車隊與多樓層](fleet/)** · 4 篇
 多台車 + 多樓層自成一個問題域:OmniGraph 與 ROS 2 橋接、差速車動力學、電梯與門檻、感測器。這一區的失敗幾乎全部是「回傳成功、沒有錯誤、就是不對」。
 
-**[HIL:把下位控制器放進迴路](hil/)** · 4 篇
+**[HIL:把下位控制器放進迴路](hil/)** · 5 篇
 讓真的 STM32 韌體(跑在 Renode 裡)去驅動 Isaac 裡的車:Isaac 變成受控體,韌體講真的匯流排協定。純軟體、可在本機閉環實跑;三個時鐘域、匯流排訊號怎麼從模擬器出來、驗收怎麼寫才抓得到失敗。
 
 **[5.1 ↔ 6.0.1 差異速查](version-matrix.md)**
@@ -43,6 +43,7 @@ extension 架構重組、PhysX 換代與 Newton 後端、從 5.1 搬場景的風
 | 感測器讀數看起來正常但不對 | [34 感測器的假數字](fleet/34-lidar-and-sensor-plausible-but-wrong/README.md) |
 | 想讓真的底盤韌體(STM32)驅動 Isaac 裡的車 | [35 HIL 是什麼](hil/35-hil-what-and-why/README.md) → 36 → 37 → 38 |
 | 要把自己的韌體放進 Renode 模擬器 | [36 STM32F4 韌體在 Renode 上開機](hil/36-stm32-firmware-on-renode/README.md) |
+| 韌體跑 FreeRTOS,想放進 HIL 迴路 | [39 同一台車換 FreeRTOS](hil/39-freertos-firmware-in-the-loop/README.md) |
 | 手上有一台叉車/機器人,要把物理與關節建起來 | [26 從規格表到會動的叉車](common/26-forklift-physics-and-articulation/README.md) |
 | 場域主機不能對外,資產抓不到 | [25 官方資產的預先下載與離線佈署](common/25-offline-assets-deployment/README.md) |
 
