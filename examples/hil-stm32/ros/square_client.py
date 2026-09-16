@@ -26,10 +26,22 @@ class SquareClient(Node):
         self.declare_parameter("v", 0.3)        # m/s
         self.declare_parameter("w", 0.6)        # rad/s
         self.declare_parameter("timeout_s", 120.0)
+        # 韌體有斜坡(calib accel_limit / alpha_limit):命令歸零後車還要 v²/2a 才停,
+        # 所以提前 d_brake 停、每段之間等 odom 的速度歸零再起下一段。
+        # lag_s 是「命令歸零到車真的開始減速」的延遲:馬達層 τ(calib motor_tau_s 0.05)
+        # + odom 一筆(20 ms)+ cmd 一筆(20 ms)量級;這段時間車還在等速走,煞車距離要多 v·lag
+        self.declare_parameter("accel", 1.5)    # m/s²,對應 calib accel_limit_mm_s2
+        self.declare_parameter("alpha", 4.0)    # rad/s²,對應 calib alpha_limit_mrad_s2
+        self.declare_parameter("lag_s", 0.08)
         self.side = float(self.get_parameter("side_m").value)
         self.v = float(self.get_parameter("v").value)
         self.w = float(self.get_parameter("w").value)
         self.timeout = float(self.get_parameter("timeout_s").value)
+        lag = float(self.get_parameter("lag_s").value)
+        self.d_brake = self.v ** 2 / (2 * float(self.get_parameter("accel").value)) + self.v * lag
+        self.th_brake = self.w ** 2 / (2 * float(self.get_parameter("alpha").value)) + self.w * lag
+        self.settle_count = 0
+        self.vel = (0.0, 0.0)
 
         self.pub = self.create_publisher(Twist, "cmd_vel", 10)
         self.create_subscription(Odometry, "odom", self.on_odom, 10)
@@ -53,6 +65,7 @@ class SquareClient(Node):
             self.unwrapped += d
         self.prev_yaw = yaw
         self.pose = (p.position.x, p.position.y, self.unwrapped)
+        self.vel = (m.twist.twist.linear.x, m.twist.twist.angular.z)
         if self.first_pose is None:
             self.first_pose = self.pose
         self.n_odom += 1
@@ -70,16 +83,25 @@ class SquareClient(Node):
                 self.finish("ok")
             return
         if self.leg_start is None:
+            # 段間停定:等 odom 的 v、w 連續 5 筆都接近 0,才把這一段的起點記下來
+            if abs(self.vel[0]) < 0.01 and abs(self.vel[1]) < 0.02:
+                self.settle_count += 1
+            else:
+                self.settle_count = 0
+            if self.settle_count < 5:
+                self.pub.publish(cmd)
+                return
+            self.settle_count = 0
             self.leg_start = self.pose
         x, y, th = self.pose
         x0, y0, th0 = self.leg_start
         if self.leg % 2 == 0:
-            if math.hypot(x - x0, y - y0) >= self.side:
+            if math.hypot(x - x0, y - y0) >= self.side - self.d_brake:
                 self.next_leg()
             else:
                 cmd.linear.x = self.v
         else:
-            if th - th0 >= math.pi / 2:
+            if th - th0 >= math.pi / 2 - self.th_brake:
                 self.next_leg()
             else:
                 cmd.angular.z = self.w

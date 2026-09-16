@@ -16,6 +16,10 @@ pub struct Calib {
     pub wheel_speed_full_mm_s: f64,
     pub can_id_encoder: u32,
     pub can_id_motor_status: u32,
+    /// 馬達層(三個受控體實作同一份公式):一階時間常數、加速度上限(電流限制)、死區
+    pub motor_tau_s: f64,
+    pub motor_accel_max_mm_s2: f64,
+    pub motor_deadband_duty: f64,
     /// 韌體的編碼器來源:true = TIM2/TIM4 encoder mode(calib "encoder_source": "tim"),false = CAN 0x181
     pub encoder_tim: bool,
 }
@@ -46,6 +50,9 @@ impl Calib {
             can_id_encoder: num(&t, "can_id_encoder")? as u32,
             can_id_motor_status: num(&t, "can_id_motor_status")? as u32,
             encoder_tim,
+            motor_tau_s: num(&t, "motor_tau_s").unwrap_or(0.05),
+            motor_accel_max_mm_s2: num(&t, "motor_accel_max_mm_s2").unwrap_or(0.0),
+            motor_deadband_duty: num(&t, "motor_deadband_duty").unwrap_or(0.0),
         })
     }
 }

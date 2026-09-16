@@ -42,6 +42,7 @@ struct Args {
     upper: String,
     can: String,
     enc: String,
+    cfg: String,
 }
 
 fn parse_args() -> Args {
@@ -63,6 +64,7 @@ fn parse_args() -> Args {
         upper: "script".into(),
         can: "hook".into(),
         enc: "auto".into(),
+        cfg: String::new(),
     };
     let v: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -93,6 +95,8 @@ fn parse_args() -> Args {
             // 編碼器注入法:auto(calib tim → hook;can → can)、hook(一筆紀錄,hook 在 Renode 裡打正交脈衝)、
             // gpio(每個邊緣一個 External Control gpio_set)、cnt(External Control 直接寫 TIM CNT)、can(0x181 訊框)
             "--enc" => a.enc = val,
+            // 開機後覆蓋韌體的 g_cfg(kp=..,ki=..,accel=..,ff=..;Q8 或 mm/s²),增益掃描與負對照不用重編韌體
+            "--cfg" => a.cfg = val,
             other => {
                 eprintln!("未知參數 {other}");
                 std::process::exit(2);
@@ -234,6 +238,35 @@ fn main() {
         eprintln!("g_dbg magic 不對:讀到的不是這支韌體,或位址錯");
         std::process::exit(1);
     }
+    // 執行期控制參數 g_cfg { magic, kp_q8, ki_q8, accel_mm_s2, ff_q8 }:開機後(.data 已從 flash 複製)寫入
+    let cfg_base = calib::symbol_addr(&a.sym, "g_cfg").expect("符號 g_cfg");
+    let cfg_magic = ec.read_u32_at(bus, cfg_base).unwrap();
+    if cfg_magic != 0x4849_4C43 {
+        eprintln!("g_cfg magic 不對(0x{cfg_magic:08x})");
+        std::process::exit(1);
+    }
+    if !a.cfg.is_empty() {
+        for kv in a.cfg.split(',') {
+            let (k, v) = kv.split_once('=').expect("--cfg 格式 k=v,k=v");
+            let off = match k.trim() { "kp" => 1, "ki" => 2, "accel" => 3, "ff" => 4, "alpha" => 5, other => { eprintln!("--cfg 未知欄位 {other}"); std::process::exit(2); } };
+            let v: i32 = v.trim().parse().expect("--cfg 值");
+            ec.write_u32_at(bus, cfg_base + 4 * off, v as u32).unwrap();
+        }
+    }
+    let calib_accel = ec.read_u32_at(bus, cfg_base + 4 * 3).unwrap() as i32;
+    let calib_alpha = ec.read_u32_at(bus, cfg_base + 4 * 5).unwrap() as i32;
+    if a.negative == "no-ramp" {
+        // 負對照:韌體的兩個斜坡都關掉,但 C9 仍按 calib 的上限驗 → 必須紅
+        ec.write_u32_at(bus, cfg_base + 4 * 3, 0).unwrap();
+        ec.write_u32_at(bus, cfg_base + 4 * 5, 0).unwrap();
+    }
+    let cfgv = ec.read_u32s_at(bus, cfg_base, 6).unwrap();
+    println!("[effect] g_cfg@0x{:08x} kp_q8={} ki_q8={} accel_mm_s2={} ff_q8={} alpha_mrad_s2={}{}",
+        cfg_base, cfgv[1] as i32, cfgv[2] as i32, cfgv[3] as i32, cfgv[4] as i32, cfgv[5] as i32,
+        if a.cfg.is_empty() { " (calib 預設)" } else { " (--cfg 覆蓋後讀回)" });
+    let cfg_accel = if a.negative == "no-ramp" { calib_accel } else { cfgv[3] as i32 };
+    let cfg_alpha = if a.negative == "no-ramp" { calib_alpha } else { cfgv[5] as i32 };
+    let wheel_accel_limit = cfg_accel as f64 + cfg_alpha as f64 * c.track_mm / 2.0 / 1000.0;
 
     if let Some(dir) = std::path::Path::new(&a.log).parent() {
         let _ = std::fs::create_dir_all(dir);
@@ -275,6 +308,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     }
     let mut last_plant = plant::PlantOut::default();
     let mut path_len_mm = 0.0f64;
+    let mut max_plant_accel = 0.0f64;
     let mut can_cmp_total = 0u32;
     let mut can_cmp_mismatch = 0u32;
     let wall0 = Instant::now();
@@ -432,6 +466,10 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             dt_s
         };
         let out = pl.step(k, plant_dt, cmd).expect("plant step");
+        if plant_dt > 0.0 {
+            let acc = ((out.vl_mm_s - last_plant.vl_mm_s) / plant_dt).abs().max(((out.vr_mm_s - last_plant.vr_mm_s) / plant_dt).abs());
+            if acc > max_plant_accel { max_plant_accel = acc; }
+        }
         path_len_mm += ((out.x_mm - last_plant.x_mm).powi(2) + (out.y_mm - last_plant.y_mm).powi(2)).sqrt();
         last_plant = out;
         t_plant += ph.elapsed();
@@ -586,6 +624,12 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         // odom 是韌體按「它的」時間每 report_period 送一次,期望值用 Renode 時間算,不用牆鐘
         Check { name: "C5 odom 回報數 ≥ 90% 期望(按 Renode 時間)", pass: odom_count as f64 >= 0.9 * expect_odom as f64,
             detail: format!("{} / {}", odom_count, expect_odom) },
+        // C9:斜坡生效 → 受控體的輪加速度不超過上限 × 1.2(斜坡限的是設定點,PI 追斜坡的瞬態量到 +7%;
+        // 斜坡關掉時受控體撞到馬達層的 3000 上限,1.2 × 2100 = 2520 分得開);accel=0 時不驗
+        // 輪加速度上限 = 線加速度 + 角加速度 × 輪距/2(v、w 同時起坡時兩者相加)
+        Check { name: if cfg_accel > 0 { "C9 受控體輪加速度 ≤ (accel + alpha·track/2) × 1.2" } else { "C9 (斜坡關,accel=0) 不驗" },
+            pass: cfg_accel <= 0 || max_plant_accel <= wheel_accel_limit * 1.2,
+            detail: format!("max |dv/dt| = {:.0} mm/s² vs {:.0}(輪上限 {:.0} × 1.2)", max_plant_accel, wheel_accel_limit * 1.2, wheel_accel_limit) },
         Check { name: "C6 韌體 bad_crc == 橋接送壞的數", pass: bad_crc == corrupted,
             detail: format!("{bad_crc} vs {corrupted}") },
         Check { name: "C7 韌體收到的 cmd == 送出且未壞的數", pass: cmd_frames == sent_cmds - corrupted,

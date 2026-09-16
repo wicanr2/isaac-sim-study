@@ -19,28 +19,44 @@ import socket
 import sys
 
 
+def motor_target(duty: float, fwd: bool, enabled: bool, deadband: float, full: float) -> float:
+    """死區 → 線性到滿 duty;與 Rust / Isaac 版逐字同公式"""
+    if not enabled or duty <= deadband:
+        return 0.0
+    mag = (duty - deadband) / (1.0 - deadband) * full
+    return mag if fwd else -mag
+
+
+def motor_advance(v: float, target: float, dt: float, tau: float, accel_max: float) -> float:
+    a = min(dt / tau, 1.0)
+    dv = (target - v) * a
+    if accel_max > 0:
+        lim = accel_max * dt
+        dv = max(-lim, min(lim, dv))
+    return v + dv
+
+
 class FakePlant:
     """一階馬達(時間常數 tau)+ 精確差速運動學。編碼器 tick 由各輪累計行程取整。"""
 
-    def __init__(self, calib: dict, tau_s: float = 0.050):
+    def __init__(self, calib: dict, tau_s: float = None):
         self.circ_mm = 2 * math.pi * calib["wheel_radius_mm"]
         self.track = calib["track_mm"]
         self.tpr = calib["encoder_ticks_per_rev"]
         self.v_full = calib["wheel_speed_at_full_duty_mm_s"]
-        self.tau = tau_s
+        # 馬達層三個實作同一份公式(bridge-rs/src/plant.rs 的 motor_target / motor_advance)
+        self.tau = tau_s if tau_s is not None else calib.get("motor_tau_s", 0.05)
+        self.accel_max = calib.get("motor_accel_max_mm_s2", 0.0)
+        self.deadband = calib.get("motor_deadband_duty", 0.0)
         self.vl = self.vr = 0.0
         self.sl = self.sr = 0.0
         self.x = self.y = self.th = 0.0
 
     def step(self, dt: float, duty_l: float, duty_r: float, fwd_l: bool, fwd_r: bool, en: bool):
-        if en:
-            tl = duty_l * self.v_full * (1 if fwd_l else -1)
-            tr = duty_r * self.v_full * (1 if fwd_r else -1)
-        else:
-            tl = tr = 0.0
-        a = min(dt / self.tau, 1.0)
-        self.vl += (tl - self.vl) * a
-        self.vr += (tr - self.vr) * a
+        tl = motor_target(duty_l, fwd_l, en, self.deadband, self.v_full)
+        tr = motor_target(duty_r, fwd_r, en, self.deadband, self.v_full)
+        self.vl = motor_advance(self.vl, tl, dt, self.tau, self.accel_max)
+        self.vr = motor_advance(self.vr, tr, dt, self.tau, self.accel_max)
         dl, dr = self.vl * dt, self.vr * dt
         self.sl += dl
         self.sr += dr
@@ -61,7 +77,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--bind", default="0.0.0.0:3700")
     ap.add_argument("--calib", default="../calib.json")
-    ap.add_argument("--tau", type=float, default=0.050)
+    ap.add_argument("--tau", type=float, default=None, help="覆蓋 calib 的 motor_tau_s")
     ap.add_argument("--tcp", action="store_true")
     a = ap.parse_args()
 

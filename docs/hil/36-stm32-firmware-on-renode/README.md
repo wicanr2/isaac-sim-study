@@ -11,9 +11,9 @@
 [`firmware/main.c`](../../../examples/hil-stm32/firmware/main.c) 約 400 行,做真實下位機做的事:
 
 ```
-USART1 收 cmd_vel 框包(CRC16)→ 兩輪速度設定點
+USART1 收 cmd_vel 框包(CRC16)→ v, w
 TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_source`;舊路 CAN 0x181 訊框仍在)
-每 5 ms:輪速(Δtick ÷ 收到的訊框數 × 5 ms)→ PI → TIM3 PWM(CCR1/CCR2)+ 方向腳 PB8/PB9 + 致能腳 PB10
+每 5 ms:v, w 各自過斜坡(accel / alpha)→ 兩輪設定點 → PI + 速度前饋 → TIM3 PWM(CCR1/CCR2)+ 方向腳 PB8/PB9 + 致能腳 PB10
 每 20 ms:USART1 回 odom、CAN 0x201 回馬達狀態
 安全:500 ms 沒命令 → 停;PC13 急停拉高 → 停
 ```
@@ -27,9 +27,9 @@ TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_sour
 
 **沒有「模擬模式」。** 鮑率、CAN 位元時序、GPIO 的 AF 設定全部照真硬體寫。Renode 不看鮑率,照寫。
 
-**觀測結構固定版面。** `g_dbg` 是一個 `volatile` 結構,第一個欄位是 magic `0x48494C31`,後面是 tick、控制步數、設定點、量測、duty、收到的訊框數、壞 CRC 數、旗標、初始化錯誤碼、ring buffer 溢位數。橋接從 `nm` 的輸出拿位址,讀第一個字確認讀對了東西(§4)。
+**觀測結構固定版面。** `g_dbg` 是一個 `volatile` 結構,第一個欄位是 magic `0x48494C31`,後面是 tick、控制步數、設定點、量測、duty、收到的訊框數、壞 CRC 數、旗標、初始化錯誤碼、ring buffer 溢位數。橋接從 `nm` 的輸出拿位址,讀第一個字確認讀對了東西(§4)。同樣的做法反過來用一次:`g_cfg`(magic `0x48494C43`,固定放在 `.data` 開頭 `0x20000000`)放 PI 增益、斜坡、前饋,橋接開機後經 External Control 寫進去——增益掃描(`tools/tune_sweep.sh`)與「關掉斜坡」的負對照都不用重編韌體,而 `[effect]` 讀回來印一行,證明改的是這支韌體正在用的值。
 
-大小:text 4732 B、data 216 B、bss 316 B(`-O2`)。
+大小:text 5092 B、data 240 B、bss 328 B(`-O2`;斜坡、前饋與 `g_cfg` 加了 360 B)。
 
 ## 2. 平台描述:vendor 一份,拿掉一行
 
@@ -68,7 +68,7 @@ CAN 濾波器的坑:`FMR` 的重置值是 `0x2A1C0E01`,其中 `CAN2SB`(bit 13:8)
 
 韌體(兩版同):TIM2(PA0/PA1 AF1)左輪、TIM4(PB6/PB7 AF2)右輪,`ARR=0xFFFF`、`CC1S/CC2S=01`、`CCER` 兩通道、`SMS=011`、`CEN`;控制步 `dl = (int16)(CNT − 上次)`,累計進里程計。`calib.json` 的 `encoder_source` 切換(`tim` / `can`),`ENC_SOURCE_TIM` 進 `calib.h`;CAN 0x181 收到只計數不採用。
 
-受控體的 tick 進 CNT 有三種注入法(橋接 `--enc`,37 篇 §5):`hook`(一筆紀錄,Renode 裡的 .NET `QuadratureFeeder` 對 TI1/TI2 打邊緣,走 encoder mode 本身)、`gpio`(每個邊緣一個 External Control RPC)、`cnt`(直接寫 CNT)。lockstep 三種末端逐字相同(902.0, −0.9, 0.9019),每步 2.9 / 4.2 / 2.8 ms(load 8–10);負對照 A/B 對調 → 韌體量到負速度、正回饋跑掉 5.4 m、C3 紅。realtime 下每個邊緣在模型裡是一次 `LimitTimer.Value` 寫入(§5.1 的 50–100 µs),8k 邊緣/s 會把模擬執行緒吃掉,所以 realtime 預設 `cnt`。
+受控體的 tick 進 CNT 有三種注入法(橋接 `--enc`,37 篇 §5):`hook`(一筆紀錄,Renode 裡的 .NET `QuadratureFeeder` 對 TI1/TI2 打邊緣,走 encoder mode 本身)、`gpio`(每個邊緣一個 External Control RPC)、`cnt`(直接寫 CNT)。lockstep 三種末端逐字相同(900.8, 0.4, 0.8627),注入那一段每步 2.5 / 4.1 / 2.3 ms(load 7–8);負對照 A/B 對調 → 韌體量到負速度、正回饋跑掉 5.4 m、C3 紅。realtime 下每個邊緣在模型裡是一次 `LimitTimer.Value` 寫入(§5.1 的 50–100 µs),8k 邊緣/s 會把模擬執行緒吃掉,所以 realtime 預設 `cnt`。
 
 realtime 同腳本三次的末端:x = 902 × 驅動段的 Renode/牆鐘比(預測 883 / 771 / 665,實測 876 / 766 / 668)、θ = 0.9019 × 轉向段的比(0.620 / 0.682 / 0.598 vs 0.611 / 0.689 / 0.598)——**差全部在時鐘比裡**,一個數字解釋完。這就是 35 篇 §5.1 留下的開放項的結論。
 

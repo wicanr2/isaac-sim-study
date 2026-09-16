@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Isaac Sim 6.0.1 版受控體:實作 bridge-rs 的 UDP 受控體協定,由橋接 lockstep 步進。
 
-實測於 Isaac Sim 6.0.1(pip 版,場域 GPU 主機,PhysX、CPU 求解、TGS,2026-09-15):
-閉環 1200 步 ALL PASS,odom 對真值 3.4 mm / 2.0 mm / 0.028 rad,兩次 CSV 逐 byte 相同。
-七項驗收各自量到什麼,寫在檔尾;結論也在 docs/hil/38 §6。
+實測於 Isaac Sim 6.0.1(pip 版,場域 GPU 主機,PhysX、CPU 求解、TGS,2026-09-15/16):
+閉環 1200 步 ALL PASS,odom 對真值 0.8 mm / 1.0 mm / 0.0008 rad(馬達層加入後;之前 3.4 / 2.0 / 0.028),
+兩次 CSV 逐 byte 相同。七項驗收各自量到什麼,寫在檔尾;結論也在 docs/hil/38 §6。
+馬達層(死區、一階 τ、加速度上限)在算 DriveAPI 目標速度之前,與 fake_plant.py、bridge-rs plant.rs 同一份公式。
 
 執行(在 Isaac Sim 安裝目錄;pip 版用 venv 的 python):
     ./python.sh /path/to/isaac_plant.py --bind 0.0.0.0:3700 --calib /path/to/calib.json [--tcp]
@@ -51,6 +52,28 @@ R_MM = calib["wheel_radius_mm"]
 TRACK_MM = calib["track_mm"]
 TPR = calib["encoder_ticks_per_rev"]
 V_FULL = calib["wheel_speed_at_full_duty_mm_s"]
+# 馬達層(三個受控體實作同一份公式):死區、一階、加速度上限;算出來的輪速當 DriveAPI 的目標,
+# 接觸與滑移由 PhysX 負責。公式與 bridge-rs/src/plant.rs、fake_plant.py 逐字相同。
+MOTOR_TAU = calib.get("motor_tau_s", 0.05)
+MOTOR_ACCEL_MAX = calib.get("motor_accel_max_mm_s2", 0.0)
+MOTOR_DEADBAND = calib.get("motor_deadband_duty", 0.0)
+motor_v = [0.0, 0.0]
+
+
+def motor_target(duty, fwd, enabled, deadband, full):
+    if not enabled or duty <= deadband:
+        return 0.0
+    mag = (duty - deadband) / (1.0 - deadband) * full
+    return mag if fwd else -mag
+
+
+def motor_advance(v, target, dt, tau, accel_max):
+    a = min(dt / tau, 1.0)
+    dv = (target - v) * a
+    if accel_max > 0:
+        lim = accel_max * dt
+        dv = max(-lim, min(lim, dv))
+    return v + dv
 DT = calib["control_period_ms"] / 1000.0
 
 stage = omni.usd.get_context().get_stage()
@@ -273,8 +296,11 @@ def handle(line: str):
     seq = int(f[1])
     dt = int(f[2]) / 1000.0
     en = f[7] == "1"
-    vl = (int(f[3]) / 1000.0) * V_FULL * (1 if f[5] == "1" else -1) if en else 0.0
-    vr = (int(f[4]) / 1000.0) * V_FULL * (1 if f[6] == "1" else -1) if en else 0.0
+    tl = motor_target(int(f[3]) / 1000.0, f[5] == "1", en, MOTOR_DEADBAND, V_FULL)
+    tr = motor_target(int(f[4]) / 1000.0, f[6] == "1", en, MOTOR_DEADBAND, V_FULL)
+    motor_v[0] = motor_advance(motor_v[0], tl, dt, MOTOR_TAU, MOTOR_ACCEL_MAX)
+    motor_v[1] = motor_advance(motor_v[1], tr, dt, MOTOR_TAU, MOTOR_ACCEL_MAX)
+    vl, vr = motor_v
     # mm/s → rad/s → deg/s(DriveAPI 的角速度單位)
     drv_l.GetTargetVelocityAttr().Set(math.degrees(vl / R_MM))
     drv_r.GetTargetVelocityAttr().Set(math.degrees(vr / R_MM))
@@ -329,8 +355,9 @@ app.close()
 #    [scale, translate],-0.05 的平移被 z 縮成 -0.005,地面頂面在 +45 mm,輪子起始陷入 45 mm,第一步 2.9 m/s 往上。
 # 5. DriveAPI targetVelocity 單位是度/秒:設 360 跑 1 s → 輪角 6.235 rad(99.2%,drive 有落後);
 #    底盤 302.1 mm 對輪周 311.8 mm → 滑移 3.1%。
-# 6. 同一腳本 C1–C8 ALL PASS;C3 dx=3.4 dy=2.0 dth=0.0276 rad,容差 = 25 mm + (2% + slip)·距離、0.03 + slip·|θ|,
-#    slip=0.05。負對照(壞 CRC)位移 0、C2 紅。
+# 6. 同一腳本 C1–C9 ALL PASS;C3 dx=0.8 dy=1.0 dth=0.0008 rad(2026-09-16,馬達層 + 韌體斜坡後;
+#    DriveAPI 直接吃 duty 時是 3.4 / 2.0 / 0.0276,步階超調 60%、加速度 91400 mm/s²,dθ 差在轉向段的打滑),
+#    容差 = 25 mm + (2% + slip)·路徑長、0.03 + slip·|θ|,slip=0.05。負對照(壞 CRC)位移 0、C2 紅。
 # 7. 兩次跑(每次重啟受控體)CSV 全部欄位逐 byte 相同。SimulationManager.is_gpu_dynamics_enabled()=True
 #    而 get_physics_sim_device()=cpu——兩個值都記,決定性在這個組合下成立。
 # 另:Gf 矩陣是 row-vector 慣例,yaw 要用 atan2(m[0][1], m[0][0]);寫反會得到正負號相反的航向。

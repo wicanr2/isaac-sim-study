@@ -23,9 +23,9 @@
 </blockquote>
 <h2 id="1-韌體的形狀">1. 韌體的形狀</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/firmware/main.c"><code>firmware/main.c</code></a> 約 400 行,做真實下位機做的事:</p>
-<pre><code>USART1 收 cmd_vel 框包(CRC16)→ 兩輪速度設定點
+<pre><code>USART1 收 cmd_vel 框包(CRC16)→ v, w
 TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_source`;舊路 CAN 0x181 訊框仍在)
-每 5 ms:輪速(Δtick ÷ 收到的訊框數 × 5 ms)→ PI → TIM3 PWM(CCR1/CCR2)+ 方向腳 PB8/PB9 + 致能腳 PB10
+每 5 ms:v, w 各自過斜坡(accel / alpha)→ 兩輪設定點 → PI + 速度前饋 → TIM3 PWM(CCR1/CCR2)+ 方向腳 PB8/PB9 + 致能腳 PB10
 每 20 ms:USART1 回 odom、CAN 0x201 回馬達狀態
 安全:500 ms 沒命令 → 停;PC13 急停拉高 → 停
 </code></pre>
@@ -34,8 +34,8 @@ TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_sour
 <p>三個設計決定,每一個都與「在模擬器裡驗」有關:</p>
 <p><strong>沒有 HAL、沒有 libc。</strong> 暫存器定義自己寫(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/firmware/regs.h"><code>regs.h</code></a>,位址與位元出自 RM0090),只連 libgcc(soft-float)。理由:每一個寫進週邊的位元都要能回答「模擬器有沒有實作它」。HAL 會在你看不到的地方碰暫存器——既有內部專案的 <code>HAL_CAN_Init()</code> 在 Renode 上凍在 <code>Error_Handler()</code>,而那支韌體的作者沒有寫過任何一行 CAN 暫存器。</p>
 <p><strong>沒有「模擬模式」。</strong> 鮑率、CAN 位元時序、GPIO 的 AF 設定全部照真硬體寫。Renode 不看鮑率,照寫。</p>
-<p><strong>觀測結構固定版面。</strong> <code>g_dbg</code> 是一個 <code>volatile</code> 結構,第一個欄位是 magic <code>0x48494C31</code>,後面是 tick、控制步數、設定點、量測、duty、收到的訊框數、壞 CRC 數、旗標、初始化錯誤碼、ring buffer 溢位數。橋接從 <code>nm</code> 的輸出拿位址,讀第一個字確認讀對了東西(§4)。</p>
-<p>大小:text 4732 B、data 216 B、bss 316 B(<code>-O2</code>)。</p>
+<p><strong>觀測結構固定版面。</strong> <code>g_dbg</code> 是一個 <code>volatile</code> 結構,第一個欄位是 magic <code>0x48494C31</code>,後面是 tick、控制步數、設定點、量測、duty、收到的訊框數、壞 CRC 數、旗標、初始化錯誤碼、ring buffer 溢位數。橋接從 <code>nm</code> 的輸出拿位址,讀第一個字確認讀對了東西(§4)。同樣的做法反過來用一次:<code>g_cfg</code>(magic <code>0x48494C43</code>,固定放在 <code>.data</code> 開頭 <code>0x20000000</code>)放 PI 增益、斜坡、前饋,橋接開機後經 External Control 寫進去——增益掃描(<code>tools/tune_sweep.sh</code>)與「關掉斜坡」的負對照都不用重編韌體,而 <code>[effect]</code> 讀回來印一行,證明改的是這支韌體正在用的值。</p>
+<p>大小:text 5092 B、data 240 B、bss 328 B(<code>-O2</code>;斜坡、前饋與 <code>g_cfg</code> 加了 360 B)。</p>
 <h2 id="2-平台描述vendor-一份拿掉一行">2. 平台描述:vendor 一份,拿掉一行</h2>
 <p>Renode 內建的 <code>platforms/cpus/stm32f4.repl</code> 對這支韌體夠用——記憶體配置(flash 2 MB @ <code>0x08000000</code>、SRAM 256 KB @ <code>0x20000000</code>)、USART1/2、TIM3、GPIO A–C、CAN1、NVIC、SysTick 都在。但要<strong>vendor 一份進 repo</strong>(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/stm32f4-1.16.1.repl"><code>renode/stm32f4-1.16.1.repl</code></a>),兩個理由:</p>
 <ol>
@@ -118,7 +118,7 @@ TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_sour
 <p align="center"><img src="../../img/hil-encoder-mode-injection.svg" width="860" alt="正交訊號與 encoder mode 的計數規則、韌體讀 CNT、三種注入法的成本"></p>
 
 <p>韌體(兩版同):TIM2(PA0/PA1 AF1)左輪、TIM4(PB6/PB7 AF2)右輪,<code>ARR=0xFFFF</code>、<code>CC1S/CC2S=01</code>、<code>CCER</code> 兩通道、<code>SMS=011</code>、<code>CEN</code>;控制步 <code>dl = (int16)(CNT − 上次)</code>,累計進里程計。<code>calib.json</code> 的 <code>encoder_source</code> 切換(<code>tim</code> / <code>can</code>),<code>ENC_SOURCE_TIM</code> 進 <code>calib.h</code>;CAN 0x181 收到只計數不採用。</p>
-<p>受控體的 tick 進 CNT 有三種注入法(橋接 <code>--enc</code>,37 篇 §5):<code>hook</code>(一筆紀錄,Renode 裡的 .NET <code>QuadratureFeeder</code> 對 TI1/TI2 打邊緣,走 encoder mode 本身)、<code>gpio</code>(每個邊緣一個 External Control RPC)、<code>cnt</code>(直接寫 CNT)。lockstep 三種末端逐字相同(902.0, −0.9, 0.9019),每步 2.9 / 4.2 / 2.8 ms(load 8–10);負對照 A/B 對調 → 韌體量到負速度、正回饋跑掉 5.4 m、C3 紅。realtime 下每個邊緣在模型裡是一次 <code>LimitTimer.Value</code> 寫入(§5.1 的 50–100 µs),8k 邊緣/s 會把模擬執行緒吃掉,所以 realtime 預設 <code>cnt</code>。</p>
+<p>受控體的 tick 進 CNT 有三種注入法(橋接 <code>--enc</code>,37 篇 §5):<code>hook</code>(一筆紀錄,Renode 裡的 .NET <code>QuadratureFeeder</code> 對 TI1/TI2 打邊緣,走 encoder mode 本身)、<code>gpio</code>(每個邊緣一個 External Control RPC)、<code>cnt</code>(直接寫 CNT)。lockstep 三種末端逐字相同(900.8, 0.4, 0.8627),注入那一段每步 2.5 / 4.1 / 2.3 ms(load 7–8);負對照 A/B 對調 → 韌體量到負速度、正回饋跑掉 5.4 m、C3 紅。realtime 下每個邊緣在模型裡是一次 <code>LimitTimer.Value</code> 寫入(§5.1 的 50–100 µs),8k 邊緣/s 會把模擬執行緒吃掉,所以 realtime 預設 <code>cnt</code>。</p>
 <p>realtime 同腳本三次的末端:x = 902 × 驅動段的 Renode/牆鐘比(預測 883 / 771 / 665,實測 876 / 766 / 668)、θ = 0.9019 × 轉向段的比(0.620 / 0.682 / 0.598 vs 0.611 / 0.689 / 0.598)——<strong>差全部在時鐘比裡</strong>,一個數字解釋完。這就是 35 篇 §5.1 留下的開放項的結論。</p>
 <h2 id="4-兩條觀測管道">4. 兩條觀測管道</h2>
 <p><strong>printer</strong>:USART2 接檔案後端(<code>usart2 CreateFileBackend @path true</code>;headless 下 <code>showAnalyzer</code> 沒用),韌體開機吐三行:</p>

@@ -63,6 +63,12 @@
 <td>生效證明與驗收用</td>
 </tr>
 <tr>
+<td>增益與斜坡</td>
+<td>橋接 → MCU</td>
+<td>External Control <code>sysbus_write</code> <code>g_cfg</code>(開機後、腳本前寫,再讀回印 <code>[effect]</code>)</td>
+<td><code>--cfg kp=..,ki=..,accel=..</code> 掃參數、<code>--negative no-ramp</code> 關斜坡,都不重編韌體(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.1)</td>
+</tr>
+<tr>
 <td>UART(上位協定)</td>
 <td>雙向</td>
 <td>IronPython hook(<code>usart1.WriteChar</code> / <code>CharReceived</code>)</td>
@@ -195,7 +201,7 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 </tbody>
 </table></div>
 <p>②③ 是同一件事——都讓核心載入 <code>vcan.ko</code>,差別只在誰觸發、在哪個 netns。真正不碰核心的只有 ①。這台主機的 <code>vcan</code> 早就載著,「核心自動 <code>request_module</code>」這一句沒有機會驗;<code>vcan_up.py</code> 的 docstring 照核心的 rtnetlink 行為寫,標推測。</p>
-<p><strong>② 踩到的第四個 Renode 缺口:<code>CANHub</code> 暫停時丟訊框。</strong> <code>emulation RunFor</code> 是 <code>StartAll → RunFor → PauseAll</code>,hub 的 <code>Pause()</code> 把 <code>started</code> 清掉,之後 <code>Transmit()</code> 直接 return。<code>SocketCANBridge</code> 的讀執行緒不管暫停照樣 read socket,所以 lockstep 下兩次 <code>run_for</code> 之間注入的訊框全部靜默消失(Debug log 一行「Received from」,沒有 warning),只有剛好落在 <code>run_for</code> 期間的 14 筆進得去;realtime 模式下 599/600。修法:暫停時把主機來的訊框排隊,<code>Resume()</code> 時送——機器暫停時不可能有機器來的訊框,佇列裡只會有主機的。NUnit 三條(跑中轉發、暫停排隊 Resume 送且只送一次、不回送給發送者):原版 1/3、修正版 3/3;閉環 <code>CAN=socketcan CANHUBFIX=1 ./run_loop.sh</code> ALL PASS、末端位姿與 hook 路逐字相同(902.0, −0.9, 0.9019)、每步 10 ms(hook 路 11 ms,同一時段量)。fork 第三個 commit(<code>b89bc9d</code>),<code>renode/upstream/CANHub.patch</code>。<code>UARTHub</code> 有同一個樣式,沒動。</p>
+<p><strong>② 踩到的第四個 Renode 缺口:<code>CANHub</code> 暫停時丟訊框。</strong> <code>emulation RunFor</code> 是 <code>StartAll → RunFor → PauseAll</code>,hub 的 <code>Pause()</code> 把 <code>started</code> 清掉,之後 <code>Transmit()</code> 直接 return。<code>SocketCANBridge</code> 的讀執行緒不管暫停照樣 read socket,所以 lockstep 下兩次 <code>run_for</code> 之間注入的訊框全部靜默消失(Debug log 一行「Received from」,沒有 warning),只有剛好落在 <code>run_for</code> 期間的 14 筆進得去;realtime 模式下 599/600。修法:暫停時把主機來的訊框排隊,<code>Resume()</code> 時送——機器暫停時不可能有機器來的訊框,佇列裡只會有主機的。NUnit 三條(跑中轉發、暫停排隊 Resume 送且只送一次、不回送給發送者):原版 1/3、修正版 3/3;閉環 <code>CAN=socketcan CANHUBFIX=1 ./run_loop.sh</code> ALL PASS、末端位姿與 hook 路逐字相同(900.8, 0.4, 0.8627)、每步 11.8 ms(hook 路 11.5 ms,同一時段量)。fork 第三個 commit(<code>b89bc9d</code>),<code>renode/upstream/CANHub.patch</code>。<code>UARTHub</code> 有同一個樣式,沒動。</p>
 <p>哪條路適合哪個階段:<strong>lockstep 與 CI 用 ①</strong>——要 ack、要事件時刻快照、不要權限;<strong>realtime 與接實體 CAN 卡的階段用 ②③</strong>——<code>SocketCANBridge</code> 換成實體介面時橋接一行不改,原版 hub 在自由跑下也收得齊(599/600),lockstep 下要修過的 hub 才行。</p>
 <p>另一個要在 ② 上放棄的東西:<strong>C4 的事件時刻快照</strong>。hook 掛在 <code>FrameSent</code> 上才拿得到「同一個模擬時刻的 CCR」;走 vcan 時 hook 不碰 CAN,C4 印成「不驗」而不是綠——這條路拿不到那個量,不能假裝驗過。</p>
 <p align="center"><img src="../../img/hil-can-three-paths.svg" width="860" alt="CAN 訊框離開 Renode 的三條路各碰到 Renode 行程、使用者空間、核心的哪一層"></p>

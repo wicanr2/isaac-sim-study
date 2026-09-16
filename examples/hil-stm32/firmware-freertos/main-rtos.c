@@ -48,6 +48,17 @@ typedef struct {
 
 dbg_t g_dbg __attribute__((aligned(4)));
 
+/* 執行期可改的控制參數(同裸機版):預設從 calib 來,橋接可在開機後經 External Control 寫 SRAM 覆蓋 */
+typedef struct {
+    volatile uint32_t magic;        /* 0x48494C43 "HILC" */
+    volatile int32_t  kp_q8, ki_q8;
+    volatile int32_t  accel_mm_s2;  /* 線速度斜坡上限,0 = 不限 */
+    volatile int32_t  ff_q8;        /* 前饋比例,256 = 100% */
+    volatile int32_t  alpha_mrad_s2;/* 角速度斜坡上限,0 = 不限 */
+} cfg_t;
+
+cfg_t g_cfg __attribute__((aligned(4))) = { 0x48494C43u, PI_KP_Q8, PI_KI_Q8, ACCEL_LIMIT_MM_S2, FF_GAIN_Q8, ALPHA_LIMIT_MRAD_S2 };
+
 /* ------------------------------------------------------------------------ */
 /* 與裸機版相同的硬體層(複製而非共用 .c:兩支韌體要各自完整、可獨立閱讀) */
 /* ------------------------------------------------------------------------ */
@@ -246,6 +257,8 @@ static volatile int32_t s_sp_l, s_sp_r;
 static volatile TickType_t s_last_cmd_tick;
 static volatile int s_have_cmd;
 static int32_t s_integ_l, s_integ_r;
+static int32_t s_cmd_v, s_cmd_w;           /* 上位命令(mm/s、mrad/s) */
+static int32_t s_v_ramp, s_w_ramp;         /* 斜坡後的 v、w */
 static int32_t s_enc_l, s_enc_r;
 #if !ENC_SOURCE_TIM
 static int32_t s_enc_prev_l, s_enc_prev_r;
@@ -271,8 +284,8 @@ static int32_t pi_step(int32_t sp, int32_t meas, int32_t *integ)
 {
     int32_t e = sp - meas;
     *integ = clamp_i32(*integ + e, -PI_INTEGRAL_LIMIT, PI_INTEGRAL_LIMIT);
-    int32_t ff = sp * DUTY_FULL_SCALE / WHEEL_SPEED_FULL_MM_S;
-    int32_t u  = ff + ((PI_KP_Q8 * e + PI_KI_Q8 * (*integ)) >> 8);
+    int32_t ff = (sp * DUTY_FULL_SCALE / WHEEL_SPEED_FULL_MM_S) * g_cfg.ff_q8 >> 8;
+    int32_t u  = ff + ((g_cfg.kp_q8 * e + g_cfg.ki_q8 * (*integ)) >> 8);
     return clamp_i32(u, -DUTY_FULL_SCALE, DUTY_FULL_SCALE);
 }
 
@@ -329,11 +342,27 @@ static void control_step(void)
     }
     if (enable) {
         flags |= ODOM_FLAG_ENABLED;
+        /* 斜坡對 v(mm/s²)與 w(mrad/s²)各自限斜率,再換成兩輪設定點——對兩輪各自限會讓
+         * 轉→直的過渡兩輪不同步(量到方形每段偏航 +0.16 rad);0 = 直接跳(第一版行為) */
+        int32_t dv = g_cfg.accel_mm_s2 * CONTROL_PERIOD_MS / 1000;
+        int32_t dw = g_cfg.alpha_mrad_s2 * CONTROL_PERIOD_MS / 1000;
+        s_v_ramp = dv > 0 ? s_v_ramp + clamp_i32(s_cmd_v - s_v_ramp, -dv, dv) : s_cmd_v;
+        s_w_ramp = dw > 0 ? s_w_ramp + clamp_i32(s_cmd_w - s_w_ramp, -dw, dw) : s_cmd_w;
+        /* v_l = v - w*track/2,w 是 mrad/s → (w * TRACK_MM / 2) / 1000 mm/s */
+        int32_t half = s_w_ramp * TRACK_MM / 2 / 1000;
+        s_sp_l = s_v_ramp - half;
+        s_sp_r = s_v_ramp + half;
+        /* 設定點歸零時清積分:轉向段留下的左右不對稱積分,會讓下一段直線一起步就偏航
+         * (方形每段量到 +0.07 rad);真板驅動器同樣在零命令時清 */
+        if (s_sp_l == 0) s_integ_l = 0;
+        if (s_sp_r == 0) s_integ_r = 0;
         s_duty_l = pi_step(s_sp_l, s_meas_l, &s_integ_l);
         s_duty_r = pi_step(s_sp_r, s_meas_r, &s_integ_r);
     } else {
         s_duty_l = s_duty_r = 0;
         s_integ_l = s_integ_r = 0;
+        s_v_ramp = s_w_ramp = 0;   /* 停車後從 0 重新起坡 */
+        s_sp_l = s_sp_r = 0;
     }
     motor_apply(s_duty_l, s_duty_r, enable);
 
@@ -348,9 +377,7 @@ static void handle_cmd_vel(const uint8_t *p)
 {
     int16_t v = (int16_t)(p[0] | (p[1] << 8));
     int16_t w = (int16_t)(p[2] | (p[3] << 8));
-    int32_t half = (int32_t)w * TRACK_MM / 2 / 1000;
-    s_sp_l = (int32_t)v - half;
-    s_sp_r = (int32_t)v + half;
+    s_cmd_v = v; s_cmd_w = w;   /* 斜坡與換算在控制步做(對 v、w 各自限斜率,兩輪才不會在過渡時不同步) */
     s_last_cmd_tick = xTaskGetTickCount();
     s_have_cmd = 1;
     g_dbg.cmd_frames++;

@@ -38,7 +38,29 @@ pub trait Plant {
     fn step(&mut self, seq: u32, dt_s: f64, cmd: MotorCmd) -> io::Result<PlantOut>;
 }
 
-/// 純軟體差速車。馬達:輪速對 duty 一階趨近(時間常數 tau);運動學:精確弧線積分。
+/// 馬達層,三個受控體實作(這裡、plant/fake_plant.py、plant/isaac_plant.py)同一份公式:
+/// 1. 死區:|duty| < deadband 不動;之後線性到滿 duty = full 速度
+/// 2. 一階趨近(時間常數 tau),但每步的速度變化量不超過 accel_max × dt(電流限制 = 扭矩上限)
+/// 改公式要三處一起改,末端位姿要互相在容差內(38 篇 §3)。
+pub fn motor_target(duty: f64, fwd: bool, enabled: bool, deadband: f64, full: f64) -> f64 {
+    if !enabled || duty <= deadband {
+        return 0.0;
+    }
+    let mag = (duty - deadband) / (1.0 - deadband) * full;
+    if fwd { mag } else { -mag }
+}
+
+pub fn motor_advance(v: f64, target: f64, dt: f64, tau: f64, accel_max: f64) -> f64 {
+    let a = (dt / tau).min(1.0);
+    let mut dv = (target - v) * a;
+    if accel_max > 0.0 {
+        let lim = accel_max * dt;
+        dv = dv.clamp(-lim, lim);
+    }
+    v + dv
+}
+
+/// 純軟體差速車。馬達:上面的 motor_target / motor_advance;運動學:精確弧線積分。
 pub struct Fake {
     c: Calib,
     tau_s: f64,
@@ -53,7 +75,7 @@ pub struct Fake {
 
 impl Fake {
     pub fn new(c: Calib) -> Fake {
-        Fake { c, tau_s: 0.050, vl: 0.0, vr: 0.0, sl_mm: 0.0, sr_mm: 0.0, x: 0.0, y: 0.0, th: 0.0 }
+        Fake { c, tau_s: c.motor_tau_s, vl: 0.0, vr: 0.0, sl_mm: 0.0, sr_mm: 0.0, x: 0.0, y: 0.0, th: 0.0 }
     }
 
     fn ticks(&self, s_mm: f64) -> i32 {
@@ -65,17 +87,11 @@ impl Fake {
 impl Plant for Fake {
     fn step(&mut self, _seq: u32, dt: f64, cmd: MotorCmd) -> io::Result<PlantOut> {
         let full = self.c.wheel_speed_full_mm_s;
-        let (tl, tr) = if cmd.enabled {
-            (
-                if cmd.fwd_l { cmd.duty_l * full } else { -cmd.duty_l * full },
-                if cmd.fwd_r { cmd.duty_r * full } else { -cmd.duty_r * full },
-            )
-        } else {
-            (0.0, 0.0)
-        };
-        let a = dt / self.tau_s;
-        self.vl += (tl - self.vl) * a.min(1.0);
-        self.vr += (tr - self.vr) * a.min(1.0);
+        let db = self.c.motor_deadband_duty;
+        let tl = motor_target(cmd.duty_l, cmd.fwd_l, cmd.enabled, db, full);
+        let tr = motor_target(cmd.duty_r, cmd.fwd_r, cmd.enabled, db, full);
+        self.vl = motor_advance(self.vl, tl, dt, self.tau_s, self.c.motor_accel_max_mm_s2);
+        self.vr = motor_advance(self.vr, tr, dt, self.tau_s, self.c.motor_accel_max_mm_s2);
         let dl = self.vl * dt;
         let dr = self.vr * dt;
         self.sl_mm += dl;

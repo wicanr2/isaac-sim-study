@@ -12,9 +12,12 @@
 #define PWM_PSC                  0  /* 載波 = 定時器時脈 / (PSC+1) / (ARR+1) */
 #define DUTY_FULL_SCALE          1000
 #define WHEEL_SPEED_FULL_MM_S    1000
-#define PI_KP_Q8                 128
-#define PI_KI_Q8                 13
+#define PI_KP_Q8                 256
+#define PI_KI_Q8                 6
 #define PI_INTEGRAL_LIMIT        20000
+#define ACCEL_LIMIT_MM_S2        1500  /* 線速度斜坡,0 = 不限 */
+#define ALPHA_LIMIT_MRAD_S2      4000  /* 角速度斜坡,0 = 不限 */
+#define FF_GAIN_Q8               256  /* 速度前饋比例,256 = 100% */
 #define ENC_SOURCE_TIM           1  /* 1: TIM2/TIM4 encoder mode 讀 CNT;0: CAN 0x181 訊框 */
 #define CAN_ID_ENCODER           0x181
 #define CAN_ID_MOTOR_STATUS      0x201

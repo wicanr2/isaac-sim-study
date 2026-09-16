@@ -17,7 +17,8 @@ vpath %.c . ../firmware $(K) $(K)/portable/GCC/ARM_CM4F $(K)/portable/MemMang
 
 all: build/hilctl-rtos.elf build/hilctl-rtos.sym
 
-build/%.o: %.c
+# 標頭相依:calib.h 由 calib.json 重生時,沒有這一行 make 不會重編(2026-09-16 踩到:增益改了 RTOS 版沒跟上)
+build/%.o: %.c ../firmware/regs.h ../firmware/proto.h ../firmware/calib.h ../firmware/crc16.h FreeRTOSConfig.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 

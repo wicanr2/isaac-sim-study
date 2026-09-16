@@ -13,22 +13,24 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-八項判準在開跑前寫死">1. 八項判準,在開跑前寫死</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-九項判準在開跑前寫死">1. 九項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="38-驗收與失敗形態先閉環再換-isaac">38 · 驗收與失敗形態:先閉環,再換 Isaac</h1>
 <p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後是把受控體換成 Isaac Sim 6.0.1 時七件事各量到什麼。</p>
 <blockquote>
 <p><strong>驗證狀態</strong>:§1–§5 在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 在場域 GPU 主機實測(Isaac Sim 6.0.1 pip 版,PhysX、CPU 求解、TGS;Renode 與橋接留在本機,受控體經 <code>ssh -L</code> 隧道,同日)。</p>
 </blockquote>
-<h2 id="1-八項判準在開跑前寫死">1. 八項判準,在開跑前寫死</h2>
+<h2 id="1-九項判準在開跑前寫死">1. 九項判準,在開跑前寫死</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/run_loop.sh"><code>run_loop.sh</code></a> 一條指令:起 Renode 容器(<code>--network none</code>)、橋接容器共用它的 netns、跑完只停自己起的那一個。橋接開頭先印生效證明:</p>
-<pre><code>[effect] renode ec=127.0.0.1:3500 hook=127.0.0.1:3600 machine=hilctl boot_ms=100 t0_us=100000
-[effect] g_dbg@0x200000f8 magic=0x48494c31 (ok) init_err=0
-[effect] plant=fake dt_ms=5 steps=1200 report_every=4 script=&quot;0:0,0;0.5:300,0;3.5:0,600;5:0,0&quot; negative=none
+<pre><code>[effect] encoder: calib=tim inject=hook
+[effect] renode ec=127.0.0.1:3500 hook=127.0.0.1:3600 machine=hilctl boot_ms=100 t0_us=100000
+[effect] g_dbg@0x2000011c magic=0x48494c31 (ok) init_err=0
+[effect] mode=lockstep plant=fake dt_ms=5 steps=1200 report_every=4 script=&quot;0:0,0;0.5:300,0;3.5:0,600;5:0,0&quot; negative=none slip=0
 [effect] tim3 ARR=999 (calib pwm_arr=999) track=300 circ_um=314159 tpr=4096
+[effect] g_cfg@0x20000000 kp_q8=256 ki_q8=6 accel_mm_s2=1500 ff_q8=256 alpha_mrad_s2=4000 (calib 預設)
 </code></pre>
-<p>每一行都是「這個變數進了系統」的證據:magic 對表示讀的是這支韌體、<code>ARR</code> 讀回值對上 calib 表示韌體吃的是同一份參數。</p>
-<p>預設腳本:0.5 s 起 v = 300 mm/s 走 3 s,再 w = 600 mrad/s 轉 1.5 s,然後停;共 6 s = 1200 步。八項判準:</p>
+<p>每一行都是「這個變數進了系統」的證據:magic 對表示讀的是這支韌體、<code>ARR</code> 讀回值對上 calib 表示韌體吃的是同一份參數、<code>g_cfg</code> 那行是從 SRAM <strong>讀回來</strong>的增益與斜坡(<code>--cfg</code> 覆蓋之後也是讀回值,不是命令列的值)。</p>
+<p>預設腳本:0.5 s 起 v = 300 mm/s 走 3 s,再 w = 600 mrad/s 轉 1.5 s,然後停;共 6 s = 1200 步。九項判準(2026-09-16,現行 calib:斜坡 1500 mm/s² / 4000 mrad/s²、kp 256、ki 6、前饋 100%、馬達層 τ 50 ms):</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -47,15 +49,15 @@
 </tr>
 <tr>
 <td>C2</td>
-<td>腳本有命令時車有動(位移 &gt; 100 mm)</td>
+<td>腳本有命令時車有動(路徑長 &gt; 100 mm)</td>
 <td>整條命令鏈斷掉</td>
-<td>902.0 mm</td>
+<td>901.9 mm</td>
 </tr>
 <tr>
 <td>C3</td>
 <td>韌體 odom 對受控體真值</td>
 <td>編碼器方向、換算、里程計</td>
-<td>dx 0.0、dy 0.9 mm、dθ 0.9 mrad(容差 25 mm + 2% 距離 / 30 mrad)</td>
+<td>dx 0.8、dy 0.4 mm、dθ 0.7 mrad(容差 25 mm + 2% 路徑長 / 30 mrad)</td>
 </tr>
 <tr>
 <td>C4</td>
@@ -85,13 +87,67 @@
 <td>C8</td>
 <td>TIM 模式:CNT == 受控體 tick(mod 2^16)且韌體累計 == 前一步 tick;CAN 模式:收到的訊框 == steps − 1</td>
 <td>編碼器注入掉資料;一步延遲</td>
-<td>CNT 9996/13523 == plant;fw == 前一步</td>
+<td>CNT 10057/13431 == plant;fw == 前一步</td>
+</tr>
+<tr>
+<td>C9</td>
+<td>受控體的輪加速度 ≤ (accel + alpha × 輪距/2) × 1.2</td>
+<td>斜坡沒生效(韌體沒讀 <code>g_cfg</code>、算錯單位)</td>
+<td>2257 vs 2520 mm/s²</td>
 </tr>
 </tbody>
 </table></div>
-<p>任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 <a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a>。</p>
-<p>負對照多一個 <code>--negative enc-swap</code>(編碼器 A/B 對調):韌體量到負速度,PI 正回饋把車推到 5.4 m,C3 與 C8 紅。</p>
-<p><code>--mode realtime</code> 下三項換成一致性版本:C1「0 &lt; Renode 時間 ≤ 牆鐘 + 5%」(Renode 追牆鐘的節拍以量子為單位,量到領先最多 +1.8%)、C5 的期望值用 Renode 時間除以 20 ms(odom 是韌體按它的時間送的)、C8「≥ 90% steps」(沒有 <code>run_for</code>,一步延遲的等式不成立)。realtime 下八項全綠<strong>不代表</strong>車走對了——Renode 跑不到實時時,閉環速度會安靜地低到 ratio 倍,判準抓不到,見 <a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1。</p>
+<p>任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 <a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a>。末端位姿 x 900.8、y 0.4、θ 0.8627 是這份 calib 下的參考值,裸機與 FreeRTOS 兩版韌體、三種編碼器注入法、UDP 受控體、vcan 路都要對上它(§3、<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.1、<a href="../../hil/39-freertos-firmware-in-the-loop/">39 篇</a> §3)。</p>
+<p>負對照有三個,每一個只差一個旗標:<code>--negative bad-crc</code>(§2)、<code>--negative enc-swap</code>(編碼器 A/B 對調:韌體量到負速度,PI 正回饋把車推到 5.3 m,C3、C8、C9 紅)、<code>--negative no-ramp</code>(§1.1)。</p>
+<h3 id="11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</h3>
+<p>第一版韌體的 PI 直接追上位的階躍,受控體的馬達是「duty 乘滿速再一階趨近」——沒有死區、沒有扭矩上限。300 mm/s 的步階在假受控體上升 40 ms、超調 15%、最大加速度 9300 mm/s²;在 Isaac 上 <code>DriveAPI</code> 直接吃 duty,超調 60%、最大加速度 91400 mm/s²,在 ±2% 帶外晃了 525 ms。這兩個數字都不是「車」的行為,是「沒有動態限制的控制器 + 沒有物理上限的馬達」的行為。改了三件事,每一件放在它該在的那一層:</p>
+<p align="center"><img src="../../img/hil-ramp-and-motor-layer.svg" width="860" alt="命令到輪速的鏈:斜坡與 PI 在韌體、馬達層在受控體;兩張步階圖是假受控體與 Isaac 的前後對照"></p>
+
+<ol>
+<li><strong>斜坡在韌體。</strong> <code>cmd_vel</code> 進來先存,每個控制步 v 與 w <strong>各自</strong>往命令走一步(<code>accel × 5 ms</code>、<code>alpha × 5 ms</code>),再拆成兩輪設定點。一開始寫成「兩輪各自限」,方形閉環的每一段直線偏航 +0.16 rad——從原地轉切到直走時左輪要從 −90 加到 300、右輪從 +90 加到 300,各自限速的話兩輪不同時到,車在過渡期畫弧。v/w 各限就沒有這個問題:w 的斜坡把兩輪的差同步收掉。另外設定點歸零時清積分——不清的話下一段起步時上一段留下的積分會先推一下(方形閉合 126 → 63 mm,§6.1)。</li>
+<li><strong>前饋在韌體。</strong> PI 之前加 <code>sp × 滿 duty / 滿速</code>;PI 只補模型誤差,kp 從 128 → 256、ki 13 → 6(<code>tools/tune_sweep.sh</code> 掃 kp × ki 網格,每一格經 External Control 寫 <code>g_cfg</code>,不重編)。</li>
+<li><strong>馬達層在受控體,三份實作同一組公式。</strong> 死區(|duty| &lt; 5% 不動,之後線性到滿速)、一階趨近(τ 50 ms)、每步速度變化 ≤ 3000 mm/s² × dt(電流限制)。Rust <code>Fake</code>、<code>fake_plant.py</code>、<code>isaac_plant.py</code> 各自實作一次,Isaac 那份放在算 <code>DriveAPI</code> 目標速度之前——PhysX 的關節驅動本身沒有這些限制,它會把任何目標在一步內追到。參數在 <code>calib.json</code>(<code>motor_tau_s</code>、<code>motor_accel_max_mm_s2</code>、<code>motor_deadband_duty</code>),改公式要三處一起改。</li>
+</ol>
+<p>前後(<code>tools/step_response.py</code>,<code>plant_vl</code> 對 0.5 s 的 300 mm/s 步階看 3 s):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>假受控體 前 → 後</th>
+<th>Isaac 6.0.1 前 → 後</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>上升時間 10→90%</td>
+<td>40 → 155 ms</td>
+<td>0 → 155 ms</td>
+</tr>
+<tr>
+<td>超調</td>
+<td>15.4% → 2.2%</td>
+<td>60.0% → 3.0%</td>
+</tr>
+<tr>
+<td>進入 ±2% 帶</td>
+<td>390 → 365 ms</td>
+<td>525 → 475 ms</td>
+</tr>
+<tr>
+<td>最大 |加速度|</td>
+<td>9300 → 1820 mm/s²</td>
+<td>91400 → 1900 mm/s²</td>
+</tr>
+<tr>
+<td>6 s 腳本 C3(dx / dy / dθ)</td>
+<td>0.0 / 0.9 mm / 0.9 mrad → 0.8 / 0.4 / 0.7</td>
+<td>3.4 / 2.0 mm / 27.6 mrad → 0.8 / 1.0 / 0.8</td>
+</tr>
+</tbody>
+</table></div>
+<p>上升 155 ms 是斜坡的值(300 / 1500 = 200 ms 到頂,10→90% 是其中 160 ms),不是 PI 的值;兩個受控體一樣,因為限制在韌體。Isaac 的 dθ 從 27.6 mrad 掉到 0.8:它的里程計誤差原本主要是轉向段的加速度撞擊——輪子在 5 ms 內從 0 到滿速,球形輪對地面打滑,而假受控體沒有這件事,所以兩者原本差 30 倍、現在同一級。</p>
+<p><strong>C9 與負對照。</strong> 判準是「受控體的輪加速度 ≤ (accel + alpha × 輪距/2) × 1.2」:v 與 w 同時起坡時一個輪子吃到兩者的和(1500 + 4000 × 0.15 = 2100),PI 追斜坡的瞬態量到 +7%,留 20%。<code>--negative no-ramp</code> 經 External Control 把 <code>g_cfg</code> 的 accel 與 alpha 寫 0(<code>[effect]</code> 那行讀回 0,韌體同一支),C9 按 calib 的 2100 驗:max 3000 vs 2520,紅——3000 是馬達層的上限,斜坡關掉時受控體撞到的是它。容差不能是 1.5:2100 × 1.5 = 3150 &gt; 3000,負對照會綠。這是 §2 那條規則的另一個用法:負對照不只驗「測試有效」,還會<strong>卡住容差</strong>。</p>
+<p><code>--mode realtime</code> 下三項換成一致性版本:C1「0 &lt; Renode 時間 ≤ 牆鐘 + 5%」(Renode 追牆鐘的節拍以量子為單位,量到領先最多 +1.8%)、C5 的期望值用 Renode 時間除以 20 ms(odom 是韌體按它的時間送的)、C8「≥ 90% steps」(沒有 <code>run_for</code>,一步延遲的等式不成立)。realtime 下九項全綠<strong>不代表</strong>車走對了——Renode 跑不到實時時,閉環速度會安靜地低到 ratio 倍,判準抓不到,見 <a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1。</p>
 <p>C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌體用 5 項 Taylor 的 sin/cos、以 float 積分 1200 步的誤差)+ 里程計對真值的系統性差(2% 距離)+ 受控體的接觸滑移(<code>--slip</code> × 距離、<code>--slip</code> × |θ|)。假受控體 slip = 0;Isaac 實測轉向滑移 3.1%、直行 0.5%,用 0.05——這個數字是先在 §6 量到、再寫回判準的,不是看結果調的。</p>
 <h2 id="2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</h2>
 <p><code>./run_loop.sh --negative bad-crc</code> 把每個 cmd_vel 的最後一個 byte 反相:</p>
@@ -108,10 +164,10 @@
 <p>同一腳本跑兩次,1201 行 CSV(每步 31 個欄位;realtime 多一欄 <code>wall_ms</code>:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)<strong>逐 byte 相同</strong>。靠的是 <a href="../../hil/37-bus-signal-bridging/">37 篇</a> §3 的 ack:每筆注入確認進了週邊才推進時間。</p>
 <p>但換一個「同一個模型」的實作就不一樣了。<code>plant/fake_plant.py</code>(Python,走 UDP)與橋接內建的 Rust <code>Fake</code> 是同一組公式、同一份 calib:</p>
 <ul>
-<li>末端位姿相同:x 902.0、y −0.9、θ 0.9019</li>
-<li>1200 步 × 8 個欄位裡有 <strong>462 個不同</strong>,第一個在第 227 步:<code>ticks_l</code> 2526 vs 2525</li>
+<li>末端位姿:x 900.8、y 0.4 相同,θ 0.8627 vs 0.8628</li>
+<li>1200 步 × 8 個欄位裡有 <strong>811 個不同</strong>,第一個在第 446 步:<code>ticks_l</code> 6310 vs 6309</li>
 </ul>
-<p>差在 <code>floor(s / 周長 × 4096)</code> 的邊界——兩種語言的浮點運算在最後一位偶爾不同,落在整數邊界上就差 1 tick。<strong>決定性是每個實作各自成立的性質</strong>;要跨實作比對,用容差,不用相等。</p>
+<p>差在 <code>floor(s / 周長 × 4096)</code> 的邊界——兩種語言的浮點運算在最後一位偶爾不同,落在整數邊界上就差 1 tick;馬達層的死區與限幅多了幾次乘除,邊界撞到的次數也跟著多。<strong>決定性是每個實作各自成立的性質</strong>;要跨實作比對,用容差,不用相等。</p>
 <h2 id="4-步邊界取樣的盲點">4. 步邊界取樣的盲點</h2>
 <p>C4 第一版拿「這一步結束時讀到的 CCR」跟 CAN 訊框裡的 duty 比,305 筆有 2 筆不符。看那兩筆:</p>
 <pre><code>step 376: 前一步 CCR=297,這一步 CCR=298,下一步 CCR=306;CAN 框說 305
@@ -240,8 +296,8 @@
 </tr>
 <tr>
 <td>6</td>
-<td>C1–C8</td>
-<td><strong>ALL PASS</strong>:C3 dx 3.4 / dy 2.0 mm、dθ 0.0276 rad(容差 87.8 mm / 0.0737 rad,slip 0.05);負對照位移 0、C2 紅。每步 52 ms 牆鐘(隧道約 +19 ms、Isaac 步進約 +3 ms)</td>
+<td>C1–C9</td>
+<td><strong>ALL PASS</strong>:C3 dx 0.8 / dy 1.0 mm、dθ 0.0008 rad(容差 87.8 mm / 0.0737 rad,slip 0.05);步階超調 3.0%、最大加速度 1900 mm/s²;負對照位移 0、C2 紅。每步 52 ms 牆鐘(隧道約 +19 ms、Isaac 步進約 +3 ms)。馬達層加入前是 3.4 / 2.0 mm、0.0276 rad,超調 60%、加速度 91400——差在轉向段輪子瞬間到滿速時的打滑(§1.1)</td>
 </tr>
 <tr>
 <td>7</td>
@@ -252,7 +308,7 @@
 </table></div>
 <h3 id="61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</h3>
 <p>ROS 2 在這個拓撲裡的位置是<strong>上位</strong>。<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/hil_base_driver.py"><code>ros/hil_base_driver.py</code></a>(rclpy 7.1.11,<code>ros:jazzy-ros-base</code>)訂 <code>/cmd_vel</code>、每 20 ms 送一個 cmd_vel 框包;收 odom 框包發 <code>/odom</code> 與 <code>/tf</code>(odom → base_link)。它對橋接講的是韌體那份序列協定(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/hilproto.py"><code>ros/hilproto.py</code></a>,與 Rust 側同一組已知答案),橋接開 <code>--upper tcp-listen:0.0.0.0:3800</code> 之後在上位側只當一條序列線:byte 原樣進 USART1、原樣送回。Isaac 那側不需要 ros2 bridge——受控體介面是 TCP/UDP 文字協定,不是 topic。</p>
-<p>閉環用 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/square_client.py"><code>ros/square_client.py</code></a>:訂 <code>/odom</code>、發 <code>/cmd_vel</code>,四條 0.6 m 的邊、四個 +90° 的角,<strong>每一段的結束由里程計判斷,不是計時</strong>——所以它不在乎 Renode 跑幾倍實時,慢只是等久一點。<code>UPPER=ros ./run_loop.sh --seconds 40</code>:</p>
+<p>閉環用 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/square_client.py"><code>ros/square_client.py</code></a>:訂 <code>/odom</code>、發 <code>/cmd_vel</code>,四條 0.6 m 的邊、四個 +90° 的角,<strong>每一段的結束由里程計判斷,不是計時</strong>——所以它不在乎 Renode 跑幾倍實時,慢只是等久一點。第一版韌體(無斜坡)下 <code>UPPER=ros ./run_loop.sh --seconds 40</code>:</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -297,6 +353,49 @@
 <p align="center"><img src="../../img/hil-square-closure.svg" width="860" alt="方形閉環的軌跡與每段結束位姿;閉合誤差拆成轉角過頭與直線段偏航"></p>
 
 <p>閉合誤差來自兩個地方,從每段結束時印的位姿可以拆開看(lockstep):轉角<strong>過頭</strong> 0.000 / 0.016 / 0.007 / 0.012 rad——里程計 20 ms 一筆、命令 20 ms 一筆,0.6 rad/s 下每一筆就是 0.012 rad,「夠了」的判斷最多晚兩筆;直線段<strong>偏航</strong> +0.018 / +0.003 / +0.012 rad——剛從原地轉切到直走,兩輪的 PI 從不同的速度起步,車在加速的前幾十毫秒還在轉。realtime 下同樣兩項各自變大(轉角最多 0.029、直線段最多 0.032):延遲以牆鐘計,Renode 又領先 1%。odom 對真值(4 mm、1 mrad)兩者都在 C3 容差內——閉合誤差是<strong>控制與延遲</strong>的事,不是里程計的事,兩個數字要分開看。</p>
+<p><strong>加了斜坡之後閉合先變差再變好。</strong> 下位有了加減速,「命令歸零」到「車停住」之間多了一段距離;上位不知道這件事就會過頭。每一步改了什麼、閉合怎麼變(lockstep,<code>--seconds 45</code>;每一列只比上一列多一件事):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>版本</th>
+<th>閉合(odom)</th>
+<th>每個轉角(轉 + 停,對 π/2)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>無斜坡(上表)</td>
+<td>35 mm、+0.075 rad</td>
+<td>過頭 0.000–0.016</td>
+</tr>
+<tr>
+<td>斜坡,兩輪各自限</td>
+<td>277 mm</td>
+<td>每段直線偏航 +0.16:兩輪從不同速度起步、各自限速就不同時到</td>
+</tr>
+<tr>
+<td>斜坡改 v/w 各自限</td>
+<td>228 mm</td>
+<td>轉→直的過渡不再畫弧;但上位仍在 odom 到 0.6 m 才停,車再滑 v²/2a</td>
+</tr>
+<tr>
+<td>上位提前 v²/2a、w²/2α 煞車,段間等 odom 速度歸零</td>
+<td>126 mm</td>
+<td></td>
+</tr>
+<tr>
+<td>韌體設定點歸零時清積分</td>
+<td>63 mm、+0.145 rad</td>
+<td>過頭 +0.028–0.040:煞車模型少了馬達 τ 與 odom/cmd 各一筆的延遲</td>
+</tr>
+<tr>
+<td>上位煞車距離加 v × lag(<code>lag_s</code> 0.08 = τ 50 ms + 兩筆 20 ms 量級)</td>
+<td><strong>24 mm、−0.062 rad</strong></td>
+<td>不足 0.011–0.026,散布 0.015 ≈ 一筆 odom(0.012)</td>
+</tr>
+</tbody>
+</table></div>
+<p>末端真值 (x, y, θ) = (−18.0, 16.4, 6.222)、odom (−13, 20, 6.221),odom 對真值 5 mm / 1 mrad,C1–C9 全綠。最後一列的殘差已經是一筆 odom 的量化,再往下要改的是上位的取樣率或用 odom 速度外推,不是下位。這一段的教訓是<strong>上位的煞車模型要包含下位的動態</strong>——斜坡加速度、馬達時間常數、回報週期——這些在真車上是驅動器手冊與底盤韌體的參數,上位的人拿不到就會在方形上看到 +0.03 rad/角。</p>
 <p>C2 因為這個場景改成量<strong>路徑長</strong>而不是首尾位移:方形走完位移 37 mm,路徑長 2.4 m;C3 的容差也改用路徑長(里程計誤差跟著走過的距離累積)。預設腳本下兩者只差 15 mm(轉彎過渡的弧),數字不變。</p>
 <h2 id="7-建議的分階段">7. 建議的分階段</h2>
 <p>不要一開始就接 Isaac。順序:</p>
@@ -317,7 +416,7 @@
 <tr>
 <td>韌體</td>
 <td>加 Renode 裡的韌體</td>
-<td>C1–C8 全綠;負對照轉紅</td>
+<td>C1–C9 全綠;負對照轉紅</td>
 </tr>
 <tr>
 <td>受控體換 UDP</td>
@@ -332,7 +431,7 @@
 <tr>
 <td>ROS 2 上位</td>
 <td>上位換 rclpy 節點,閉環由里程計判斷</td>
-<td>C1–C8 全綠;閉合誤差與 odom 誤差分開報</td>
+<td>C1–C9 全綠;閉合誤差與 odom 誤差分開報;上位的煞車模型要含下位的斜坡與馬達延遲</td>
 </tr>
 <tr>
 <td>實板</td>

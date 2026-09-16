@@ -17,7 +17,7 @@ Cortex-M4F 是 FreeRTOS 的官方 port(`portable/GCC/ARM_CM4F`),核心只靠三�
 | 中斷優先權 | `configPRIO_BITS 4`、核心 15(最低)、`MAX_SYSCALL` 5;USART1 IRQ 設 6 | 呼叫 `FromISR` API 的中斷,數值要 ≥ MAX_SYSCALL(較不緊急);Renode 的 `nvic priorityMask: 0xF0` 就是 4 位元 |
 | tick | 1 kHz,`configCPU_CLOCK_HZ 72000000` | 與平台描述的 `systickFrequency` 一致;Renode 不看 RCC |
 
-大小:text 8176 B、bss 12.9 KB(12 KB 是 heap:三個 task + idle 的 TCB 與 stack)。
+大小:text 8540 B、bss 12.9 KB(12 KB 是 heap:三個 task + idle 的 TCB 與 stack)。
 
 ## 2. 三個 task,一條 ISR
 
@@ -43,9 +43,9 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 
 | | 裸機 | FreeRTOS |
 |---|---|---|
-| C1–C8 | ALL PASS | ALL PASS |
-| 末端位姿 plant / odom | 902.0, −0.9, 0.9019 / 902, 0, 0.9010 | **相同** |
-| 每步牆鐘 | 29.7 ms | 28.8 ms |
+| C1–C9 | ALL PASS | ALL PASS |
+| 末端位姿 plant / odom | 900.8, 0.4, 0.8627 / 900, 0, 0.8620 | **相同** |
+| 每步牆鐘 | 10.5 ms(load 7–8) | 9.7 ms |
 | 兩次跑 CSV | 逐 byte 相同 | 逐 byte 相同 |
 | 負對照 `--negative bad-crc` | `bad_crc=300`、位移 0、C2 紅 | 同 |
 | `ctrl_missed` / `report_missed` | —(量不到) | **0 / 0** |
@@ -53,7 +53,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 | stack 餘量 ctrl / rx / report(word,配 256) | — | 189 / 197 / 179 |
 | `ctrl_steps`(6 s + 開機) | 1220 | 1233 |
 
-兩份 CSV 逐步比對:末端相同,但途中 `ccr1` 在 389/1200 步不同、`odom_seq` 全部不同。原因是**相位**:RTOS 版開機晚了 235 ms(§4),橋接的第 k 步對到韌體的另一個 tick;控制律一樣,只是取樣點錯開。這是 [38 篇](../38-acceptance-and-failure-modes/README.md) §4「步邊界取樣」的另一個面向——同一個系統換一個相位,逐步的數字就不同,末端才是該比的量。
+兩份 CSV 逐步比對:末端相同,但途中 `ccr1` 在 297/1200 步不同、`odom_seq` 全部不同。原因是**相位**:RTOS 版開機晚了 235 ms(§4),橋接的第 k 步對到韌體的另一個 tick;控制律一樣,只是取樣點錯開。這是 [38 篇](../38-acceptance-and-failure-modes/README.md) §4「步邊界取樣」的另一個面向——同一個系統換一個相位,逐步的數字就不同,末端才是該比的量。
 
 `ctrl_missed = 0` 是這一篇最重要的一個數字:在 Renode 的虛擬時間裡,5 ms 的控制週期一次都沒錯過。但它**只證明虛擬時間下沒錯過**——[35 篇](../35-hil-what-and-why/README.md) §7 講過,時序只有實板算數。這個欄位的價值是在實板上會變成真的量測。
 
@@ -87,7 +87,7 @@ ARMv7-M(B3.3.3)規定 `ENABLE` 由 0 變 1 時計數器從 `SYST_RVR` 載入。R
 
 ## 5. 什麼沒變
 
-- 橋接、hook、External Control、受控體、八項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。
+- 橋接、hook、External Control、受控體、九項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。
 - `g_dbg` 前 17 字的版面。橋接靠 `magic` 確認讀對東西,靠符號表找位址;FreeRTOS 版的 `g_dbg` 在 `0x200000d8`(裸機 `0x200000f8`),`--sym` 換一份就好。
 - 三條規則(35 篇 §6):沒有模擬模式、橋接不做安全、生效證明。`[effect]` 那幾行多印了 `g_dbg` 位址與 magic。
 
