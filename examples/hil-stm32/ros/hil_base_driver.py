@@ -20,6 +20,8 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import UInt8
+from std_srvs.srv import Trigger
+from action_msgs.srv import CancelGoal
 from tf2_msgs.msg import TFMessage
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -38,6 +40,11 @@ class HilBaseDriver(Node):
         self.declare_parameter("scan", "127.0.0.1:3801")
         self.declare_parameter("world", str(pathlib.Path(__file__).resolve().parent.parent / "world.json"))
         self.declare_parameter("laser_frame", "laser")
+        # 上位對安全旗標的反應(政策在上位,不在韌體):WDT_RESET 或 STALL 亮起 → 鎖住——cmd_vel 一律送 0、
+        # 取消當前的 Nav2 goal(navigate_to_pose 的 cancel_goal 服務,goal_id 全 0 = 全部取消),
+        # 直到操作者呼叫 /hil/fault_ack。fault_latch=false 是負對照:什麼都不做,重啟後車又走。
+        self.declare_parameter("fault_latch", True)
+        self.declare_parameter("cancel_service", "/navigate_to_pose/_action/cancel_goal")
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
         calib = json.loads(pathlib.Path(self.get_parameter("calib").value).read_text(encoding="utf-8"))
@@ -68,6 +75,10 @@ class HilBaseDriver(Node):
         except (OSError, KeyError, ValueError):
             pass
         self.pub_scan = self.create_publisher(LaserScan, "scan", 10)
+        self.fault_latched = False
+        self.n_latch = 0
+        self.cancel_cli = self.create_client(CancelGoal, self.get_parameter("cancel_service").value)
+        self.create_service(Trigger, "hil/fault_ack", self.on_fault_ack)
         self.pub_tf_static = self.create_publisher(TFMessage, "/tf_static", rclpy.qos.QoSProfile(depth=1, durability=rclpy.qos.DurabilityPolicy.TRANSIENT_LOCAL))
         self.publish_static_tf()
         self.create_subscription(Twist, "cmd_vel", self.on_cmd_vel, 10)
@@ -108,11 +119,33 @@ class HilBaseDriver(Node):
         self.cmd = (int(round(msg.linear.x * 1000.0)), int(round(msg.angular.z * 1000.0)))
         self.n_cmd_msgs += 1
 
+    # --- 安全旗標的反應 ---
+    def on_flags(self, flags: int):
+        latch_bits = hilproto.FLAG_WDT_RESET | hilproto.FLAG_STALL
+        if flags & latch_bits and not self.fault_latched and bool(self.get_parameter("fault_latch").value):
+            self.fault_latched = True
+            self.n_latch += 1
+            self.get_logger().warn("fault latched: flags 0x%02x %s -> cmd_vel=0, cancel goal, wait /hil/fault_ack" % (
+                flags, hilproto.flag_names(flags)))
+            if self.cancel_cli.service_is_ready():
+                self.cancel_cli.call_async(CancelGoal.Request())   # goal_id 全 0 + stamp 0 = 取消全部
+            else:
+                self.get_logger().warn("cancel service not ready: %s" % self.get_parameter("cancel_service").value)
+
+    def on_fault_ack(self, req, resp):
+        was = self.fault_latched
+        self.fault_latched = False
+        resp.success = True
+        resp.message = "cleared" if was else "not latched"
+        self.get_logger().info("fault ack: %s" % resp.message)
+        return resp
+
     def tick_tx(self):
         if not self.ensure_connected():
             return
         try:
-            self.sock.sendall(hilproto.cmd_vel(*self.cmd))
+            cmd = (0, 0) if self.fault_latched else self.cmd
+            self.sock.sendall(hilproto.cmd_vel(*cmd))
             self.n_sent += 1
         except OSError:
             self.drop()
@@ -201,6 +234,7 @@ class HilBaseDriver(Node):
                 if o is not None:
                     self.publish_odom(o)
                     self.pub_flags.publish(UInt8(data=o["flags"]))
+                    self.on_flags(o["flags"])
                     if o["flags"] != self.last_flags:
                         self.get_logger().info("flags 0x%02x %s" % (o["flags"], hilproto.flag_names(o["flags"])))
                         self.last_flags = o["flags"]
@@ -236,8 +270,8 @@ class HilBaseDriver(Node):
         self.last = o
 
     def report(self):
-        self.get_logger().info("cmd_vel msgs=%d frames sent=%d ping=%d odom frames=%d scans=%d bad_crc=%d connected=%s" % (
-            self.n_cmd_msgs, self.n_sent, self.n_ping, self.n_odom, self.n_scan, self.parser.bad_crc, self.sock is not None))
+        self.get_logger().info("cmd_vel msgs=%d frames sent=%d ping=%d odom frames=%d scans=%d bad_crc=%d connected=%s latched=%s" % (
+            self.n_cmd_msgs, self.n_sent, self.n_ping, self.n_odom, self.n_scan, self.parser.bad_crc, self.sock is not None, self.fault_latched))
 
 
 def main():

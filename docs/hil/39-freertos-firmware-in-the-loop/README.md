@@ -102,7 +102,7 @@ ARMv7-M(B3.3.3)規定 `ENABLE` 由 0 變 1 時計數器從 `SYST_RVR` 載入。R
 
 ## 5. 什麼沒變
 
-- 橋接、hook、External Control、受控體、十項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。
+- 橋接、hook、External Control、受控體、十二項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。
 - `g_dbg` 前 20 字的版面(`dbg_common_t`)。橋接靠 `magic` 確認讀對東西,靠符號表找位址;兩版的 `g_dbg` 位址不同,`--sym` 換一份就好。
 - 三條規則(35 篇 §6):沒有模擬模式、橋接不做安全、生效證明。`[effect]` 那幾行多印了 `g_dbg` 位址與 magic。
 

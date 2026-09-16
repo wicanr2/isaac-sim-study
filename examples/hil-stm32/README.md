@@ -16,6 +16,7 @@ FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正�
 UPPER=ros ./run_loop.sh --seconds 45   # 上位換 ROS 2 Jazzy(ros:jazzy-ros-base 容器):base driver + 里程計閉環的方形
 UPPER=nav2 ./run_loop.sh --seconds 90  # 上位換 Nav2(hil-nav2:jazzy,先 docker build -t hil-nav2:jazzy -f ros/Dockerfile.nav2 ros/):假雷射 + NavigateToPose 到 world.json 的 goal;C11
 UPPER=nav2 ./run_loop.sh --seconds 60 --negative blind-scan   # 掃描全設最大距離 → 撞方塊 → C11 紅
+UPPER=nav2 ./run_loop.sh --seconds 60 --fault hang --fault-at 8   # 路上底盤死掉 → IWDG 重啟 → driver 鎖住、取消 goal;C12;--negative no-latch 車又開走 → 紅
 WORLD=1 UPPER=ros ROS_SCRIPT=run_scan_check.sh ./run_loop.sh --seconds 20   # 只驗 /scan 那條路
 CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge → 容器 netns 的 vcan0;CANHUBFIX=1 換修正版 CANHub(原版 lockstep 丟訊框)
 ./run_loop.sh --seconds 3 --script "0:200,0;2:0,0"
@@ -36,7 +37,7 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 | `renode/` | vendor 的 1.16.1 `stm32f4.repl`(拿掉 `ApplySVD`)、開機腳本(`hilctl-common.resc` 共用;`hilctl-socketcan*.resc` 走 vcan)、`hil_hook.py`(IronPython:CAN/UART ↔ TCP,每筆注入回 ack;機器在跑時走 `HandleTimeDomainEvent`)、`boot_check` / `perf_check` / `perf_freerun` / `perf_timer_events` / `io_check` 驗收腳本 | 實測 |
 | `renode/upstream/` | 給 Renode 上游的四項修正(`STM32_Timer` 三項、`NVIC` SysTick、`CANHub` 暫停丟訊框)的原版/patch/執行期載入版、探針、Robot、NUnit、不建 Renode 的驗證流程 | fork 三個 commit,NUnit 修正版 9/9、原版 2/9 |
 | `tools/vcan_up.py` | 用 netlink 在目前 netns 建 vcan(不需要 iproute2);要 root + `NET_ADMIN` | 實測 |
-| `bridge-rs/` | Rust 橋接:External Control client、hook 對端、上位協定、Fake/UDP/TCP 受控體、lockstep / realtime 迴圈、`--upper tcp-listen` 上位出口、`--cfg` 開機前寫 `g_cfg`、`--fault` 故障注入、十項驗收 | 實測 |
+| `bridge-rs/` | Rust 橋接:External Control client、hook 對端、上位協定、Fake/UDP/TCP 受控體、lockstep / realtime 迴圈、`--upper tcp-listen` 上位出口、`--cfg` 開機前寫 `g_cfg`、`--fault` 故障注入、十二項驗收 | 實測 |
 | `ros/` | ROS 2 Jazzy 上位:`hil_base_driver.py`(/cmd_vel → 框包,odom → /odom + /tf,PING 10 Hz,flags → /hil/safety_flags,3801 → /scan + base_link→laser)、`square_client.py`(里程計閉環方形)、`hilproto.py`、`run_square.sh`;Nav2:`Dockerfile.nav2`(最小組合)、`nav2_params.yaml`、`run_nav.sh`、`nav_client.py`;`scan_check.py` | `ros:jazzy-ros-base` / `hil-nav2:jazzy` 實測 ALL PASS |
 | `world.json`、`plant/world.py`、`tools/gen_map.py` | 假雷射與碰撞的世界(房間 + 方塊 + goal);Rust `world.rs` 同一份公式;地圖從同一份 JSON 產(預設只畫牆,方塊靠雷射) | 實測 |
 | `plant/fake_plant.py` | UDP 版假受控體(Python),與 Rust 內建 `Fake` 同模型 | 實測 ALL PASS |
@@ -60,7 +61,7 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 
 - `out/run.csv`:每步一行,32 欄(realtime 多 `wall_ms`;末欄 `collided` 只在有 world.json 時非零;設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)
 - `out/renode.log`、`renode/out/usart2.txt`(韌體 printer)
-- 橋接 stdout:`[effect]` 生效證明六行、`[run]` 摘要(含每步四段牆鐘)、realtime 模式的 `[clocks]`、`[PASS]/[FAIL]` 十項、`[result]`
+- 橋接 stdout:`[effect]` 生效證明六行、`[run]` 摘要(含每步四段牆鐘)、realtime 模式的 `[clocks]`、`[PASS]/[FAIL]` 十二項、`[result]`
 
 ## 實測數字(2026-09-15/16,docker 2 核,主機另有負載)
 
@@ -72,6 +73,7 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 - Isaac 6.0.1 受控體(遠端,`ssh -L`):每步 52 ms;odom 對真值 3.4 / 2.0 mm、0.028 rad;滑移 3.1%;兩次 CSV 逐 byte 相同(CPU 求解)
 - 編碼器走 TIM encoder mode:注入 hook 2.9 / gpio 4.2 / cnt 2.8 ms/步;負對照 `--negative enc-swap` C3 紅;realtime 末端 = lockstep × Renode/牆鐘比(三次誤差 < 1%)
 - CAN 走 vcan(`CAN=socketcan`):1.16.1 原版 `CANHub` lockstep 下 14/399 訊框到韌體;修正版 399/399、ALL PASS、末端與 hook 路逐字相同、兩次 CSV 相同、每步 10 ms
+- 上位對安全旗標的反應(C12):路上 8.0 s 死機、9.0 s 重啟 → driver 看到 WDT_RESET 鎖住(cmd_vel=0、cancel goal),重啟後最遠再走 16 mm;`no-latch` 負對照 Nav2 重送 goal 從歸零的 odom 開走(1170 步在動)紅
 - Nav2 in the loop(NavFn + DWB,map→odom 靜態):到達 goal 46 mm、碰撞 0、路徑 3.85 m;`blind-scan` 負對照撞方塊(第一次 @5.5 s)C11 紅;`default_server_timeout` 20 → 1000 ms 才過(load 15);上位 byte 按 115200 bps 分批注入(否則 ring buffer 溢位 114 B、4 個壞 CRC)
 - ROS 2 方形閉環(0.6 m 邊、里程計判段):無斜坡版 lockstep 閉合 35 mm / 0.075 rad、realtime 70 mm / 0.141 rad;斜坡版 + 上位煞車模型含延遲 24 mm / −0.062 rad(lockstep);odom 對真值 5 mm / 1 mrad;ALL PASS
 - `--mode realtime`(主機閒時,第一版韌體):每步 5.0 ms 牆鐘;`pwm_prescaler` 0 → Renode 0.46× 實時、車只走 1/3(C1–C8 PASS + `[warn]`);9 → 1.01×,末端對 lockstep 差 17–31 mm / 0.03–0.06 rad,兩次跑不同。斜坡版在 load 9–11 下兩種載波都只到 0.33–0.43×,C9 紅(50 ms 停頓讓 PI 打到馬達上限;[35 篇 §5.1](../../docs/hil/35-hil-what-and-why/README.md) 第 4 點)

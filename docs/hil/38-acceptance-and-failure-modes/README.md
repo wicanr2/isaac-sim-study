@@ -4,7 +4,7 @@
 
 > **驗證狀態**:§1–§5 在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 在場域 GPU 主機實測(Isaac Sim 6.0.1 pip 版,PhysX、CPU 求解、TGS;Renode 與橋接留在本機,受控體經 `ssh -L` 隧道,同日)。
 
-## 1. 十項判準,在開跑前寫死
+## 1. 十二項判準,在開跑前寫死
 
 [`run_loop.sh`](../../../examples/hil-stm32/run_loop.sh) 一條指令:起 Renode 容器(`--network none`)、橋接容器共用它的 netns、跑完只停自己起的那一個。橋接開頭先印生效證明:
 
@@ -19,7 +19,7 @@
 
 每一行都是「這個變數進了系統」的證據:magic 對表示讀的是這支韌體、`ARR` 讀回值對上 calib 表示韌體吃的是同一份參數、`g_cfg` 那行是從 SRAM **讀回來**的增益與斜坡(`--cfg` 覆蓋之後也是讀回值,不是命令列的值)。
 
-預設腳本:0.5 s 起 v = 300 mm/s 走 3 s,再 w = 600 mrad/s 轉 1.5 s,然後停;共 6 s = 1200 步。十項判準(2026-09-16,現行 calib:斜坡 1500 mm/s² / 4000 mrad/s²、kp 256、ki 6、前饋 100%、馬達層 τ 50 ms):
+預設腳本:0.5 s 起 v = 300 mm/s 走 3 s,再 w = 600 mrad/s 轉 1.5 s,然後停;共 6 s = 1200 步。十二項判準(2026-09-16,現行 calib:斜坡 1500 mm/s² / 4000 mrad/s²、kp 256、ki 6、前饋 100%、馬達層 τ 50 ms):
 
 | # | 判準 | 抓什麼失敗 | 實測 |
 |---|---|---|---|
@@ -33,6 +33,8 @@
 | C8 | TIM 模式:CNT == 受控體 tick(mod 2^16)且韌體累計 == 前一步 tick;CAN 模式:收到的訊框 == steps − 1 | 編碼器注入掉資料;一步延遲 | CNT 10057/13431 == plant;fw == 前一步 |
 | C9 | 受控體的輪加速度 ≤ (accel + alpha × 輪距/2) × 1.2 | 斜坡沒生效(韌體沒讀 `g_cfg`、算錯單位) | 2257 vs 2520 mm/s² |
 | C10 | 安全 I/O:`--fault` 注入的那一項在時限內反應(§1.2 的表) | 看門狗沒餵/沒起動、故障腳沒接、保險桿不擋、堵轉不鎖、心跳沒驗 | 沒注入時不驗;五項各自綠、五個 `*-off` 各自紅 |
+| C11 | Nav2:受控體真值到達 `world.goal` 0.1 m 內、途中沒撞(§6.2) | 規劃器沒避開雷射才看得到的方塊 | 只在 `UPPER=nav2` 驗;46 mm、碰撞 0;`blind-scan` 紅 |
+| C12 | 上位對 `WDT_RESET` 的反應:重啟 0.5 s 後車不再動(§6.3) | 上位不知道底盤重啟過、照送命令 | 只在 hang + 外部上位驗;`no-latch` 紅 |
 
 任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 [30 篇](../../common/30-acceptance-probes-and-preregistration/README.md)。末端位姿 x 900.8、y 0.4、θ 0.8627 是這份 calib 下的參考值,裸機與 FreeRTOS 兩版韌體、三種編碼器注入法、UDP 受控體、vcan 路都要對上它(§3、[36 篇](../36-stm32-firmware-on-renode/README.md) §3.1、[39 篇](../39-freertos-firmware-in-the-loop/README.md) §3)。
 
@@ -88,7 +90,7 @@ C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌
 
 負對照關掉防護的方法是改 `g_cfg.safety_mask`,而 IWDG 在 `main()` 初始化時就要決定開不開——所以 `g_cfg` 的寫入時機從「開機後寫 SRAM」改成「**開機前寫 flash 裡 `.data` 的初始值**」(LMA = `_sidata + (g_cfg − _sdata)`,startup 照常複製),`[effect]` 開機後從 SRAM 讀回來印。等於燒錄前改了參數區,`--cfg`、`--negative no-ramp` 也一併改走這條路,lockstep 數字逐字不變。
 
-重啟後韌體只把 `WDT_RESET` 亮在 flags 裡(到下次上電為止),上位的命令照收——要不要因為一次看門狗重啟就拒絕命令是政策,這裡沒做。
+重啟後韌體只把 `WDT_RESET` 亮在 flags 裡(到下次上電為止),上位的命令照收——要不要因為一次看門狗重啟就拒絕命令是**上位的政策**,做在 driver(§6.3),不在韌體。
 
 ## 2. 負對照:全綠證明不了測試在驗東西
 
@@ -211,7 +213,7 @@ ROS 2 在這個拓撲裡的位置是**上位**。[`ros/hil_base_driver.py`](../.
 | 韌體設定點歸零時清積分 | 63 mm、+0.145 rad | 過頭 +0.028–0.040:煞車模型少了馬達 τ 與 odom/cmd 各一筆的延遲 |
 | 上位煞車距離加 v × lag(`lag_s` 0.08 = τ 50 ms + 兩筆 20 ms 量級) | **24 mm、−0.062 rad**(第二次 18 mm、−0.050:ROS 端的節拍是牆鐘,兩次不同) | 不足 0.011–0.026,散布 0.015 ≈ 一筆 odom(0.012) |
 
-末端真值 (x, y, θ) = (−18.0, 16.4, 6.222)、odom (−13, 20, 6.221),odom 對真值 5 mm / 1 mrad,C1–C10 全綠。最後一列的殘差已經是一筆 odom 的量化,再往下要改的是上位的取樣率或用 odom 速度外推,不是下位。這一段的教訓是**上位的煞車模型要包含下位的動態**——斜坡加速度、馬達時間常數、回報週期——這些在真車上是驅動器手冊與底盤韌體的參數,上位的人拿不到就會在方形上看到 +0.03 rad/角。
+末端真值 (x, y, θ) = (−18.0, 16.4, 6.222)、odom (−13, 20, 6.221),odom 對真值 5 mm / 1 mrad,C1–C10 全綠。最後一列的殘差**到此為止**:同一天再跑四次是 9.5 / 18 / 24 / 28 mm、−0.035 ~ −0.062 rad;把 odom 週期從 20 ms 改成 10 ms 再跑兩次是 17 / 32 mm、−0.047 / −0.076 rad——沒有變好,散布跟 20 ms 一樣。殘差的來源是 ROS 端用牆鐘送命令(50 Hz)、Renode 只跑 0.4–0.5×,命令落到韌體的時刻在 Renode 時間上抖動 20–25 ms,不是 odom 的量化;要收它得把上位也鎖進 lockstep(用模擬時間驅動 ROS 的 timer),那是另一個架構。這一段的教訓是**上位的煞車模型要包含下位的動態**——斜坡加速度、馬達時間常數、回報週期——這些在真車上是驅動器手冊與底盤韌體的參數,上位的人拿不到就會在方形上看到 +0.03 rad/角。
 
 C2 因為這個場景改成量**路徑長**而不是首尾位移:方形走完位移 37 mm,路徑長 2.4 m;C3 的容差也改用路徑長(里程計誤差跟著走過的距離累積)。預設腳本下兩者只差 15 mm(轉彎過渡的弧),數字不變。
 
@@ -237,6 +239,21 @@ Nav2 用最小組合(`ros/Dockerfile.nav2`:map_server、NavFn、DWB、bt_navigat
 - **序列線有線速。** 上位在牆鐘上每 20 ms 送一個 cmd_vel、每 100 ms 一個 PING;橋接一停頓(load 15 下常有),上位的 byte 堆起來,一次全灌進 USART1 的話 Renode 的 UART 不分 baud 節拍、ISR 一個接一個,主迴圈搶不到 128 B 的 ring buffer 就溢位——量到 `rx_overflow=114`、4 個壞 CRC、C6/C7 紅。真線路 115200 bps 每 5 ms 最多 57 byte,橋接現在按這個線速分批注入(`calib.json` 的 `uart_baud`)。這一條是 §5 表裡「第一眼像韌體 CRC 有問題」的又一個。
 - **撞牆那一步不能算進 C9。** 受控體撞到方塊時速度直接歸零(73039 mm/s²),那是牆的事不是韌體斜坡的事;負對照原本 C9、C11 一起紅,現在只有 C11。
 
+### 6.3 上位對安全旗標的反應:C12
+
+韌體重啟(IWDG)之後有兩件事上位非知道不可:`WDT_RESET` 亮了,而且**里程計歸零了**——odom 是韌體算的,重啟後 `x, y, θ` 從 (0, 0, 0) 重來,`map → odom` 那個靜態 identity 從這一刻起是錯的。上位如果只是繼續送 `cmd_vel`,車會從一個它以為在原點的位置開走。[`hil_base_driver.py`](../../../examples/hil-stm32/ros/hil_base_driver.py) 的反應:看到 `WDT_RESET` 或 `STALL` 就**鎖住**——`cmd_vel` 一律送 0、對 `navigate_to_pose` 的 `cancel_goal` 服務送「全部取消」(goal_id 全 0),直到操作者呼叫 `/hil/fault_ack`(std_srvs/Trigger)才放開;`DRV_FAULT`、`ESTOP`、`HB_LOST` 不鎖,韌體自己會切、解除就恢復。負對照是 driver 的參數 `fault_latch:=false`(`--negative no-latch`):什麼都不做。
+
+場景 `UPPER=nav2 ./run_loop.sh --seconds 60 --fault hang --fault-at 8`:車在往 goal 的路上 8.0 s 死掉、9.0 s 看門狗重啟;`nav_client` 的行為是「goal 失敗就重送一次」——上位不知道底盤重啟過時會做的事。
+
+| | driver 鎖住(預設) | `--negative no-latch` |
+|---|---|---|
+| driver | `fault latched: flags 0xc1 ENABLED\|HB_LOST\|WDT_RESET → cmd_vel=0, cancel goal` | 沒反應 |
+| Nav2 | `Goal canceled`(`bt_navigator` 收到 cancel),`[nav] result canceled, attempts 1` | 第一次 goal 因 odom 跳回原點而 `failed`,重送一次,從「原點」規劃 |
+| C12:重啟 0.5 s 後車不再動 | **0 步在動、最遠再走 16 mm**(重啟到旗標抵達上位那一筆 odom 之間) | **1170 步在動**,車原地轉了 3 rad(規劃的起點錯了,路徑也錯),**紅** |
+| C10 IWDG | +1000 ms 重啟 | 同 |
+
+沒鎖住的那一欄,車沒有直直撞出去是 Nav2 的 progress checker 先把第一次 goal 判失敗——這是運氣不是設計,第二次 goal 就開走了。C12 的判準只看受控體真值(重啟 0.5 s 後 `|v| ≥ 5 mm/s` 的步數),不看 Nav2 的回覆:「上位該停」要用車的行為驗,不用上位的自述。
+
 ## 7. 建議的分階段
 
 不要一開始就接 Isaac。順序:
@@ -248,7 +265,7 @@ Nav2 用最小組合(`ros/Dockerfile.nav2`:map_server、NavFn、DWB、bt_navigat
 | 受控體換 UDP | 假受控體改另一個行程 | 與內建版末端一致、途中容差內 |
 | Isaac | 受控體換 `isaac_plant.py` | §6 七項;C3 容差重定 |
 | ROS 2 上位 | 上位換 rclpy 節點,閉環由里程計判斷 | C1–C10 全綠;閉合誤差與 odom 誤差分開報;上位的煞車模型要含下位的斜坡與馬達延遲 |
-| Nav2 | 受控體加假雷射與碰撞,上位換 Nav2 | C11:到達 goal 0.1 m 內、沒撞;`blind-scan` 負對照紅 |
+| Nav2 | 受控體加假雷射與碰撞,上位換 Nav2 | C11:到達 goal 0.1 m 內、沒撞;`blind-scan` 負對照紅;C12:底盤重啟後上位要鎖住,`no-latch` 負對照紅 |
 | 實板 | Renode 換實體 STM32,橋接換實板後端 | 全部重跑;**時序與最壞延遲在這裡才算數** |
 
 每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第六階段;實板是第七。

@@ -31,29 +31,40 @@ def main():
     goal.pose.orientation.z = math.sin(float(g["yaw"]) / 2)
     goal.pose.orientation.w = math.cos(float(g["yaw"]) / 2)
     t0 = time.monotonic()
-    nav.goToPose(goal)
-    n_fb = 0
-    while not nav.isTaskComplete():
-        fb = nav.getFeedback()
-        if fb is not None:
-            n_fb += 1
-            if n_fb % 50 == 0:
-                nav.get_logger().info("distance_remaining=%.2f recoveries=%d nav_time=%.1f" % (
-                    fb.distance_remaining, fb.number_of_recoveries, fb.navigation_time.sec + fb.navigation_time.nanosec / 1e9))
-        time.sleep(0.1)
-        if time.monotonic() - t0 > 240:
-            nav.cancelTask()
-            break
-    res = nav.getResult()
+    # 上位「不知道底盤重啟過」的行為:goal 失敗就重送一次(retries 參數,預設 1)。
+    # driver 有鎖住時重送也走不了(cmd_vel 被壓成 0);沒鎖住(--negative no-latch)就會從歸零的 odom 再開走——C12 紅
+    retries = int(sys.argv[2]) if len(sys.argv) > 2 else 1
+    attempts = 0
+    while True:
+        attempts += 1
+        nav.goToPose(goal)
+        n_fb = 0
+        while not nav.isTaskComplete():
+            fb = nav.getFeedback()
+            if fb is not None:
+                n_fb += 1
+                if n_fb % 50 == 0:
+                    nav.get_logger().info("distance_remaining=%.2f recoveries=%d nav_time=%.1f" % (
+                        fb.distance_remaining, fb.number_of_recoveries, fb.navigation_time.sec + fb.navigation_time.nanosec / 1e9))
+            time.sleep(0.1)
+            if time.monotonic() - t0 > 240:
+                nav.cancelTask()
+                break
+        res = nav.getResult()
+        if res == TaskResult.FAILED and attempts <= retries:
+            nav.get_logger().warn("goal failed, retry %d/%d in 2 s" % (attempts, retries))
+            time.sleep(2.0)
+            continue
+        break
     o = last["x"]
     x = o.pose.pose.position.x if o else float("nan")
     y = o.pose.pose.position.y if o else float("nan")
     q = o.pose.pose.orientation if o else None
     yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z)) if q else float("nan")
     dist = math.hypot(x - g["x"], y - g["y"])
-    print('[nav] {"result": "%s", "goal": [%g, %g], "odom_end": [%.3f, %.3f, %.3f], "dist_to_goal_m": %.3f, "wall_s": %.1f}' % (
+    print('[nav] {"result": "%s", "attempts": %d, "goal": [%g, %g], "odom_end": [%.3f, %.3f, %.3f], "dist_to_goal_m": %.3f, "wall_s": %.1f}' % (
         {TaskResult.SUCCEEDED: "succeeded", TaskResult.CANCELED: "canceled", TaskResult.FAILED: "failed"}.get(res, str(res)),
-        g["x"], g["y"], x, y, yaw, dist, time.monotonic() - t0), flush=True)
+        attempts, g["x"], g["y"], x, y, yaw, dist, time.monotonic() - t0), flush=True)
     nav.destroy_node()
     rclpy.try_shutdown()
 

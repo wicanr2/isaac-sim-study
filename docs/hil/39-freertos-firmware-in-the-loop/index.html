@@ -227,7 +227,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 <p>這個缺口的形狀值得記:<strong>同一個週邊,兩支韌體用不同順序寫暫存器,一支正常、一支慢 233 ms</strong>,而慢的那支沒有任何錯誤——它只是「開機比較久」。<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3 的盤點是拿裸機韌體的存取樣式去驗的,換一支韌體就有新的樣式要驗。</p>
 <h2 id="5-什麼沒變">5. 什麼沒變</h2>
 <ul>
-<li>橋接、hook、External Control、受控體、十項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。</li>
+<li>橋接、hook、External Control、受控體、十二項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。</li>
 <li><code>g_dbg</code> 前 20 字的版面(<code>dbg_common_t</code>)。橋接靠 <code>magic</code> 確認讀對東西,靠符號表找位址;兩版的 <code>g_dbg</code> 位址不同,<code>--sym</code> 換一份就好。</li>
 <li>三條規則(35 篇 §6):沒有模擬模式、橋接不做安全、生效證明。<code>[effect]</code> 那幾行多印了 <code>g_dbg</code> 位址與 magic。</li>
 </ul>
