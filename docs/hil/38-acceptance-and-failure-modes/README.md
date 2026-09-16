@@ -235,6 +235,19 @@ Nav2 用最小組合(`ros/Dockerfile.nav2`:map_server、NavFn、DWB、bt_navigat
 | C1–C10 | 全綠(C3 dx 1.2 / dy 0.9 mm、0.6 mrad;C9 2510 vs 2520——DWB 的加速度設成與韌體斜坡同值,瞬態剛好貼線) | C9 也紅(頂住時 PI 積分堆滿、鬆開那步撞到馬達層 3000);其餘綠 |
 | 牆鐘(整趟 90 s Renode) | 187 s(Renode 0.48×) | 148 s(60 s Renode) |
 
+realtime 也跑了一次(`UPPER=nav2 ./run_loop.sh --mode realtime --seconds 90`,1 kHz 載波、Renode 4 核、主機 load 4.5,2026-09-17;lockstep 那欄是同一天 load 12 的重跑):
+
+| | lockstep | realtime |
+|---|---|---|
+| `[clocks]` | — | wall 90.006 s、renode 90.107 s、plant 90.002 s,**renode/wall 1.001**,`max_lag` 0 |
+| 節拍(18000 步) | — | 平均 4.99 ms,停頓 26 次(最長 23.2 ms) |
+| Nav2 結果 / 牆鐘 | `succeeded`,53.4 s | `succeeded`,**16.9 s**(車以真速度走) |
+| C11:真值到 goal / 碰撞 | 46 mm / 0 步 | **42 mm / 0 步** |
+| 路徑長 / 離方塊最近 / 車停下的時刻 | 3.853 m / 302 mm / 18.8 s(Renode 時間) | 3.858 m / 312 mm / 21.5 s(牆鐘) |
+| C9 | 2510 綠(貼線) | **紅** 3000(CCR 跳 183 次、150 次不在停頓旁;[35 篇](../35-hil-what-and-why/README.md) §5.1 第 4 點) |
+
+路徑差 5 mm、到達差 4 mm:Nav2 這一層在 realtime 下沒有多出什麼——它本來就活在牆鐘上,lockstep 才是它的異常環境(每個逾時都在跟 Renode 的步速比)。差別全在下位:C9 紅的是韌體速度迴路對取樣式注入的錯拍,與上位無關。
+
 三件做了才知道的事:
 
 - **`default_server_timeout` 的單位是毫秒,預設 20。** 主機 load 15 時 planner 回 ack 超過 20 ms,行為樹報「Timed out while waiting for action server to acknowledge goal request」、整個 goal 失敗——症狀像規劃失敗,真因是一個等待時間。放到 1000 才過。這是 lockstep 下 Nav2 的計時器全走牆鐘、Renode 走步的第一個具體後果:Nav2 的每一個逾時都在跟主機負載比,而不是跟車比。

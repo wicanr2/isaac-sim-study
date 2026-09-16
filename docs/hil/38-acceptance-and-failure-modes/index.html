@@ -529,6 +529,49 @@
 </tr>
 </tbody>
 </table></div>
+<p>realtime 也跑了一次(<code>UPPER=nav2 ./run_loop.sh --mode realtime --seconds 90</code>,1 kHz 載波、Renode 4 核、主機 load 4.5,2026-09-17;lockstep 那欄是同一天 load 12 的重跑):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>lockstep</th>
+<th>realtime</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>[clocks]</code></td>
+<td>—</td>
+<td>wall 90.006 s、renode 90.107 s、plant 90.002 s,<strong>renode/wall 1.001</strong>,<code>max_lag</code> 0</td>
+</tr>
+<tr>
+<td>節拍(18000 步)</td>
+<td>—</td>
+<td>平均 4.99 ms,停頓 26 次(最長 23.2 ms)</td>
+</tr>
+<tr>
+<td>Nav2 結果 / 牆鐘</td>
+<td><code>succeeded</code>,53.4 s</td>
+<td><code>succeeded</code>,<strong>16.9 s</strong>(車以真速度走)</td>
+</tr>
+<tr>
+<td>C11:真值到 goal / 碰撞</td>
+<td>46 mm / 0 步</td>
+<td><strong>42 mm / 0 步</strong></td>
+</tr>
+<tr>
+<td>路徑長 / 離方塊最近 / 車停下的時刻</td>
+<td>3.853 m / 302 mm / 18.8 s(Renode 時間)</td>
+<td>3.858 m / 312 mm / 21.5 s(牆鐘)</td>
+</tr>
+<tr>
+<td>C9</td>
+<td>2510 綠(貼線)</td>
+<td><strong>紅</strong> 3000(CCR 跳 183 次、150 次不在停頓旁;<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1 第 4 點)</td>
+</tr>
+</tbody>
+</table></div>
+<p>路徑差 5 mm、到達差 4 mm:Nav2 這一層在 realtime 下沒有多出什麼——它本來就活在牆鐘上,lockstep 才是它的異常環境(每個逾時都在跟 Renode 的步速比)。差別全在下位:C9 紅的是韌體速度迴路對取樣式注入的錯拍,與上位無關。</p>
 <p>三件做了才知道的事:</p>
 <ul>
 <li><strong><code>default_server_timeout</code> 的單位是毫秒,預設 20。</strong> 主機 load 15 時 planner 回 ack 超過 20 ms,行為樹報「Timed out while waiting for action server to acknowledge goal request」、整個 goal 失敗——症狀像規劃失敗,真因是一個等待時間。放到 1000 才過。這是 lockstep 下 Nav2 的計時器全走牆鐘、Renode 走步的第一個具體後果:Nav2 的每一個逾時都在跟主機負載比,而不是跟車比。</li>

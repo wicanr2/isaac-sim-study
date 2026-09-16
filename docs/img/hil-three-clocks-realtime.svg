@@ -1,13 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="860" height="560" viewBox="0 0 860 560" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
   <rect width="860" height="560" fill="#ffffff"/>
-  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">realtime 模式:Renode 跟不上牆鐘時,車安靜地變慢,而八項判準全綠</text>
+  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">realtime 模式:Renode 跟不上牆鐘時,車安靜地變慢,一致性判準全綠,只有物理量判準 C9 紅</text>
   <defs>
     <marker id="cGry" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#888"/></marker>
     <marker id="cRed" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#b03a2e"/></marker>
   </defs>
 
   <!-- ===== 左:三個時鐘,6 s 牆鐘 ===== -->
-  <text x="40" y="58" font-size="13" font-weight="bold" fill="#333">6 s 牆鐘裡三個時鐘各走多遠(pwm_prescaler 0,10 kHz 載波;主機 load 7–9)</text>
+  <text x="40" y="58" font-size="13" font-weight="bold" fill="#333">6 s 牆鐘裡三個時鐘各走多遠(pwm_prescaler 0,10 kHz 載波;主機閒時 load 5.7,Renode 容器 4 核)</text>
   <!-- 軸 -->
   <line x1="150" y1="200" x2="640" y2="200" stroke="#888" stroke-width="1" marker-end="url(#cGry)"/>
   <text x="648" y="204" font-size="11" fill="#888">牆鐘 s</text>
@@ -17,30 +17,30 @@
   <!-- 牆鐘 / plant -->
   <text x="140" y="90" text-anchor="end" font-size="12" fill="#333">牆鐘(橋接)</text>
   <rect x="150" y="80" width="480" height="14" fill="#e6e6e6" stroke="#888"/>
-  <text x="636" y="91" font-size="10.5" fill="#333">6.033 s</text>
+  <text x="636" y="91" font-size="10.5" fill="#333">6.005 s</text>
   <text x="140" y="120" text-anchor="end" font-size="12" fill="#2e7d4f">受控體時間</text>
   <rect x="150" y="110" width="480" height="14" fill="#e8f3ec" stroke="#2e7d4f"/>
-  <text x="636" y="121" font-size="10.5" fill="#2e7d4f">6.031 s(走實際 dt)</text>
+  <text x="636" y="121" font-size="10.5" fill="#2e7d4f">6.003 s(走實際 dt)</text>
   <text x="140" y="150" text-anchor="end" font-size="12" fill="#b03a2e">Renode 虛擬時間</text>
-  <rect x="150" y="140" width="220" height="14" fill="#fbe3e0" stroke="#b03a2e"/>
-  <text x="376" y="151" font-size="10.5" fill="#b03a2e">2.754 s → ratio 0.457</text>
+  <rect x="150" y="140" width="410" height="14" fill="#fbe3e0" stroke="#b03a2e"/>
+  <text x="566" y="151" font-size="10.5" fill="#b03a2e">5.123 s → ratio 0.853</text>
   <text x="140" y="180" text-anchor="end" font-size="12" fill="#b03a2e">韌體看到的「5 ms」</text>
   <!-- 5 ms window vs 11 ms wall -->
-  <rect x="150" y="170" width="88" height="14" fill="#fff" stroke="#b03a2e" stroke-dasharray="3 2"/>
-  <text x="244" y="181" font-size="10.5" fill="#b03a2e">= 10.9 ms 牆鐘的編碼器增量 → 量到的輪速 ×2.2 → PI 把 duty 壓低 → 車走 46%</text>
+  <rect x="150" y="170" width="48" height="14" fill="#fff" stroke="#b03a2e" stroke-dasharray="3 2"/>
+  <text x="204" y="181" font-size="10.5" fill="#b03a2e">= 5.9 ms 牆鐘的編碼器增量(平均;驅動段更慢,max_lag 2.1 s)→ 量到的輪速膨脹 → PI 壓低 duty → 車走一半</text>
 
   <!-- ===== 右上:末端位姿 ===== -->
   <text x="40" y="256" font-size="13" font-weight="bold" fill="#333">同一腳本(0.5 s 起 300 mm/s 走 3 s,再 600 mrad/s 轉 1.5 s)的末端 x</text>
   <g font-size="11">
     <text x="150" y="286" text-anchor="end" fill="#333">lockstep(參考)</text>
-    <rect x="158" y="276" width="451" height="14" fill="#f4f7fb" stroke="#5b7fa6"/>
-    <text x="614" y="287" fill="#333">902.0 mm,θ 0.9019</text>
-    <text x="150" y="312" text-anchor="end" fill="#333">realtime 10 kHz,0.46×</text>
-    <rect x="158" y="302" width="148" height="14" fill="#fbe3e0" stroke="#b03a2e"/>
-    <text x="311" y="313" fill="#b03a2e">296.0 mm,θ 0.3192 —— ALL PASS,只有 [warn]</text>
+    <rect x="158" y="276" width="450" height="14" fill="#f4f7fb" stroke="#5b7fa6"/>
+    <text x="614" y="287" fill="#333">900.8 mm,θ 0.8627</text>
+    <text x="150" y="312" text-anchor="end" fill="#333">realtime 10 kHz,0.85×</text>
+    <rect x="158" y="302" width="224" height="14" fill="#fbe3e0" stroke="#b03a2e"/>
+    <text x="388" y="313" fill="#b03a2e">448.4 mm,θ 0.6467 —— C1–C8 全綠 + [warn],C9 紅</text>
     <text x="150" y="338" text-anchor="end" fill="#333">realtime 1 kHz,1.01×</text>
-    <rect x="158" y="328" width="442" height="14" fill="#e8f3ec" stroke="#2e7d4f"/>
-    <text x="605" y="339" fill="#2e7d4f">884.7 mm,θ 0.8730(第二次 871.1 / 0.8426)</text>
+    <rect x="158" y="328" width="452" height="14" fill="#e8f3ec" stroke="#2e7d4f"/>
+    <text x="613" y="339" fill="#2e7d4f">900.1–907.9 mm,θ 0.852–0.864(五次,C9 全紅)</text>
   </g>
   <text x="40" y="366" font-size="11" fill="#555">位置是編碼器 tick 積分出來的,與時間無關,所以 odom 對真值仍在容差內;壞掉的是速度,判準看不到。</text>
 
@@ -62,5 +62,5 @@
     <text x="575" y="464">到 +1.8%(1 ms)。C1 在 realtime 下</text>
     <text x="575" y="482">驗「0 &lt; Renode 時間 ≤ 牆鐘 + 5%」。</text>
   </g>
-  <text x="430" y="530" text-anchor="middle" font-size="11" fill="#888">數字:35 篇 §5.1,2026-09-15/16,Renode 1.16.1 docker 2 核;ratio 隨主機負載變(load 12 時 0.30×),橋接每次印 [clocks]。</text>
+  <text x="430" y="530" text-anchor="middle" font-size="11" fill="#888">數字:35 篇 §5.1,2026-09-17 主機閒時(load 3.6–5.7),Renode 1.16.1 docker 4 核(2 核會被 CFS 每 100 ms 凍 50 ms);ratio 隨負載變,橋接每次印 [clocks]。</text>
 </svg>
