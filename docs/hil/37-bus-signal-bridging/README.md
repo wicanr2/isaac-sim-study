@@ -101,7 +101,9 @@ Renode 1.16.1 把 CAN 訊框送到模擬器外面的**官方**管道只有 `Crea
 
 `NVIC` 的 SysTick 在 ENABLE 0→1 時不從 RELOAD 載入是 FreeRTOS 版才踩到的([39 篇](../39-freertos-firmware-in-the-loop/README.md) §4),NUnit 原版 1/2 紅、修正版 2/2 綠;`CANHub` 暫停時丟訊框是走 vcan 才踩到的(上面)。四個週邊、三個 commit,全部在同一個 fork 分支。
 
-修正以上游樣式放在 fork(`wicanr2/renode-infrastructure`,分支 `stm32-timer-period-preload-fixes`,基於 1.16.1 的 commit),三個 commit(訊息全英文):`STM32_Timer.cs` + `STM32_TimerTests.cs`、`NVIC.cs` + `NVIC_SysTickTests.cs`、`CANHub.cs` + `CANHubTests.cs`。驗證到哪裡:上游版檔案對 1.16.1 組件編譯 0 warning、NUnit 修正版 9/9 綠、原版 2/9、Robot 3/3、閉環迴歸 ALL PASS;**沒做**完整 Renode 建置與上游全部測試。**尚未送 PR**(2026-09-15 決定:分支留在 fork,之後要送隨時可以);送了之後這一段要補連結。
+修正以上游樣式放在 fork(`wicanr2/renode-infrastructure`,分支 `stm32-timer-period-preload-fixes`,基於 1.16.1 的 commit),三個 commit(訊息全英文):`STM32_Timer.cs` + `STM32_TimerTests.cs`、`NVIC.cs` + `NVIC_SysTickTests.cs`、`CANHub.cs` + `CANHubTests.cs`。驗證到哪裡:上游版檔案對 1.16.1 組件編譯 0 warning、NUnit 修正版 9/9 綠、原版 2/9、Robot 3/3、閉環迴歸 ALL PASS;**沒做**完整 Renode 建置與上游全部測試。
+
+上游(2026-09-16):`master` 在 1.16.1 之後把 `STM32_Timer.cs` 與 `NVIC.cs` 重寫過,三項 timer 缺口與 SysTick 缺口讀原始碼確認**還在**,但 1.16.1 的 patch 貼不上去,而對 `master` 的修正要完整建 Renode 才驗得了;`CANHub` 只多了 `CANTester` 分支。所以:`CANHub` 修正 rebase 到 `master` 送 [PR #250](https://github.com/renode/renode-infrastructure/pull/250)(對 `master` 的編譯與測試由上游 CI 跑,本機只驗了同一份邏輯對 1.16.1 組件 NUnit 3/3);timer 與 SysTick 開 issue 附 1.16.1 的 patch 與量測:[renode#1003](https://github.com/renode/renode/issues/1003)、[renode#1004](https://github.com/renode/renode/issues/1004)。
 
 ## 5. lockstep 迴圈
 

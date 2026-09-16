@@ -15,6 +15,8 @@
 | `STM32_TimerTests.cs` | 上游 `PeripheralsTests` 樣式的 NUnit 測試(仿 `Cadence_TTCTests`),進 fork 的 commit |
 | `dotnet-verify/` | 不建整個 Renode 的驗證:上游版檔案對 1.16.1 組件編譯 0 warning;NUnit 修正版 4/4 綠、原版 4/4 紅 |
 
+上游狀態(2026-09-16):`CANHub` 修正 rebase 到 `master` 的分支 `canhub-queue-while-paused` → [renode-infrastructure PR #250](https://github.com/renode/renode-infrastructure/pull/250);timer 與 SysTick 因 `master` 已重寫,開 issue [renode#1003](https://github.com/renode/renode/issues/1003)、[renode#1004](https://github.com/renode/renode/issues/1004) 附這裡的 patch。
+
 fork:`wicanr2/renode-infrastructure` 分支 `stm32-timer-period-preload-fixes`(基於 1.16.1 的 commit),三個 commit(訊息英文):`STM32_Timer.cs` + `STM32_TimerTests.cs`;`NVIC.cs` + `NVIC_SysTickTests.cs`;`CANHub.cs` + `CANHubTests.cs`。
 
 | 檔案(NVIC) | 用途 |
