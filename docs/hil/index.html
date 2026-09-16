@@ -79,12 +79,12 @@
 <tr>
 <td><a href="../hil/37-bus-signal-bridging/">37</a></td>
 <td>匯流排訊號串接</td>
-<td>External Control 協定逐 byte;GPIO 讀的是輸出腳、寫的是輸入腳;IronPython hook 對每筆注入回 ack,機器在跑時改排進時間域、關 Nagle;<strong>CAN 送出模擬器的三條路各碰到哪一層</strong>;lockstep 迴圈六步與每步 8–30 ms 的成本;<code>--upper</code> 讓 ROS 2 節點講同一份框包;探埠的一個換行污染了握手</td>
+<td>External Control 協定逐 byte;GPIO 讀的是輸出腳、寫的是輸入腳;IronPython hook 對每筆注入回 ack,機器在跑時改排進時間域、關 Nagle;<strong>CAN 送出模擬器的三條路各碰到哪一層</strong>——走 vcan 時 <code>CANHub</code> 在暫停期丟訊框(14/399),修在 hub;lockstep 迴圈六步與每步 8–30 ms 的成本;<code>--upper</code> 讓 ROS 2 節點講同一份框包;探埠的一個換行污染了握手</td>
 </tr>
 <tr>
 <td><a href="../hil/38-acceptance-and-failure-modes/">38</a></td>
 <td>驗收與失敗形態</td>
-<td>八項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;兩次 CSV 逐 byte 相同;<strong>步邊界取樣的 2/305 不符</strong>與事件時刻快照;十一種失敗形態;換成 Isaac 6.0.1 的七件事各量到什麼——<strong>PhysX 介面沒有 <code>update</code>、joint state 不寫回、地面 xformOpOrder 反了讓車飛起來</strong>、滑移 3.1%;ROS 2 方形閉環的閉合誤差拆成轉角過頭與起步偏航</td>
+<td>八項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;兩次 CSV 逐 byte 相同;<strong>步邊界取樣的 2/305 不符</strong>與事件時刻快照;十三種失敗形態;換成 Isaac 6.0.1 的七件事各量到什麼——<strong>PhysX 介面沒有 <code>update</code>、joint state 不寫回、地面 xformOpOrder 反了讓車飛起來</strong>、滑移 3.1%;ROS 2 方形閉環的閉合誤差拆成轉角過頭與起步偏航</td>
 </tr>
 <tr>
 <td><a href="../hil/39-freertos-firmware-in-the-loop/">39</a></td>

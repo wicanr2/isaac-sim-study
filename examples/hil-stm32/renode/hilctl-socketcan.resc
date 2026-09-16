@@ -1,0 +1,18 @@
+:name: hilctl
+:description: 同 hilctl.resc,但 CAN 走 Renode 官方的 SocketCANBridge → Linux vcan(docs/hil/37 篇 §4 的路 ②③)
+
+# 介面要先存在(tools/vcan_up.py 在同一個 netns 建),SocketCANBridge 建構時就 bind
+$vcan ?= "vcan0"
+$hook_can = "False"
+include @/w/renode/hilctl-common.resc
+
+emulation CreateCANHub "canhub"
+connector Connect can1 canhub
+machine CreateSocketCANBridge "socketcan" $vcan
+connector Connect socketcan canhub
+echo "[effect] can path: SocketCANBridge on"
+echo $vcan
+python "import System; ok, hub = emulationManager.CurrentEmulation.ExternalsManager.TryGetByName[System.Object]('canhub'); print '[effect] canhub type = ' + type(hub).__name__"
+
+# 最後才開 External Control:橋接一連上就開始推進時間,CAN 出口要在那之前就位
+emulation CreateExternalControlServer "ec" 3500

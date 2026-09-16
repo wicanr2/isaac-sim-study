@@ -1,0 +1,35 @@
+:name: hilctl-common
+:description: hilctl.resc / hilctl-socketcan*.resc 的共同部分:機器、UART、hook、開機。External Control server 由包含它的檔案最後才開——橋接一連上就開始推進時間,所有出口都要在那之前就位。
+
+$bin ?= @/w/firmware/build/hilctl.elf
+# 同步量子:Renode 每隔多久讓所有週邊對齊一次。預設 100 µs(Renode 出廠值)。
+# 自由跑(realtime 模式)時它是每秒同步點的數量,直接影響能跑到幾倍實時(docs/hil/35 篇 §5)。
+$quantum ?= "0.0001"
+
+using sysbus
+mach create "hilctl"
+emulation SetGlobalQuantum $quantum
+machine LoadPlatformDescription @/w/renode/hilctl.repl
+
+# USART2 = 人看的除錯輸出。headless 下 showAnalyzer 沒有用,改寫到檔案。
+usart2 CreateFileBackend @/w/renode/out/usart2.txt true
+
+# USART1 = 上位協定,開 TCP socket 給橋接程式。
+emulation CreateServerSocketTerminal 3456 "host_uart" false
+connector Connect usart1 host_uart
+
+# CAN 與 UART 的 hook 出口:monitor 級 IronPython,對每筆注入回 ack(docs/hil/37 篇)
+# $hook_can="False" 時 CAN 不走 hook(改走 hilctl-socketcan.resc 的 SocketCANBridge),hook 只管 UART
+$hook_can ?= "True"
+include @/w/renode/hil_hook.py
+hil_hook_start 3600 $hook_can
+
+
+macro reset
+"""
+    sysbus LoadELF $bin
+"""
+runMacro $reset
+
+# 生效證明:哪一個 timer 模型在跑(原版 STM32_Timer / 修正版 STM32_Timer_Fixed)
+python "print '[effect] timer3 type = ' + self.Machine['sysbus.timer3'].GetType().Name"

@@ -1,0 +1,72 @@
+--- CANHub.1.16.1.cs	2026-09-16 12:02:26.725234795 +0800
++++ CANHub.fixed.cs	2026-09-16 12:02:26.722188778 +0800
+@@ -35,6 +35,7 @@
+             sync = new object();
+             attached = new List<ICAN>();
+             handlers = new Dictionary<ICAN, Action<CANMessageFrame>>();
++            pendingWhilePaused = new Queue<Tuple<ICAN, CANMessageFrame>>();
+             this.loopback = loopback;
+             UseNetworkByteOrderForLogging = useNetworkByteOrderForLogging;
+         }
+@@ -81,6 +82,13 @@
+             lock(sync)
+             {
+                 started = true;
++                // Frames from host-side bridges (e.g. SocketCANBridge) can arrive while the emulation
++                // is paused; deliver them now, at the resume timestamp, instead of dropping them.
++                while(pendingWhilePaused.Count > 0)
++                {
++                    var pending = pendingWhilePaused.Dequeue();
++                    Deliver(pending.Item1, pending.Item2);
++                }
+             }
+         }
+ 
+@@ -117,14 +125,33 @@
+ 
+                 if(!started)
+                 {
++                    // Machines are paused too, so a frame here comes from a host-side bridge running on its
++                    // own thread. Dropping it loses host traffic silently every time the emulation is stepped
++                    // with RunFor; queue it for Resume instead.
++                    this.Log(LogLevel.Debug, "Queued a frame from {0} received while paused", sender.GetName());
++                    pendingWhilePaused.Enqueue(Tuple.Create(sender, message));
+                     return;
+                 }
+-                var vts = TimeDomainsManager.Instance.GetEffectiveVirtualTimeStamp();
+-                foreach(var iface in attached.Where(x => (x != sender || loopback)))
+-                {
+-                    iface.GetMachine().HandleTimeDomainEvent(iface.OnFrameReceived, message, vts,
+-                        frame != null ? () => FrameTransmitted?.Invoke(this, sender, iface, frame) : (Action)null);
+-                }
++                Deliver(sender, message);
++            }
++        }
++
++        private void Deliver(ICAN sender, CANMessageFrame message)
++        {
++            byte[] frame = null;
++            try
++            {
++                frame = message.ToSocketCAN(UseNetworkByteOrderForLogging);
++            }
++            catch(RecoverableException)
++            {
++                // already reported by Transmit
++            }
++            var vts = TimeDomainsManager.Instance.GetEffectiveVirtualTimeStamp();
++            foreach(var iface in attached.Where(x => (x != sender || loopback)))
++            {
++                iface.GetMachine().HandleTimeDomainEvent(iface.OnFrameReceived, message, vts,
++                    frame != null ? () => FrameTransmitted?.Invoke(this, sender, iface, frame) : (Action)null);
+             }
+         }
+ 
+@@ -132,6 +159,7 @@
+ 
+         private readonly List<ICAN> attached;
+         private readonly Dictionary<ICAN, Action<CANMessageFrame>> handlers;
++        private readonly Queue<Tuple<ICAN, CANMessageFrame>> pendingWhilePaused;
+         private readonly object sync;
+         private readonly bool loopback;
+     }

@@ -11,6 +11,7 @@ PLANT=remote ./run_loop.sh       # 受控體在場域 GPU 主機(先 tools/isaac
 FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正版 STM32_Timer(renode/upstream/)
 ./run_loop.sh --mode realtime    # Renode 自由跑,橋接每 5 ms 牆鐘取樣;QUANTUM=0.001 改同步量子(預設 0.0001)
 UPPER=ros ./run_loop.sh --seconds 40   # 上位換 ROS 2 Jazzy(ros:jazzy-ros-base 容器):base driver + 里程計閉環的方形
+CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge → 容器 netns 的 vcan0;CANHUBFIX=1 換修正版 CANHub(原版 lockstep 丟訊框)
 ./run_loop.sh --seconds 3 --script "0:200,0;2:0,0"
 ```
 
@@ -23,7 +24,9 @@ UPPER=ros ./run_loop.sh --seconds 40   # 上位換 ROS 2 Jazzy(ros:jazzy-ros-bas
 | `calib.json` | 韌體、橋接、受控體共用的唯一參數來源;`tools/gen_calib.py` 產 `firmware/calib.h`。`pwm_prescaler` 0 = 10 kHz 載波(Renode 自由跑 0.46×)、9 = 1 kHz(1.0×);不影響 lockstep 結果 | — |
 | `firmware/` | 裸機 STM32F4 韌體(C,無 HAL / libc):USART1 框包 + CRC16(中斷收訊)、TIM3 PWM、方向/致能 GPIO、PC13 急停、bxCAN 編碼器與狀態、5 ms PI、20 ms odom、WFI | Renode 1.16.1 實測 |
 | `firmware-freertos/` | 同一台車的 FreeRTOS V11.3.1 版(三個 task + USART1 ISR;kernel 最小子集 vendor 在 `kernel/`,MIT);`FW=freertos ./run_loop.sh` | Renode 實測 ALL PASS |
-| `renode/` | vendor 的 1.16.1 `stm32f4.repl`(拿掉 `ApplySVD`)、開機腳本、`hil_hook.py`(IronPython:CAN/UART ↔ TCP,每筆注入回 ack;機器在跑時走 `HandleTimeDomainEvent`)、`boot_check` / `perf_check` / `perf_freerun` / `io_check` 驗收腳本 | 實測 |
+| `renode/` | vendor 的 1.16.1 `stm32f4.repl`(拿掉 `ApplySVD`)、開機腳本(`hilctl-common.resc` 共用;`hilctl-socketcan*.resc` 走 vcan)、`hil_hook.py`(IronPython:CAN/UART ↔ TCP,每筆注入回 ack;機器在跑時走 `HandleTimeDomainEvent`)、`boot_check` / `perf_check` / `perf_freerun` / `perf_timer_events` / `io_check` 驗收腳本 | 實測 |
+| `renode/upstream/` | 給 Renode 上游的四項修正(`STM32_Timer` 三項、`NVIC` SysTick、`CANHub` 暫停丟訊框)的原版/patch/執行期載入版、探針、Robot、NUnit、不建 Renode 的驗證流程 | fork 三個 commit,NUnit 修正版 9/9、原版 2/9 |
+| `tools/vcan_up.py` | 用 netlink 在目前 netns 建 vcan(不需要 iproute2);要 root + `NET_ADMIN` | 實測 |
 | `bridge-rs/` | Rust 橋接:External Control client、hook 對端、上位協定、Fake/UDP/TCP 受控體、lockstep / realtime 迴圈、`--upper tcp-listen` 上位出口、八項驗收 | 實測 |
 | `ros/` | ROS 2 Jazzy 上位:`hil_base_driver.py`(/cmd_vel → 框包,odom → /odom + /tf)、`square_client.py`(里程計閉環方形)、`hilproto.py`(協定 Python 版)、`run_square.sh` | `ros:jazzy-ros-base` 實測 ALL PASS |
 | `plant/fake_plant.py` | UDP 版假受控體(Python),與 Rust 內建 `Fake` 同模型 | 實測 ALL PASS |
@@ -40,6 +43,7 @@ UPPER=ros ./run_loop.sh --seconds 40   # 上位換 ROS 2 Jazzy(ros:jazzy-ros-bas
 | 3456 | `CreateServerSocketTerminal` | USART1 原始位元組,留作對照,橋接不用 |
 | 3700 | `fake_plant.py` / `isaac_plant.py` | 受控體 UDP / TCP 文字協定 |
 | 3800 | 橋接 `--upper tcp-listen` | 上位 UART 框包原樣進出(ROS 2 節點連這裡) |
+| vcan0 | `tools/vcan_up.py` → Renode `SocketCANBridge` | `CAN=socketcan` 時 CAN 訊框走這裡而不是 3600;橋接用 `PF_CAN` raw socket |
 
 ## 產物
 
@@ -53,5 +57,6 @@ UPPER=ros ./run_loop.sh --seconds 40   # 上位換 ROS 2 Jazzy(ros:jazzy-ros-bas
 - 兩次跑 CSV 逐 byte 相同;`--negative bad-crc` → `bad_crc=300`、位移 0、C2 紅
 - 韌體 text 4732 B;WFI 讓 1 s 虛擬時間從 13.4 s 降到 1.83 s
 - Isaac 6.0.1 受控體(遠端,`ssh -L`):每步 52 ms;odom 對真值 3.4 / 2.0 mm、0.028 rad;滑移 3.1%;兩次 CSV 逐 byte 相同(CPU 求解)
+- CAN 走 vcan(`CAN=socketcan`):1.16.1 原版 `CANHub` lockstep 下 14/399 訊框到韌體;修正版 399/399、ALL PASS、末端與 hook 路逐字相同、兩次 CSV 相同、每步 10 ms
 - ROS 2 方形閉環(0.6 m 邊、里程計判段):lockstep 閉合 35 mm / 0.075 rad、realtime 70 mm / 0.141 rad;odom 對真值 4 mm / 1 mrad;兩者 ALL PASS
 - `--mode realtime`(主機閒時):每步 5.0 ms 牆鐘;`pwm_prescaler` 0 → Renode 0.46× 實時、車只走 1/3(ALL PASS + `[warn]`);9 → 1.01×,末端對 lockstep 差 17–31 mm / 0.03–0.06 rad,兩次跑不同

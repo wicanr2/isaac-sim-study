@@ -186,6 +186,16 @@
 <td>背景 <code>ssh -L</code> 繼承了腳本的 stdout 管線,kill 到包裝 shell 而不是 ssh</td>
 <td>隧道輸出導檔案、<code>exec</code> 起 ssh 讓 PID 就是它</td>
 </tr>
+<tr>
+<td>CAN 走 vcan 時 <code>enc_frames</code> 14/399,無任何 warning</td>
+<td><code>CANHub</code> 在 <code>RunFor</code> 之間的暫停期把主機來的訊框丟掉</td>
+<td>C8 紅;Debug log 數「Received from」與韌體收到的差;修在 hub(<a href="../../hil/37-bus-signal-bridging/">37 篇</a> §4)</td>
+</tr>
+<tr>
+<td>同上,修了 hub 還是 331/399</td>
+<td><code>i @CANHub_Fixed.cs</code> 執行期編譯要幾秒,External Control 已經開、橋接已經在推進,前幾十步的訊框沒人收</td>
+<td>出口全部就位<strong>之後</strong>才開 External Control(<code>hilctl-common.resc</code> 的順序)</td>
+</tr>
 </tbody>
 </table></div>
 <p>共同點:<strong>每一個的第一眼症狀都指向別的地方</strong>——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯、彈飛像腳輪或質量。每一個都是先讀原始碼或加一個更近的觀測點才看到真因;彈飛那一個,近一點的觀測點是「靜止後停在哪個高度」。</p>

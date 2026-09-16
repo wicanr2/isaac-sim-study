@@ -19,7 +19,7 @@
 <p>韌體在 Renode 裡跑起來之後,它的輸出在模擬器裡面:PWM 是 TIM3 的 CCR 值、方向是 GPIOB 的兩個腳、狀態回報在 CAN1 的 mailbox。要把這些拿到外面給受控體,又要把編碼器塞回去給韌體,Renode 1.16.1 給了兩條路:一個叫 External Control 的 TCP 二進位 API(時間、GPIO、匯流排讀寫),和它自己的 monitor 級 IronPython(可以掛週邊事件、也能開 socket)。CAN 還有第三條路,要碰主機核心。</p>
 <p>這一篇把每種訊號走哪條路、協定長什麼樣、以及 lockstep 迴圈怎麼靠 ack 做到決定性,寫清楚。</p>
 <blockquote>
-<p><strong>驗證狀態</strong>:全部在本機實測(Renode 1.16.1,Rust 1.98 std-only 橋接,docker,2026-09-15)。External Control 的線路協定是從官方 C client(<code>tools/external_control_client/lib/renode_api.c</code>,943 行)逐 byte 讀出來的,官方沒有文件;server 端對照 <code>renode</code> repo v1.16.1 的 <code>src/Renode/Network/ExternalControl/*.cs</code>。§4 的 SocketCAN 路線<strong>未實測</strong>(要主機載 <code>vcan</code> 模組),只寫接法。程式碼在 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/bridge-rs"><code>examples/hil-stm32/bridge-rs/</code></a> 與 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/hil_hook.py"><code>renode/hil_hook.py</code></a>。</p>
+<p><strong>驗證狀態</strong>:全部在本機實測(Renode 1.16.1,Rust 1.98 std-only 橋接,docker,2026-09-15)。External Control 的線路協定是從官方 C client(<code>tools/external_control_client/lib/renode_api.c</code>,943 行)逐 byte 讀出來的,官方沒有文件;server 端對照 <code>renode</code> repo v1.16.1 的 <code>src/Renode/Network/ExternalControl/*.cs</code>。§4 的 SocketCAN 路線在容器 netns 裡實測(2026-09-16,路 ②);路 ③ 只差主機權限,沒有另外跑。程式碼在 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/bridge-rs"><code>examples/hil-stm32/bridge-rs/</code></a> 與 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/hil_hook.py"><code>renode/hil_hook.py</code></a>。</p>
 </blockquote>
 <h2 id="1-每種訊號走哪裡">1. 每種訊號走哪裡</h2>
 <div class="tw"><table>
@@ -156,7 +156,9 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 <th>路</th>
 <th>碰核心嗎</th>
 <th>原理</th>
-<th>本篇狀態</th>
+<th>權限</th>
+<th>lockstep 注入到韌體</th>
+<th>決定性</th>
 </tr>
 </thead>
 <tbody>
@@ -164,29 +166,37 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 <td><strong>① monitor 級 IronPython hook → TCP</strong></td>
 <td>不碰</td>
 <td>掛 <code>FrameSent</code>、呼叫 <code>OnFrameReceived()</code>;IronPython 用 .NET socket。整條在 Renode 行程內</td>
-<td><strong>實測,主線</strong></td>
+<td>無</td>
+<td>每筆 ack,下一步一定讀到(1199/1199)</td>
+<td>有 ack 保證;兩次 CSV 逐 byte 相同</td>
 </tr>
 <tr>
-<td>② 容器內 <code>ip link add vcan0 type vcan</code>(<code>--cap-add NET_ADMIN</code>)</td>
-<td>碰,核心自動載入</td>
-<td>netlink 建未知型別的 link 時核心會 <code>request_module("rtnl-link-vcan")</code>;不用手打 modprobe,但主機一樣多載一個模組</td>
-<td>未實測</td>
+<td>② 容器 netns 裡建 <code>vcan0</code> + <code>SocketCANBridge</code></td>
+<td>碰(<code>vcan.ko</code>)</td>
+<td><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/tools/vcan_up.py"><code>tools/vcan_up.py</code></a> 用 netlink 建 link(不需要 iproute2);Renode 官方的 <code>CreateSocketCANBridge</code> bind 上去;橋接用 <code>PF_CAN</code> raw socket(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/bridge-rs/src/socketcan.rs"><code>src/socketcan.rs</code></a>,零 crate,<code>extern "C"</code> 宣告 6 個 libc 符號)</td>
+<td>helper 容器要 <strong>root + <code>NET_ADMIN</code></strong>(非 root 行程拿不到 ambient capability);Renode 與橋接本身不用</td>
+<td><strong>1.16.1 原版:14/399</strong>——<code>CANHub</code> 在暫停時把主機來的訊框丟掉;修過的 hub 399/399</td>
+<td>沒有 ack;修過的 hub 兩次 CSV 逐 byte 相同,但那是「訊框都在 <code>run_for</code> 開始前就進了佇列」的經驗事實,不是保證</td>
 </tr>
 <tr>
-<td>③ 主機 <code>modprobe vcan</code> + <code>SocketCANBridge</code></td>
+<td>③ 主機 <code>modprobe vcan</code> + <code>ip link add</code></td>
 <td>碰</td>
-<td>Renode 官方路線;橋接用 SocketCAN API 收發</td>
-<td>未實測</td>
+<td>同 ②,介面在主機 netns;Renode 要 <code>--network host</code> 或把介面搬進容器</td>
+<td>主機 root</td>
+<td>同 ②</td>
+<td>同 ②</td>
 </tr>
 </tbody>
 </table></div>
-<p>②③ 是同一件事——都讓核心載入 <code>vcan.ko</code>,差別只在誰觸發。真正不碰核心的只有 ①。</p>
+<p>②③ 是同一件事——都讓核心載入 <code>vcan.ko</code>,差別只在誰觸發、在哪個 netns。真正不碰核心的只有 ①。這台主機的 <code>vcan</code> 早就載著,「核心自動 <code>request_module</code>」這一句沒有機會驗;<code>vcan_up.py</code> 的 docstring 照核心的 rtnetlink 行為寫,標推測。</p>
+<p><strong>② 踩到的第四個 Renode 缺口:<code>CANHub</code> 暫停時丟訊框。</strong> <code>emulation RunFor</code> 是 <code>StartAll → RunFor → PauseAll</code>,hub 的 <code>Pause()</code> 把 <code>started</code> 清掉,之後 <code>Transmit()</code> 直接 return。<code>SocketCANBridge</code> 的讀執行緒不管暫停照樣 read socket,所以 lockstep 下兩次 <code>run_for</code> 之間注入的訊框全部靜默消失(Debug log 一行「Received from」,沒有 warning),只有剛好落在 <code>run_for</code> 期間的 14 筆進得去;realtime 模式下 599/600。修法:暫停時把主機來的訊框排隊,<code>Resume()</code> 時送——機器暫停時不可能有機器來的訊框,佇列裡只會有主機的。NUnit 三條(跑中轉發、暫停排隊 Resume 送且只送一次、不回送給發送者):原版 1/3、修正版 3/3;閉環 <code>CAN=socketcan CANHUBFIX=1 ./run_loop.sh</code> ALL PASS、末端位姿與 hook 路逐字相同(902.0, −0.9, 0.9019)、每步 10 ms(hook 路 11 ms,同一時段量)。fork 第三個 commit(<code>b89bc9d</code>),<code>renode/upstream/CANHub.patch</code>。<code>UARTHub</code> 有同一個樣式,沒動。</p>
+<p>另一個要在 ② 上放棄的東西:<strong>C4 的事件時刻快照</strong>。hook 掛在 <code>FrameSent</code> 上才拿得到「同一個模擬時刻的 CCR」;走 vcan 時 hook 不碰 CAN,C4 印成「不驗」而不是綠——這條路拿不到那個量,不能假裝驗過。</p>
 <p align="center"><img src="../../img/hil-can-three-paths.svg" width="860" alt="CAN 訊框離開 Renode 的三條路各碰到 Renode 行程、使用者空間、核心的哪一層"></p>
 
 <p>①在 Renode 端遇到缺口時的處理原則:<strong>不繞路,修 Renode 原始碼</strong>。1.16.1 對應的 <code>renode-infrastructure</code> commit 是 <code>add012af003a0f620d3da52828262676f374d121</code>;修週邊模型可以 <code>i @file.cs</code> 執行期編譯載入,不必自建 Renode——改一行、跑一次探針是秒級迴圈。</p>
-<p>這一區用這條路修了 <code>STM32_Timer</code> 的三個缺口(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/upstream"><code>renode/upstream/</code></a>):計數週期 ARR+1、OCxPE 預載、致能時就驅動 PWM 腳。每一項有一支探針(原版紅、修正版綠)與一條上游樣式的 Robot 測試(原版 3 紅、修正版 3 綠);修正版接進閉環 <code>TIMERFIX=1 ./run_loop.sh</code> 仍 ALL PASS,而且 <code>.resc</code> 印出 timer 的型別名當生效證明——沒有這一行,「修正版也綠」與「根本沒載入」看起來一樣。第四個候選 <code>STM32_UART</code> 的 TC 閂鎖在 1.16.1 上<strong>無法重現</strong>(CPU 寫 DR 後 TC 正常設回、TCIE 拉中斷);既有內部紀錄的條件是 DMA 傳送,這裡沒走那條路,不下結論。</p>
-<p>第五個缺口是 FreeRTOS 版才踩到的:<code>NVIC</code> 的 SysTick 在 ENABLE 0→1 時不從 RELOAD 載入(<a href="../../hil/39-freertos-firmware-in-the-loop/">39 篇</a> §4),NUnit 原版 1/2 紅、修正版 2/2 綠。</p>
-<p>修正以上游樣式放在 fork(<code>wicanr2/renode-infrastructure</code>,分支 <code>stm32-timer-period-preload-fixes</code>,基於 1.16.1 的 commit),兩個 commit:<code>STM32_Timer.cs</code> + <code>STM32_TimerTests.cs</code>、<code>NVIC.cs</code> + <code>NVIC_SysTickTests.cs</code>。驗證到哪裡:上游版檔案對 1.16.1 組件編譯 0 warning、NUnit 修正版 4/4 綠、原版 0/4、Robot 3/3、閉環迴歸 ALL PASS;<strong>沒做</strong>完整 Renode 建置與上游全部測試。<strong>尚未送 PR</strong>(2026-09-15 決定:分支留在 fork,之後要送隨時可以);送了之後這一段要補連結。</p>
+<p>這一區用 ① 這條路修了 <code>STM32_Timer</code> 的三個缺口(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/upstream"><code>renode/upstream/</code></a>):計數週期 ARR+1、OCxPE 預載、致能時就驅動 PWM 腳。每一項有一支探針(原版紅、修正版綠)與一條上游樣式的 Robot 測試(原版 3 紅、修正版 3 綠);修正版接進閉環 <code>TIMERFIX=1 ./run_loop.sh</code> 仍 ALL PASS,而且 <code>.resc</code> 印出 timer 的型別名當生效證明——沒有這一行,「修正版也綠」與「根本沒載入」看起來一樣。第四個候選 <code>STM32_UART</code> 的 TC 閂鎖在 1.16.1 上<strong>無法重現</strong>(CPU 寫 DR 後 TC 正常設回、TCIE 拉中斷);既有內部紀錄的條件是 DMA 傳送,這裡沒走那條路,不下結論。</p>
+<p><code>NVIC</code> 的 SysTick 在 ENABLE 0→1 時不從 RELOAD 載入是 FreeRTOS 版才踩到的(<a href="../../hil/39-freertos-firmware-in-the-loop/">39 篇</a> §4),NUnit 原版 1/2 紅、修正版 2/2 綠;<code>CANHub</code> 暫停時丟訊框是走 vcan 才踩到的(上面)。四個週邊、三個 commit,全部在同一個 fork 分支。</p>
+<p>修正以上游樣式放在 fork(<code>wicanr2/renode-infrastructure</code>,分支 <code>stm32-timer-period-preload-fixes</code>,基於 1.16.1 的 commit),三個 commit(訊息全英文):<code>STM32_Timer.cs</code> + <code>STM32_TimerTests.cs</code>、<code>NVIC.cs</code> + <code>NVIC_SysTickTests.cs</code>、<code>CANHub.cs</code> + <code>CANHubTests.cs</code>。驗證到哪裡:上游版檔案對 1.16.1 組件編譯 0 warning、NUnit 修正版 9/9 綠、原版 2/9、Robot 3/3、閉環迴歸 ALL PASS;<strong>沒做</strong>完整 Renode 建置與上游全部測試。<strong>尚未送 PR</strong>(2026-09-15 決定:分支留在 fork,之後要送隨時可以);送了之後這一段要補連結。</p>
 <h2 id="5-lockstep-迴圈">5. lockstep 迴圈</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/bridge-rs/src/main.rs"><code>bridge-rs/src/main.rs</code></a> 每一步(5 ms):</p>
 <pre><code>1. 上位腳本 → cmd_vel 框包 → hook UART 注入 → 等 ack        (每 20 ms 一次)

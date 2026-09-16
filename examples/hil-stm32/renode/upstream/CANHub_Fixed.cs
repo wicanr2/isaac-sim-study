@@ -1,0 +1,168 @@
+// Runtime-loadable copy of the fixed CANHub (i @file.cs): class renamed to CANHub_Fixed, creator CreateCANHubFixed.
+// Source of truth: the fork commit; regenerate from CANHub.fixed.cs when it changes.
+//
+// Copyright (c) 2010-2026 Antmicro
+// Copyright (c) 2011-2015 Realtime Embedded
+//
+// This file is licensed under the MIT License.
+// Full license text is available in 'licenses/MIT.txt'.
+//
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+using Antmicro.Renode.Core;
+using Antmicro.Renode.Core.CAN;
+using Antmicro.Renode.Exceptions;
+using Antmicro.Renode.Logging;
+using Antmicro.Renode.Peripherals;
+using Antmicro.Renode.Peripherals.CAN;
+using Antmicro.Renode.Time;
+using Antmicro.Renode.Utilities;
+
+namespace Antmicro.Renode.Tools.Network
+{
+    public static class CANHubFixedExtensions
+    {
+        public static void CreateCANHubFixed(this Emulation emulation, string name, bool loopback = false, bool useNetworkByteOrderForLogging = true)
+        {
+            emulation.ExternalsManager.AddExternal(new CANHub_Fixed(loopback, useNetworkByteOrderForLogging), name);
+        }
+    }
+
+    public sealed class CANHub_Fixed : IExternal, IHasOwnLife, IConnectable<ICAN>, INetworkLog<ICAN>
+    {
+        public CANHub_Fixed(bool loopback = false, bool useNetworkByteOrderForLogging = true)
+        {
+            sync = new object();
+            attached = new List<ICAN>();
+            handlers = new Dictionary<ICAN, Action<CANMessageFrame>>();
+            pendingWhilePaused = new Queue<Tuple<ICAN, CANMessageFrame>>();
+            this.loopback = loopback;
+            UseNetworkByteOrderForLogging = useNetworkByteOrderForLogging;
+        }
+
+        public void AttachTo(ICAN iface)
+        {
+            lock(sync)
+            {
+                if(attached.Contains(iface))
+                {
+                    throw new RecoverableException("Cannot attach to the provided CAN periperal as it is already registered in this hub.");
+                }
+                attached.Add(iface);
+                handlers.Add(iface, message => Transmit(iface, message));
+                iface.FrameSent += handlers[iface];
+            }
+        }
+
+        public void DetachFrom(ICAN iface)
+        {
+            lock(sync)
+            {
+                attached.Remove(iface);
+                iface.FrameSent -= handlers[iface];
+                handlers.Remove(iface);
+            }
+        }
+
+        public void Start()
+        {
+            Resume();
+        }
+
+        public void Pause()
+        {
+            lock(sync)
+            {
+                started = false;
+            }
+        }
+
+        public void Resume()
+        {
+            lock(sync)
+            {
+                started = true;
+                // Frames from host-side bridges (e.g. SocketCANBridge) can arrive while the emulation
+                // is paused; deliver them now, at the resume timestamp, instead of dropping them.
+                while(pendingWhilePaused.Count > 0)
+                {
+                    var pending = pendingWhilePaused.Dequeue();
+                    Deliver(pending.Item1, pending.Item2);
+                }
+            }
+        }
+
+        public bool UseNetworkByteOrderForLogging { get; set; }
+
+        public bool IsPaused => !started;
+
+        public event Action<IExternal, ICAN, ICAN, byte[]> FrameTransmitted;
+
+        public event Action<IExternal, ICAN, byte[]> FrameProcessed;
+
+        public event Action<IExternal, ICAN, CANMessageFrame> FrameReceived;
+
+        private void Transmit(ICAN sender, CANMessageFrame message)
+        {
+            lock(sync)
+            {
+                this.Log(LogLevel.Debug, "Received from {0}: {1}", sender.GetName(), message);
+                FrameReceived?.Invoke(this, sender, message);
+
+                byte[] frame = null;
+                try
+                {
+                    frame = message.ToSocketCAN(UseNetworkByteOrderForLogging);
+                }
+                catch(RecoverableException e)
+                {
+                    this.Log(LogLevel.Warning, "Failed to create SocketCAN from {0}: {1}", message, e.Message);
+                }
+                if(frame != null)
+                {
+                    FrameProcessed?.Invoke(this, sender, frame);
+                }
+
+                if(!started)
+                {
+                    // Machines are paused too, so a frame here comes from a host-side bridge running on its
+                    // own thread. Dropping it loses host traffic silently every time the emulation is stepped
+                    // with RunFor; queue it for Resume instead.
+                    this.Log(LogLevel.Debug, "Queued a frame from {0} received while paused", sender.GetName());
+                    pendingWhilePaused.Enqueue(Tuple.Create(sender, message));
+                    return;
+                }
+                Deliver(sender, message);
+            }
+        }
+
+        private void Deliver(ICAN sender, CANMessageFrame message)
+        {
+            byte[] frame = null;
+            try
+            {
+                frame = message.ToSocketCAN(UseNetworkByteOrderForLogging);
+            }
+            catch(RecoverableException)
+            {
+                // already reported by Transmit
+            }
+            var vts = TimeDomainsManager.Instance.GetEffectiveVirtualTimeStamp();
+            foreach(var iface in attached.Where(x => (x != sender || loopback)))
+            {
+                iface.GetMachine().HandleTimeDomainEvent(iface.OnFrameReceived, message, vts,
+                    frame != null ? () => FrameTransmitted?.Invoke(this, sender, iface, frame) : (Action)null);
+            }
+        }
+
+        private bool started;
+
+        private readonly List<ICAN> attached;
+        private readonly Dictionary<ICAN, Action<CANMessageFrame>> handlers;
+        private readonly Queue<Tuple<ICAN, CANMessageFrame>> pendingWhilePaused;
+        private readonly object sync;
+        private readonly bool loopback;
+    }
+}

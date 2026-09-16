@@ -185,10 +185,14 @@ def _rx_loop():
         except Exception:
             pass
 
-def mc_hil_hook_start(port=3600):
+def mc_hil_hook_start(port=3600, hook_can="True"):
+    # hook_can False: CAN goes through CreateSocketCANBridge instead (docs/hil/37 sec. 4 path 2/3);
+    # the hook then carries UART only. Monitor passes the flag as a string.
     can1 = self.Machine["sysbus.can1"]
     usart1 = self.Machine["sysbus.usart1"]
-    can1.FrameSent += _on_can_sent
+    _st["hook_can"] = str(hook_can).lower() == "true"
+    if _st["hook_can"]:
+        can1.FrameSent += _on_can_sent
     usart1.CharReceived += _on_uart_byte
     lst = TcpListener(IPAddress.Any, int(port))
     lst.Start()
@@ -198,7 +202,7 @@ def mc_hil_hook_start(port=3600):
     t.IsBackground = True
     t.Start()
     _st["thread"] = t
-    print "hil_hook: listening on %d; can1.FrameSent + usart1.CharReceived hooked" % int(port)
+    print "hil_hook: listening on %d; %susart1.CharReceived hooked" % (int(port), "can1.FrameSent + " if _st["hook_can"] else "")
 
 def mc_hil_hook_stats():
     print "hil_hook: can_sent=%d can_injected=%d uart_out=%d uart_in=%d acks=%d client=%s" % (

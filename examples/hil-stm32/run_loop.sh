@@ -10,6 +10,8 @@
 #   FW=freertos ./run_loop.sh           # 韌體換成 FreeRTOS 版(firmware-freertos/)
 #   TIMERFIX=1 ./run_loop.sh            # TIM3 換成 renode/upstream/STM32_Timer_Fixed.cs(執行期載入的修正版)
 #   PLANT=remote ./run_loop.sh          # 受控體在場域 GPU 主機:自動開 ssh -L 隧道,受控體那端要先起好(埠 3700,TCP)
+#   CAN=socketcan ./run_loop.sh         # CAN 改走 Renode SocketCANBridge → 容器 netns 裡的 vcan0(37 篇 §4 的路 ②):
+#                                       # 需要一個 --cap-add NET_ADMIN 且容器內 root 的 helper 建 vcan;橋接走 PF_CAN,沒有 ack
 #   UPPER=ros ./run_loop.sh --seconds 40  # 上位換成 ROS 2 Jazzy:另起 ros:jazzy-ros-base 容器跑 ros/run_square.sh
 #                                         #(base driver + 方形閉環),橋接 --upper tcp-listen:0.0.0.0:3800
 #
@@ -26,6 +28,10 @@ ROS_IMAGE="${ROS_IMAGE:-ros:jazzy-ros-base}"                  # rclpy 7.1.11 + t
 UPPER="${UPPER:-script}"
 PLANT="${PLANT:-fake}"
 RESC=hilctl; [ "${TIMERFIX:-0}" = 1 ] && RESC=hilctl-timerfix
+CAN="${CAN:-hook}"
+[ "$CAN" = socketcan ] && { [ "$RESC" = hilctl ] || { echo "CAN=socketcan 與 TIMERFIX 不同時用"; exit 2; }; RESC=hilctl-socketcan; }
+# CANHUBFIX=1:CANHub 換成 renode/upstream/CANHub_Fixed.cs(暫停時把主機來的訊框排隊,不丟;lockstep 才收得齊)
+[ "$CAN" = socketcan ] && [ "${CANHUBFIX:-0}" = 1 ] && RESC=hilctl-socketcan-fixed
 FW="${FW:-baremetal}"
 case "$FW" in
   baremetal) ELF=/w/firmware/build/hilctl.elf; SYM=firmware/build/hilctl.sym; EXTRA=() ;;
@@ -72,10 +78,22 @@ if [ "$PLANT" = "remote" ]; then
   GW=$(docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}')
 fi
 echo "[renode] 啟動 $NAME(Renode $RENODE_IMAGE,--network $RENODE_NET,$CPUS 核)"
+# socketcan 模式:Renode 進程等 vcan0 出現才起(SocketCANBridge 建構時就 bind);介面由下面的 helper 建
+WAIT_VCAN=""; [ "$CAN" = socketcan ] && WAIT_VCAN='while [ ! -e /sys/class/net/vcan0 ]; do sleep 0.2; done; '
 docker run -d -i --name "$NAME" --network "$RENODE_NET" --cpus "$CPUS" --memory 2g --pids-limit 256 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w "$RENODE_IMAGE" \
-  renode --disable-xwt --console -e "\$bin=@$ELF" -e "\$quantum=\"${QUANTUM:-0.0001}\"" -e "include @/w/renode/${RESC:-hilctl}.resc" >/dev/null
+  sh -c "${WAIT_VCAN}exec renode --disable-xwt --console -e '\$bin=@$ELF' -e '\$quantum=\"${QUANTUM:-0.0001}\"' -e 'include @/w/renode/${RESC:-hilctl}.resc'" >/dev/null
+if [ "$CAN" = socketcan ]; then
+  # 建 vcan 要 CAP_NET_ADMIN 而且要是容器內的 root(非 root 行程拿不到 ambient capability)。
+  # 只做這一件事:--rm、--read-only、只掛 tools/ 唯讀、netns 是 Renode 那個(--network none 的隔離 netns)。
+  echo "[vcan] 在 $NAME 的 netns 建 vcan0(helper:root + NET_ADMIN,read-only)"
+  docker run --rm --network "container:$NAME" --cap-add NET_ADMIN --user 0 --read-only --cpus 1 --memory 256m --pids-limit 32 \
+    --log-opt max-size=10m --log-opt max-file=3 -v "$PWD/tools":/t:ro "$RENODE_IMAGE" python3 /t/vcan_up.py vcan0
+  CAN_ARG=(--can socketcan:vcan0)
+else
+  CAN_ARG=()
+fi
 
 # 不用 bash 的 /dev/tcp 探埠:`echo >/dev/tcp/...` 會送一個換行,External Control server
 # 把它當成握手的第一個 byte,狀態機從此錯位(2026-09-15 踩到)。改由橋接自己重試連線。
@@ -122,7 +140,7 @@ set +e
 docker run --rm --network "container:$NAME" --cpus "$CPUS" --memory 1g --pids-limit 128 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w -w /w "$RUST_IMAGE" \
-  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "${UPPER_ARG[@]}" "$@"
+  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "${UPPER_ARG[@]}" "${CAN_ARG[@]}" "$@"
 rc=$?
 set -e
 docker logs "$NAME" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > out/renode.log || true

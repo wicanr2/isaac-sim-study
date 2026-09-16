@@ -16,6 +16,7 @@ mod ec;
 mod hook;
 mod plant;
 mod proto;
+mod socketcan;
 mod upper;
 
 use std::io::Write;
@@ -39,6 +40,7 @@ struct Args {
     dbg_extra: u32,
     mode: String,
     upper: String,
+    can: String,
 }
 
 fn parse_args() -> Args {
@@ -58,6 +60,7 @@ fn parse_args() -> Args {
         dbg_extra: 0,
         mode: "lockstep".into(),
         upper: "script".into(),
+        can: "hook".into(),
     };
     let v: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -83,6 +86,8 @@ fn parse_args() -> Args {
             "--mode" => a.mode = val,
             // 上位:script(預設,內建腳本)或 tcp-listen:ADDR(外部上位連進來講 UART 框包,例如 ROS 2 節點)
             "--upper" => a.upper = val,
+            // CAN 走哪條路:hook(預設,每筆注入有 ack)或 socketcan:IFACE(Renode SocketCANBridge + vcan,沒有 ack)
+            "--can" => a.can = val,
             other => {
                 eprintln!("未知參數 {other}");
                 std::process::exit(2);
@@ -227,6 +232,15 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         None if a.upper == "script" => None,
         None => { eprintln!("--upper 只接受 script 或 tcp-listen:ADDR"); std::process::exit(2); }
     };
+    let mut sc: Option<socketcan::SocketCan> = match a.can.strip_prefix("socketcan:") {
+        Some(ifn) => {
+            let s = socketcan::SocketCan::open(ifn).expect("--can socketcan");
+            println!("[effect] can=socketcan({ifn}) 注入與狀態框走 PF_CAN,沒有 ack;C4 沒有事件時刻快照 → 跳過");
+            Some(s)
+        }
+        None if a.can == "hook" => None,
+        None => { eprintln!("--can 只接受 hook 或 socketcan:IFACE"); std::process::exit(2); }
+    };
     let mut up_parser = proto::Parser::default();
     let mut up_last_cmd = (0i16, 0i16);
     let mut up_any_move = false;
@@ -327,6 +341,16 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         hk.drain(Duration::from_millis(1)).unwrap();
         let mut frames = Vec::new();
         let mut pending_can: Option<(i16, i16)> = None;
+        if let Some(s) = sc.as_mut() {
+            for (id, d) in s.drain().unwrap() {
+                if id == c.can_id_motor_status && d.len() >= 6 {
+                    let dl = i16::from_le_bytes([d[0], d[1]]);
+                    let dr = i16::from_le_bytes([d[2], d[3]]);
+                    can_status = Some((dl, dr, d[4], d[5]));
+                    can_status_count += 1;
+                }
+            }
+        }
         for r in hk.take_inbox() {
             if r.id == hook::ID_UART_FROM_MCU {
                 if let Some(u) = up.as_mut() { u.tx(&r.data); }
@@ -388,8 +412,12 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         let mut enc = [0u8; 8];
         enc[..4].copy_from_slice(&out.ticks_l.to_le_bytes());
         enc[4..].copy_from_slice(&out.ticks_r.to_le_bytes());
-        hk.can_send(c.can_id_encoder, &enc).unwrap();
-        hk.wait_acks().unwrap();
+        if let Some(s) = sc.as_mut() {
+            s.send(c.can_id_encoder, &enc).unwrap();
+        } else {
+            hk.can_send(c.can_id_encoder, &enc).unwrap();
+            hk.wait_acks().unwrap();
+        }
         t_hook += ph.elapsed();
 
         // 6. 紀錄
@@ -462,6 +490,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let dy = (last_odom.y_mm as f64 - last_plant.y_mm).abs();
     let dth = (last_odom.th_mrad as f64 / 1000.0 - last_plant.th_rad).abs();
     let expect_move = if up.is_some() { up_any_move } else { script.iter().any(|&(_, v, w)| v != 0 || w != 0) };
+    if let Some(s) = sc.as_ref() {
+        println!("[run] socketcan: frames sent={} received={}", s.sent, s.received);
+    }
     if let Some(u) = up.as_ref() {
         println!("[run] upper: connected_once={} connected_at_end={} cmd_frames_from_upper={} bad_crc_from_upper={}",
             u.connected_once, u.is_connected(), sent_cmds, up_parser.bad_crc);
@@ -478,8 +509,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             detail: format!("plant 路徑長 {:.1} mm", dist) },
         Check { name: "C3 韌體 odom 對受控體真值", pass: dx <= tol_mm && dy <= tol_mm && dth <= tol_rad,
             detail: format!("dx={dx:.1} dy={dy:.1} dth={dth:.4} (tol {tol_mm:.1} mm / {tol_rad:.4} rad)") },
-        Check { name: "C4 兩條獨立管道一致:每筆 CAN 狀態 duty == 同一時刻的 CCR 快照", pass: can_cmp_total > 0 && can_cmp_mismatch == 0,
-            detail: format!("{} 筆比對,{} 筆不符", can_cmp_total, can_cmp_mismatch) },
+        Check { name: if sc.is_some() { "C4 (socketcan) 沒有事件時刻快照,不驗" } else { "C4 兩條獨立管道一致:每筆 CAN 狀態 duty == 同一時刻的 CCR 快照" },
+            pass: sc.is_some() || (can_cmp_total > 0 && can_cmp_mismatch == 0),
+            detail: if sc.is_some() { format!("狀態框 {} 筆(經 vcan)", can_status_count) } else { format!("{} 筆比對,{} 筆不符", can_cmp_total, can_cmp_mismatch) } },
         // odom 是韌體按「它的」時間每 report_period 送一次,期望值用 Renode 時間算,不用牆鐘
         Check { name: "C5 odom 回報數 ≥ 90% 期望(按 Renode 時間)", pass: odom_count as f64 >= 0.9 * expect_odom as f64,
             detail: format!("{} / {}", odom_count, expect_odom) },

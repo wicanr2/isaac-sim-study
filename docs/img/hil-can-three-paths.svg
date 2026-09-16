@@ -31,11 +31,12 @@
   <text x="555" y="116" text-anchor="middle" font-size="10" fill="#555">(Renode 官方管道)</text>
   <line x1="555" y1="124" x2="555" y2="180" stroke="#888" stroke-width="2" marker-end="url(#nGry)"/>
   <rect x="470" y="182" width="170" height="30" rx="6" fill="#fff" stroke="#888"/>
-  <text x="555" y="201" text-anchor="middle" font-size="10" fill="#555">容器內 ip link add vcan0 type vcan</text>
+  <text x="555" y="201" text-anchor="middle" font-size="9.5" fill="#555">netns 裡 netlink 建 vcan0(vcan_up.py)</text>
   <line x1="555" y1="212" x2="555" y2="268" stroke="#888" stroke-width="2" marker-end="url(#nGry)"/>
   <rect x="470" y="270" width="170" height="30" rx="6" fill="#fff" stroke="#888"/>
-  <text x="555" y="289" text-anchor="middle" font-size="10" fill="#555">核心自動 request_module(vcan)</text>
-  <text x="555" y="330" text-anchor="middle" font-size="10.5" fill="#555">需要 --cap-add NET_ADMIN;未實測</text>
+  <text x="555" y="289" text-anchor="middle" font-size="10" fill="#555">vcan.ko(本機早已載入,自動載入未驗)</text>
+  <text x="555" y="322" text-anchor="middle" font-size="10" fill="#555">helper 要 root + NET_ADMIN</text>
+  <text x="555" y="337" text-anchor="middle" font-size="10" fill="#b03a2e">原版 CANHub 暫停時丟訊框 14/399,修後 399/399</text>
 
   <!-- ③ -->
   <rect x="660" y="66" width="150" height="58" rx="6" fill="#fff" stroke="#888"/>
@@ -47,7 +48,8 @@
   <line x1="735" y1="212" x2="735" y2="268" stroke="#888" stroke-width="2" marker-end="url(#nGry)"/>
   <rect x="660" y="270" width="150" height="30" rx="6" fill="#fff" stroke="#888"/>
   <text x="735" y="289" text-anchor="middle" font-size="10" fill="#555">主機 sudo modprobe vcan</text>
-  <text x="735" y="330" text-anchor="middle" font-size="10.5" fill="#555">需要 root;未實測</text>
+  <text x="735" y="322" text-anchor="middle" font-size="10" fill="#555">主機 root</text>
+  <text x="735" y="337" text-anchor="middle" font-size="10" fill="#555">與 ② 只差 netns,未另跑</text>
 
   <!-- 左說明 -->
   <text x="60" y="104" font-size="10.5" fill="#7a3d0f">STMCAN 模型:</text>
@@ -58,5 +60,5 @@
   <text x="60" y="298" font-size="10.5" fill="#7a1f16">(CONFIG_CAN_VCAN=m)</text>
 
   <text x="430" y="366" text-anchor="middle" font-size="11" fill="#333">②③ 是同一件事——都讓核心載入 vcan.ko,差別只在誰觸發。真正不碰核心的只有 ①;① 在 Renode 端遇到缺口時修 Renode 原始碼,不繞路。</text>
-  <text x="430" y="386" text-anchor="middle" font-size="10.5" fill="#888">37 篇 §4;Renode 1.16.1。</text>
+  <text x="430" y="386" text-anchor="middle" font-size="10.5" fill="#888">37 篇 §4;Renode 1.16.1;②③ 走 vcan 拿不到 FrameSent 當下的 CCR 快照,C4 不驗。</text>
 </svg>
