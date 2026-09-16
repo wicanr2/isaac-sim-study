@@ -51,12 +51,12 @@ NVIDIA 的 [Leveraging ROS 2 and HIL in Isaac Sim](https://docs.nvidia.com/learn
 
 | 行程 | 認什麼 | 不認什麼 |
 |---|---|---|
-| 上位 | `cmd_vel`、`odom` | CAN、PWM、關節 |
+| 上位 | `cmd_vel`、`odom`、`/scan`(雷射接上位不接底盤板) | CAN、PWM、關節 |
 | 韌體 | 序列協定;CAN / GPIO / PWM 暫存器 | **「自己在模擬裡」——它沒有任何辦法知道** |
 | 橋接 | 匯流排上的 byte 與腳位;受控體的關節命令與狀態 | 上位的語意、車的動力學細節 |
 | 受控體 | 關節目標、關節狀態、位姿 | CAN、電壓、任何車體協定 |
 
-橋接是唯一同時懂兩邊的行程,所以它是這一區的主要新工件([37 篇](../37-bus-signal-bridging/README.md))。它的責任刻意窄:轉譯與紀錄。
+橋接是唯一同時懂兩邊的行程,所以它是這一區的主要新工件([37 篇](../37-bus-signal-bridging/README.md))。它的責任刻意窄:轉譯與紀錄。上位換過三次——腳本、ROS 2 方形 client、Nav2——韌體與橋接的位元組一個都沒改([38 篇](../38-acceptance-and-failure-modes/README.md) §6.1、§6.2)。
 
 ## 5. 三個時鐘域
 

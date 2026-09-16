@@ -118,7 +118,7 @@
 <tbody>
 <tr>
 <td>上位</td>
-<td><code>cmd_vel</code>、<code>odom</code></td>
+<td><code>cmd_vel</code>、<code>odom</code>、<code>/scan</code>(雷射接上位不接底盤板)</td>
 <td>CAN、PWM、關節</td>
 </tr>
 <tr>
@@ -138,7 +138,7 @@
 </tr>
 </tbody>
 </table></div>
-<p>橋接是唯一同時懂兩邊的行程,所以它是這一區的主要新工件(<a href="../../hil/37-bus-signal-bridging/">37 篇</a>)。它的責任刻意窄:轉譯與紀錄。</p>
+<p>橋接是唯一同時懂兩邊的行程,所以它是這一區的主要新工件(<a href="../../hil/37-bus-signal-bridging/">37 篇</a>)。它的責任刻意窄:轉譯與紀錄。上位換過三次——腳本、ROS 2 方形 client、Nav2——韌體與橋接的位元組一個都沒改(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §6.1、§6.2)。</p>
 <h2 id="5-三個時鐘域">5. 三個時鐘域</h2>
 <div class="tw"><table>
 <thead>

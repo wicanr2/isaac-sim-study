@@ -138,17 +138,19 @@ case "$PLANT" in
 esac
 
 UPPER_ARG=()
-if [ "$UPPER" = ros ]; then
-  # ROS_SCRIPT:run_square.sh(預設,方形閉環)/ run_scan_check.sh(只驗 /scan)
-  ROS_SCRIPT="${ROS_SCRIPT:-run_square.sh}"
-  echo "[ros] 啟動 $RNAME($ROS_IMAGE,ros/$ROS_SCRIPT,與 Renode 同 netns;log → out/ros.log)"
-  docker run -d --name "$RNAME" --network "container:$NAME" --cpus 1 --memory 1g --pids-limit 128 \
+if [ "$UPPER" = ros ] || [ "$UPPER" = nav2 ]; then
+  # ROS_SCRIPT:run_square.sh(預設,方形閉環)/ run_scan_check.sh(只驗 /scan);UPPER=nav2 → run_nav.sh 在 hil-nav2:jazzy(ros/Dockerfile.nav2)
+  ROS_SCRIPT="${ROS_SCRIPT:-run_square.sh}"; ROS_CPUS=1
+  if [ "$UPPER" = nav2 ]; then ROS_IMAGE="${NAV2_IMAGE:-hil-nav2:jazzy}"; ROS_SCRIPT=run_nav.sh; ROS_CPUS=2; fi
+  echo "[ros] 啟動 $RNAME($ROS_IMAGE,ros/$ROS_SCRIPT,與 Renode 同 netns,$ROS_CPUS 核;log → out/ros.log)"
+  docker run -d --name "$RNAME" --network "container:$NAME" --cpus "$ROS_CPUS" --memory 2g --pids-limit 256 \
     --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
     -e "SIDE_M=${SIDE_M:-0.6}" -e "TIMEOUT_S=${TIMEOUT_S:-120.0}" -e "SECONDS_CHECK=${SECONDS_CHECK:-8.0}" \
     -v "$PWD":/w -w /w/ros "$ROS_IMAGE" bash "./$ROS_SCRIPT" >/dev/null
   UPPER_ARG=(--upper tcp-listen:0.0.0.0:3800)
+  [ "$UPPER" = nav2 ] && UPPER_ARG+=(--expect-goal 1)
 elif [ "$UPPER" != script ]; then
-  echo "UPPER 只接受 script 或 ros"; exit 2
+  echo "UPPER 只接受 script、ros 或 nav2"; exit 2
 fi
 
 echo "[bridge] 開跑:${PLANT_ARG[*]} ${UPPER_ARG[*]} $*"
@@ -160,9 +162,9 @@ docker run --rm --network "container:$NAME" --cpus "$CPUS" --memory 1g --pids-li
 rc=$?
 set -e
 docker logs "$NAME" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > out/renode.log || true
-if [ "$UPPER" = ros ]; then
+if [ "$UPPER" = ros ] || [ "$UPPER" = nav2 ]; then
   docker logs "$RNAME" > out/ros.log 2>&1 || true
-  grep "^\[square\]\|^\[scan_check\]" out/ros.log || echo "[ros] 沒有結果行(看 out/ros.log)"
+  grep "^\[square\]\|^\[scan_check\]\|^\[nav\]" out/ros.log || echo "[ros] 沒有結果行(看 out/ros.log)"
 fi
 [ "$PLANT" = "udp" ] && docker logs "$PNAME" > out/plant.log 2>&1 || true
 echo "[done] rc=$rc  CSV: out/run.csv  Renode log: out/renode.log  USART2: renode/out/usart2.txt"

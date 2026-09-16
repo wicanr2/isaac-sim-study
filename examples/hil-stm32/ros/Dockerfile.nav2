@@ -1,0 +1,9 @@
+# hil-nav2:jazzy —— ros:jazzy-ros-base + Nav2 的最小組合(NavigateToPose 夠用,不裝 nav2_bringup / rviz / gazebo)。
+# 建:docker build -t hil-nav2:jazzy -f ros/Dockerfile.nav2 ros/   (要網路;132 個 deb、下載 78 MB,2026-09-16 量)
+FROM ros:jazzy-ros-base
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ros-jazzy-nav2-map-server ros-jazzy-nav2-planner ros-jazzy-nav2-navfn-planner \
+      ros-jazzy-nav2-controller ros-jazzy-nav2-dwb-controller ros-jazzy-nav2-mppi-controller \
+      ros-jazzy-nav2-bt-navigator ros-jazzy-nav2-behaviors ros-jazzy-nav2-lifecycle-manager \
+      ros-jazzy-nav2-smoother ros-jazzy-nav2-velocity-smoother ros-jazzy-nav2-simple-commander \
+    && rm -rf /var/lib/apt/lists/*

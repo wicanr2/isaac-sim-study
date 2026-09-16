@@ -63,6 +63,12 @@
 <td>橋接扮演 pull-up:開機前拉高、IWDG 重啟後再拉一次;故障注入把它拉低(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.2)</td>
 </tr>
 <tr>
+<td>雷射</td>
+<td>受控體 → 上位(不經 MCU)</td>
+<td>受控體文字協定的 <code>SCAN</code> 行 → 橋接 3801 原樣轉 → driver 發 <code>/scan</code></td>
+<td>橋接只加行首與 seq,不解語意;負對照 <code>blind-scan</code> 在這裡把距離全改成 range_max(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §6.2)</td>
+</tr>
+<tr>
 <td>心跳</td>
 <td>上位 → MCU</td>
 <td>UART <code>PING</code>(0x03)每 100 ms,韌體回 <code>PONG</code></td>

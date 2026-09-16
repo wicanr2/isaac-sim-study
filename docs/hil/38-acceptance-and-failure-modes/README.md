@@ -214,6 +214,28 @@ ROS 2 在這個拓撲裡的位置是**上位**。[`ros/hil_base_driver.py`](../.
 
 C2 因為這個場景改成量**路徑長**而不是首尾位移:方形走完位移 37 mm,路徑長 2.4 m;C3 的容差也改用路徑長(里程計誤差跟著走過的距離累積)。預設腳本下兩者只差 15 mm(轉彎過渡的弧),數字不變。
 
+### 6.2 上位換成 Nav2:規劃器、costmap、假雷射
+
+方形閉環的上位是自己寫的 client;換成 Nav2 才是拓撲那張表的真正考驗——上位有規劃器、costmap、行為樹,韌體與橋接一個 byte 不改。純軟體的前提下少了一樣東西:雷射。它由**受控體**產生(不經 MCU——真車的雷射也是接上位,不是接底盤板):[`world.json`](../../../examples/hil-stm32/world.json) 一個 4 × 3 m 的房間、兩個 0.4 m 方塊、車半徑 0.2 m、goal (3, 2);Rust `Fake` 與 `fake_plant.py` 用同一份射線投射(360 束、5 m、10 Hz)與碰撞判斷(撞到就停在原地、編碼器不動),橋接把 `SCAN` 行**原樣**轉到 3801,driver 發 `/scan` 與 `base_link → laser` 靜態 TF。地圖([`tools/gen_map.py`](../../../examples/hil-stm32/tools/gen_map.py) 從同一份 JSON 產)**只畫牆**:方塊是地圖上沒有、雷射才看得到的東西,Nav2 得靠 costmap 的 obstacle layer 避開——負對照才有東西可關。
+
+Nav2 用最小組合(`ros/Dockerfile.nav2`:map_server、NavFn、DWB、bt_navigator、behaviors、lifecycle_manager、simple_commander;從 `ros:jazzy-ros-base` 建,+520 MB,不裝 nav2_bringup / rviz),沒有 AMCL——里程計對真值在 mm 級,`map → odom` 是靜態 identity。[`ros/run_nav.sh`](../../../examples/hil-stm32/ros/run_nav.sh) 起 driver + 六個節點,[`ros/nav_client.py`](../../../examples/hil-stm32/ros/nav_client.py) 用 `BasicNavigator.goToPose` 到 goal。`UPPER=nav2 ./run_loop.sh --seconds 90`:
+
+<p align="center"><img src="../../img/hil-nav2-in-the-loop.svg" width="860" alt="Nav2 in the loop:房間、雷射才看得到的方塊、受控體真值軌跡;正對照繞過方塊到達,負對照穿過方塊撞上"></p>
+
+| | 正對照 | 負對照 `--negative blind-scan`(掃描全設 5 m) |
+|---|---|---|
+| Nav2 結果 | `succeeded`(36.6 s 牆鐘),odom 末端對 goal 47 mm | 沒到(頂在方塊上,recovery 來回) |
+| C11:真值到達 goal 0.1 m 內、沒撞 | **46 mm、碰撞 0 步** | 碰撞 475 步(第一次 @5.5 s)、末端差 2235 mm,**紅** |
+| 路徑長 / 離方塊最近 | 3.85 m / 297 mm(車半徑 200) | 1.96 m / 0 |
+| C1–C10 | 全綠(C3 dx 1.2 / dy 0.9 mm、0.6 mrad;C9 2510 vs 2520——DWB 的加速度設成與韌體斜坡同值,瞬態剛好貼線) | C9 也紅(頂住時 PI 積分堆滿、鬆開那步撞到馬達層 3000);其餘綠 |
+| 牆鐘(整趟 90 s Renode) | 187 s(Renode 0.48×) | 148 s(60 s Renode) |
+
+三件做了才知道的事:
+
+- **`default_server_timeout` 的單位是毫秒,預設 20。** 主機 load 15 時 planner 回 ack 超過 20 ms,行為樹報「Timed out while waiting for action server to acknowledge goal request」、整個 goal 失敗——症狀像規劃失敗,真因是一個等待時間。放到 1000 才過。這是 lockstep 下 Nav2 的計時器全走牆鐘、Renode 走步的第一個具體後果:Nav2 的每一個逾時都在跟主機負載比,而不是跟車比。
+- **序列線有線速。** 上位在牆鐘上每 20 ms 送一個 cmd_vel、每 100 ms 一個 PING;橋接一停頓(load 15 下常有),上位的 byte 堆起來,一次全灌進 USART1 的話 Renode 的 UART 不分 baud 節拍、ISR 一個接一個,主迴圈搶不到 128 B 的 ring buffer 就溢位——量到 `rx_overflow=114`、4 個壞 CRC、C6/C7 紅。真線路 115200 bps 每 5 ms 最多 57 byte,橋接現在按這個線速分批注入(`calib.json` 的 `uart_baud`)。這一條是 §5 表裡「第一眼像韌體 CRC 有問題」的又一個。
+- **撞牆那一步不能算進 C9。** 受控體撞到方塊時速度直接歸零(73039 mm/s²),那是牆的事不是韌體斜坡的事;負對照原本 C9、C11 一起紅,現在只有 C11。
+
 ## 7. 建議的分階段
 
 不要一開始就接 Isaac。順序:
@@ -225,9 +247,10 @@ C2 因為這個場景改成量**路徑長**而不是首尾位移:方形走完位
 | 受控體換 UDP | 假受控體改另一個行程 | 與內建版末端一致、途中容差內 |
 | Isaac | 受控體換 `isaac_plant.py` | §6 七項;C3 容差重定 |
 | ROS 2 上位 | 上位換 rclpy 節點,閉環由里程計判斷 | C1–C10 全綠;閉合誤差與 odom 誤差分開報;上位的煞車模型要含下位的斜坡與馬達延遲 |
+| Nav2 | 受控體加假雷射與碰撞,上位換 Nav2 | C11:到達 goal 0.1 m 內、沒撞;`blind-scan` 負對照紅 |
 | 實板 | Renode 換實體 STM32,橋接換實板後端 | 全部重跑;**時序與最壞延遲在這裡才算數** |
 
-每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第五階段。
+每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第六階段;實板是第七。
 
 ## 8. 檢查清單
 

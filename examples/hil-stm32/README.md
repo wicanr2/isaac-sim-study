@@ -13,7 +13,10 @@ PLANT=udp ./run_loop.sh          # 受控體改走 UDP(plant/fake_plant.py,另�
 PLANT=remote ./run_loop.sh       # 受控體在場域 GPU 主機(先 tools/isaac_plant_ctl.sh start),自動開 ssh -L
 FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正版 STM32_Timer(renode/upstream/)
 ./run_loop.sh --mode realtime    # Renode 自由跑,橋接每 5 ms 牆鐘取樣;QUANTUM=0.001 改同步量子(預設 0.0001)
-UPPER=ros ./run_loop.sh --seconds 40   # 上位換 ROS 2 Jazzy(ros:jazzy-ros-base 容器):base driver + 里程計閉環的方形
+UPPER=ros ./run_loop.sh --seconds 45   # 上位換 ROS 2 Jazzy(ros:jazzy-ros-base 容器):base driver + 里程計閉環的方形
+UPPER=nav2 ./run_loop.sh --seconds 90  # 上位換 Nav2(hil-nav2:jazzy,先 docker build -t hil-nav2:jazzy -f ros/Dockerfile.nav2 ros/):假雷射 + NavigateToPose 到 world.json 的 goal;C11
+UPPER=nav2 ./run_loop.sh --seconds 60 --negative blind-scan   # 掃描全設最大距離 → 撞方塊 → C11 紅
+WORLD=1 UPPER=ros ROS_SCRIPT=run_scan_check.sh ./run_loop.sh --seconds 20   # 只驗 /scan 那條路
 CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge → 容器 netns 的 vcan0;CANHUBFIX=1 換修正版 CANHub(原版 lockstep 丟訊框)
 ./run_loop.sh --seconds 3 --script "0:200,0;2:0,0"
 ```
@@ -34,7 +37,8 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 | `renode/upstream/` | 給 Renode 上游的四項修正(`STM32_Timer` 三項、`NVIC` SysTick、`CANHub` 暫停丟訊框)的原版/patch/執行期載入版、探針、Robot、NUnit、不建 Renode 的驗證流程 | fork 三個 commit,NUnit 修正版 9/9、原版 2/9 |
 | `tools/vcan_up.py` | 用 netlink 在目前 netns 建 vcan(不需要 iproute2);要 root + `NET_ADMIN` | 實測 |
 | `bridge-rs/` | Rust 橋接:External Control client、hook 對端、上位協定、Fake/UDP/TCP 受控體、lockstep / realtime 迴圈、`--upper tcp-listen` 上位出口、`--cfg` 開機前寫 `g_cfg`、`--fault` 故障注入、十項驗收 | 實測 |
-| `ros/` | ROS 2 Jazzy 上位:`hil_base_driver.py`(/cmd_vel → 框包,odom → /odom + /tf,PING 10 Hz,flags → /hil/safety_flags)、`square_client.py`(里程計閉環方形)、`hilproto.py`(協定 Python 版)、`run_square.sh` | `ros:jazzy-ros-base` 實測 ALL PASS |
+| `ros/` | ROS 2 Jazzy 上位:`hil_base_driver.py`(/cmd_vel → 框包,odom → /odom + /tf,PING 10 Hz,flags → /hil/safety_flags,3801 → /scan + base_link→laser)、`square_client.py`(里程計閉環方形)、`hilproto.py`、`run_square.sh`;Nav2:`Dockerfile.nav2`(最小組合)、`nav2_params.yaml`、`run_nav.sh`、`nav_client.py`;`scan_check.py` | `ros:jazzy-ros-base` / `hil-nav2:jazzy` 實測 ALL PASS |
+| `world.json`、`plant/world.py`、`tools/gen_map.py` | 假雷射與碰撞的世界(房間 + 方塊 + goal);Rust `world.rs` 同一份公式;地圖從同一份 JSON 產(預設只畫牆,方塊靠雷射) | 實測 |
 | `plant/fake_plant.py` | UDP 版假受控體(Python),與 Rust 內建 `Fake` 同模型 | 實測 ALL PASS |
 | `plant/isaac_plant.py` | Isaac Sim 6.0.1 版受控體(UDP / TCP;`--probe` 量驗收清單) | 場域 GPU 主機實測 ALL PASS;結論在檔尾與 [38 篇 §6](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
 | `tools/remote.sh`、`tools/isaac_plant_ctl.sh` | 場域 GPU 主機的連線包裝(主機資訊從機密入口腳本推出)與受控體 start/stop/log/load | 實測 |
@@ -48,7 +52,8 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 | 3600 | `hil_hook.py` | CAN 訊框雙向、UART 位元組雙向、ack、匯流排快照(13 bytes 一筆) |
 | 3456 | `CreateServerSocketTerminal` | USART1 原始位元組,留作對照,橋接不用 |
 | 3700 | `fake_plant.py` / `isaac_plant.py` | 受控體 UDP / TCP 文字協定 |
-| 3800 | 橋接 `--upper tcp-listen` | 上位 UART 框包原樣進出(ROS 2 節點連這裡) |
+| 3800 | 橋接 `--upper tcp-listen` | 上位 UART 框包原樣進出(ROS 2 節點連這裡);注入 USART1 按 `uart_baud` 線速分批 |
+| 3801 | 橋接 `--scan-listen` | 假雷射 `SCAN <seq> <n> r...` 一行一筆(受控體產生,不經 MCU;driver 發 /scan) |
 | vcan0 | `tools/vcan_up.py` → Renode `SocketCANBridge` | `CAN=socketcan` 時 CAN 訊框走這裡而不是 3600;橋接用 `PF_CAN` raw socket |
 
 ## 產物
@@ -67,5 +72,6 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 - Isaac 6.0.1 受控體(遠端,`ssh -L`):每步 52 ms;odom 對真值 3.4 / 2.0 mm、0.028 rad;滑移 3.1%;兩次 CSV 逐 byte 相同(CPU 求解)
 - 編碼器走 TIM encoder mode:注入 hook 2.9 / gpio 4.2 / cnt 2.8 ms/步;負對照 `--negative enc-swap` C3 紅;realtime 末端 = lockstep × Renode/牆鐘比(三次誤差 < 1%)
 - CAN 走 vcan(`CAN=socketcan`):1.16.1 原版 `CANHub` lockstep 下 14/399 訊框到韌體;修正版 399/399、ALL PASS、末端與 hook 路逐字相同、兩次 CSV 相同、每步 10 ms
+- Nav2 in the loop(NavFn + DWB,map→odom 靜態):到達 goal 46 mm、碰撞 0、路徑 3.85 m;`blind-scan` 負對照撞方塊(第一次 @5.5 s)C11 紅;`default_server_timeout` 20 → 1000 ms 才過(load 15);上位 byte 按 115200 bps 分批注入(否則 ring buffer 溢位 114 B、4 個壞 CRC)
 - ROS 2 方形閉環(0.6 m 邊、里程計判段):無斜坡版 lockstep 閉合 35 mm / 0.075 rad、realtime 70 mm / 0.141 rad;斜坡版 + 上位煞車模型含延遲 24 mm / −0.062 rad(lockstep);odom 對真值 5 mm / 1 mrad;ALL PASS
 - `--mode realtime`(主機閒時,第一版韌體):每步 5.0 ms 牆鐘;`pwm_prescaler` 0 → Renode 0.46× 實時、車只走 1/3(C1–C8 PASS + `[warn]`);9 → 1.01×,末端對 lockstep 差 17–31 mm / 0.03–0.06 rad,兩次跑不同。斜坡版在 load 9–11 下兩種載波都只到 0.33–0.43×,C9 紅(50 ms 停頓讓 PI 打到馬達上限;[35 篇 §5.1](../../docs/hil/35-hil-what-and-why/README.md) 第 4 點)

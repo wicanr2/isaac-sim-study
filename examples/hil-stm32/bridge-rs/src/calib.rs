@@ -28,6 +28,8 @@ pub struct Calib {
     pub heartbeat_period_ms: u64,
     pub stall_ms: u64,
     pub accel_limit_mm_s2: f64,
+    /// 上位序列線的鮑率:橋接按它限制每步注入 USART1 的 byte 數(上位送得再快,線只有這麼寬)
+    pub uart_baud: u64,
 }
 
 fn num(text: &str, key: &str) -> io::Result<f64> {
@@ -64,6 +66,7 @@ impl Calib {
             heartbeat_period_ms: num(&t, "heartbeat_period_ms").unwrap_or(100.0) as u64,
             stall_ms: num(&t, "stall_ms").unwrap_or(200.0) as u64,
             accel_limit_mm_s2: num(&t, "accel_limit_mm_s2").unwrap_or(0.0),
+            uart_baud: num(&t, "uart_baud").unwrap_or(115200.0) as u64,
         })
     }
 }

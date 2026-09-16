@@ -398,6 +398,8 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         None => { eprintln!("--can 只接受 hook 或 socketcan:IFACE"); std::process::exit(2); }
     };
     let mut up_parser = proto::Parser::default();
+    let mut up_pending: Vec<u8> = Vec::new();
+    let uart_budget = (c.uart_baud as f64 / 10.0 * dt_s).floor().max(1.0) as usize;   // 8N1:每 byte 10 bit
     let mut up_last_cmd = (0i16, 0i16);
     let mut up_any_move = false;
     if let Some(u) = up.as_ref() {
@@ -473,8 +475,13 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             hk.wait_acks().expect("ack");
         }
         if let Some(u) = up.as_mut() {
-            let bytes = u.poll_rx();
-            if !bytes.is_empty() {
+            // 序列線有線速:115200 bps = 每 5 ms 最多 57.6 byte。上位在牆鐘上送、橋接在 Renode 時間上注入,
+            // 橋接一停頓上位的 byte 就堆起來;一次全灌進 USART1 的話 Renode 的 UART 不分 baud 節拍、ISR 一個接一個,
+            // 主迴圈搶不到 ring buffer(128 B)就溢位(量到 rx_overflow=114、4 個壞 CRC)。真線路不會這樣,所以按線速分批
+            up_pending.extend_from_slice(&u.poll_rx());
+            let n = up_pending.len().min(uart_budget);
+            if n > 0 {
+                let bytes: Vec<u8> = up_pending.drain(..n).collect();
                 hk.uart_send(&bytes).expect("uart_send");
                 hk.wait_acks().expect("ack");
                 let mut fr = Vec::new();
@@ -665,7 +672,8 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                 scans_sent += 1;
             }
         }
-        if plant_dt > 0.0 {
+        // 撞牆那一步受控體的速度直接歸零,那不是韌體斜坡的事,C9 不算它
+        if plant_dt > 0.0 && !out.collided && !last_plant.collided {
             let acc = ((out.vl_mm_s - last_plant.vl_mm_s) / plant_dt).abs().max(((out.vr_mm_s - last_plant.vr_mm_s) / plant_dt).abs());
             if acc > max_plant_accel { max_plant_accel = acc; }
         }

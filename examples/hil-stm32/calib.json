@@ -26,6 +26,7 @@
   "stall_speed_mm_s": 20,
   "stall_ms": 200,
   "safety_mask": 31,
+  "uart_baud": 115200,
   "encoder_source": "tim",
   "can_id_encoder": 385,
   "can_id_motor_status": 513

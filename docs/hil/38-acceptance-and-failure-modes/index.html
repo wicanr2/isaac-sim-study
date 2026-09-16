@@ -13,7 +13,7 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十項判準在開跑前寫死">1. 十項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十項判準在開跑前寫死">1. 十項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l3"><a href="#62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="38-驗收與失敗形態先閉環再換-isaac">38 · 驗收與失敗形態:先閉環,再換 Isaac</h1>
 <p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後是把受控體換成 Isaac Sim 6.0.1 時七件事各量到什麼。</p>
@@ -233,7 +233,7 @@
 <p>紅在對的地方(C2),而且 C6 說明了<strong>為什麼</strong>紅:300 個壞框包全部被韌體擋下,一個都沒漏。沒有 C6 的話,「車不動」與「UART 根本沒接上」在 C2 上長得一樣。</p>
 <p>負對照要跟正對照用同一條指令、同一份腳本,只差一個旗標。它不是額外的測試,是「這套測試有效」的證據。</p>
 <h2 id="3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</h2>
-<p>同一腳本跑兩次,1201 行 CSV(每步 31 個欄位;realtime 多一欄 <code>wall_ms</code>:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)<strong>逐 byte 相同</strong>。靠的是 <a href="../../hil/37-bus-signal-bridging/">37 篇</a> §3 的 ack:每筆注入確認進了週邊才推進時間。</p>
+<p>同一腳本跑兩次,1201 行 CSV(每步 32 個欄位;realtime 多一欄 <code>wall_ms</code>:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)<strong>逐 byte 相同</strong>。靠的是 <a href="../../hil/37-bus-signal-bridging/">37 篇</a> §3 的 ack:每筆注入確認進了週邊才推進時間。</p>
 <p>但換一個「同一個模型」的實作就不一樣了。<code>plant/fake_plant.py</code>(Python,走 UDP)與橋接內建的 Rust <code>Fake</code> 是同一組公式、同一份 calib:</p>
 <ul>
 <li>末端位姿:x 900.8、y 0.4 相同,θ 0.8627 vs 0.8628</li>
@@ -473,6 +473,53 @@
 </table></div>
 <p>末端真值 (x, y, θ) = (−18.0, 16.4, 6.222)、odom (−13, 20, 6.221),odom 對真值 5 mm / 1 mrad,C1–C10 全綠。最後一列的殘差已經是一筆 odom 的量化,再往下要改的是上位的取樣率或用 odom 速度外推,不是下位。這一段的教訓是<strong>上位的煞車模型要包含下位的動態</strong>——斜坡加速度、馬達時間常數、回報週期——這些在真車上是驅動器手冊與底盤韌體的參數,上位的人拿不到就會在方形上看到 +0.03 rad/角。</p>
 <p>C2 因為這個場景改成量<strong>路徑長</strong>而不是首尾位移:方形走完位移 37 mm,路徑長 2.4 m;C3 的容差也改用路徑長(里程計誤差跟著走過的距離累積)。預設腳本下兩者只差 15 mm(轉彎過渡的弧),數字不變。</p>
+<h3 id="62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</h3>
+<p>方形閉環的上位是自己寫的 client;換成 Nav2 才是拓撲那張表的真正考驗——上位有規劃器、costmap、行為樹,韌體與橋接一個 byte 不改。純軟體的前提下少了一樣東西:雷射。它由<strong>受控體</strong>產生(不經 MCU——真車的雷射也是接上位,不是接底盤板):<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/world.json"><code>world.json</code></a> 一個 4 × 3 m 的房間、兩個 0.4 m 方塊、車半徑 0.2 m、goal (3, 2);Rust <code>Fake</code> 與 <code>fake_plant.py</code> 用同一份射線投射(360 束、5 m、10 Hz)與碰撞判斷(撞到就停在原地、編碼器不動),橋接把 <code>SCAN</code> 行<strong>原樣</strong>轉到 3801,driver 發 <code>/scan</code> 與 <code>base_link → laser</code> 靜態 TF。地圖(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/tools/gen_map.py"><code>tools/gen_map.py</code></a> 從同一份 JSON 產)<strong>只畫牆</strong>:方塊是地圖上沒有、雷射才看得到的東西,Nav2 得靠 costmap 的 obstacle layer 避開——負對照才有東西可關。</p>
+<p>Nav2 用最小組合(<code>ros/Dockerfile.nav2</code>:map_server、NavFn、DWB、bt_navigator、behaviors、lifecycle_manager、simple_commander;從 <code>ros:jazzy-ros-base</code> 建,+520 MB,不裝 nav2_bringup / rviz),沒有 AMCL——里程計對真值在 mm 級,<code>map → odom</code> 是靜態 identity。<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/run_nav.sh"><code>ros/run_nav.sh</code></a> 起 driver + 六個節點,<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/nav_client.py"><code>ros/nav_client.py</code></a> 用 <code>BasicNavigator.goToPose</code> 到 goal。<code>UPPER=nav2 ./run_loop.sh --seconds 90</code>:</p>
+<p align="center"><img src="../../img/hil-nav2-in-the-loop.svg" width="860" alt="Nav2 in the loop:房間、雷射才看得到的方塊、受控體真值軌跡;正對照繞過方塊到達,負對照穿過方塊撞上"></p>
+
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>正對照</th>
+<th>負對照 <code>--negative blind-scan</code>(掃描全設 5 m)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Nav2 結果</td>
+<td><code>succeeded</code>(36.6 s 牆鐘),odom 末端對 goal 47 mm</td>
+<td>沒到(頂在方塊上,recovery 來回)</td>
+</tr>
+<tr>
+<td>C11:真值到達 goal 0.1 m 內、沒撞</td>
+<td><strong>46 mm、碰撞 0 步</strong></td>
+<td>碰撞 475 步(第一次 @5.5 s)、末端差 2235 mm,<strong>紅</strong></td>
+</tr>
+<tr>
+<td>路徑長 / 離方塊最近</td>
+<td>3.85 m / 297 mm(車半徑 200)</td>
+<td>1.96 m / 0</td>
+</tr>
+<tr>
+<td>C1–C10</td>
+<td>全綠(C3 dx 1.2 / dy 0.9 mm、0.6 mrad;C9 2510 vs 2520——DWB 的加速度設成與韌體斜坡同值,瞬態剛好貼線)</td>
+<td>C9 也紅(頂住時 PI 積分堆滿、鬆開那步撞到馬達層 3000);其餘綠</td>
+</tr>
+<tr>
+<td>牆鐘(整趟 90 s Renode)</td>
+<td>187 s(Renode 0.48×)</td>
+<td>148 s(60 s Renode)</td>
+</tr>
+</tbody>
+</table></div>
+<p>三件做了才知道的事:</p>
+<ul>
+<li><strong><code>default_server_timeout</code> 的單位是毫秒,預設 20。</strong> 主機 load 15 時 planner 回 ack 超過 20 ms,行為樹報「Timed out while waiting for action server to acknowledge goal request」、整個 goal 失敗——症狀像規劃失敗,真因是一個等待時間。放到 1000 才過。這是 lockstep 下 Nav2 的計時器全走牆鐘、Renode 走步的第一個具體後果:Nav2 的每一個逾時都在跟主機負載比,而不是跟車比。</li>
+<li><strong>序列線有線速。</strong> 上位在牆鐘上每 20 ms 送一個 cmd_vel、每 100 ms 一個 PING;橋接一停頓(load 15 下常有),上位的 byte 堆起來,一次全灌進 USART1 的話 Renode 的 UART 不分 baud 節拍、ISR 一個接一個,主迴圈搶不到 128 B 的 ring buffer 就溢位——量到 <code>rx_overflow=114</code>、4 個壞 CRC、C6/C7 紅。真線路 115200 bps 每 5 ms 最多 57 byte,橋接現在按這個線速分批注入(<code>calib.json</code> 的 <code>uart_baud</code>)。這一條是 §5 表裡「第一眼像韌體 CRC 有問題」的又一個。</li>
+<li><strong>撞牆那一步不能算進 C9。</strong> 受控體撞到方塊時速度直接歸零(73039 mm/s²),那是牆的事不是韌體斜坡的事;負對照原本 C9、C11 一起紅,現在只有 C11。</li>
+</ul>
 <h2 id="7-建議的分階段">7. 建議的分階段</h2>
 <p>不要一開始就接 Isaac。順序:</p>
 <div class="tw"><table>
@@ -510,13 +557,18 @@
 <td>C1–C10 全綠;閉合誤差與 odom 誤差分開報;上位的煞車模型要含下位的斜坡與馬達延遲</td>
 </tr>
 <tr>
+<td>Nav2</td>
+<td>受控體加假雷射與碰撞,上位換 Nav2</td>
+<td>C11:到達 goal 0.1 m 內、沒撞;<code>blind-scan</code> 負對照紅</td>
+</tr>
+<tr>
 <td>實板</td>
 <td>Renode 換實體 STM32,橋接換實板後端</td>
 <td>全部重跑;<strong>時序與最壞延遲在這裡才算數</strong></td>
 </tr>
 </tbody>
 </table></div>
-<p>每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第五階段。</p>
+<p>每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第六階段;實板是第七。</p>
 <h2 id="8-檢查清單">8. 檢查清單</h2>
 <ul>
 <li>[ ] 判準寫在程式裡,開跑前定好,任一 FAIL 非零碼離開</li>
