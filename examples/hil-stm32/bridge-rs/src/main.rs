@@ -216,7 +216,9 @@ fn main() {
         let _ = std::fs::create_dir_all(dir);
     }
     let mut log = std::fs::File::create(&a.log).expect("log");
-    writeln!(log, "step,t_us,cmd_v,cmd_w,sp_l,sp_r,meas_l,meas_r,duty_l_dbg,ccr1,ccr2,dir_l,dir_r,en,flags,\
+    // realtime 多一欄 wall_ms(每次都不同,lockstep 不放:那邊的 CSV 要能逐 byte 比)
+    let wall_col = if realtime { "wall_ms," } else { "" };
+    writeln!(log, "step,t_us,{wall_col}cmd_v,cmd_w,sp_l,sp_r,meas_l,meas_r,duty_l_dbg,ccr1,ccr2,dir_l,dir_r,en,flags,\
 plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_y,odom_th,odom_vl,odom_vr,odom_flags,can_duty_l,can_duty_r").unwrap();
 
     let mut parser = proto::Parser::default();
@@ -267,7 +269,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     }
 
     for k in 0..steps {
-        let t_s = k as f64 * dt_s;
+        // 腳本的時間軸:lockstep 用步數(= Renode 時間);realtime 用牆鐘。橋接落後後會不 sleep 追上,
+        // 那段的步比 5 ms 密,若仍用 k·dt 決定命令時刻,命令的持續時間會被壓短(量到轉向段 1.459 s 而不是 1.5 s)
+        let t_s = if realtime { wall0.elapsed().as_secs_f64() } else { k as f64 * dt_s };
 
         // 1. 上位:內建腳本每個回報週期送一次 cmd_vel;外部上位則把這一步之前收到的 byte 全部注入
         if let Some(u) = up.as_mut() {
@@ -423,7 +427,8 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         // 6. 紀錄
         let (cv, cw) = if up.is_some() { up_last_cmd } else { cmd_at(&script, t_s) };
         let cs = can_status.unwrap_or((0, 0, 0, 0));
-        writeln!(log, "{k},{t_us},{cv},{cw},{sp_l},{sp_r},{meas_l},{meas_r},{duty_l_dbg},{ccr1},{ccr2},{},{},{},{flags},\
+        let wall_ms = if realtime { format!("{:.1},", wall0.elapsed().as_secs_f64() * 1000.0) } else { String::new() };
+        writeln!(log, "{k},{t_us},{wall_ms}{cv},{cw},{sp_l},{sp_r},{meas_l},{meas_r},{duty_l_dbg},{ccr1},{ccr2},{},{},{},{flags},\
 {:.1},{:.1},{:.4},{:.1},{:.1},{},{},{},{},{},{},{},{},{},{},{}",
             dir_l as u8, dir_r as u8, en as u8,
             out.x_mm, out.y_mm, out.th_rad, out.vl_mm_s, out.vr_mm_s, out.ticks_l, out.ticks_r,

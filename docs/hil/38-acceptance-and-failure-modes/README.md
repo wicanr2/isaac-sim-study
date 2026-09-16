@@ -55,7 +55,7 @@ C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌
 
 ## 3. 決定性:逐 byte 比,而且是每個實作各自成立
 
-同一腳本跑兩次,1201 行 CSV(每步 31 個欄位:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)**逐 byte 相同**。靠的是 [37 篇](../37-bus-signal-bridging/README.md) §3 的 ack:每筆注入確認進了週邊才推進時間。
+同一腳本跑兩次,1201 行 CSV(每步 31 個欄位;realtime 多一欄 `wall_ms`:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)**逐 byte 相同**。靠的是 [37 篇](../37-bus-signal-bridging/README.md) §3 的 ack:每筆注入確認進了週邊才推進時間。
 
 但換一個「同一個模型」的實作就不一樣了。`plant/fake_plant.py`(Python,走 UDP)與橋接內建的 Rust `Fake` 是同一組公式、同一份 calib:
 
@@ -100,6 +100,8 @@ step 376: 前一步 CCR=297,這一步 CCR=298,下一步 CCR=306;CAN 框說 305
 | 閉環跑完 `run_loop.sh` 收不掉 | 背景 `ssh -L` 繼承了腳本的 stdout 管線,kill 到包裝 shell 而不是 ssh | 隧道輸出導檔案、`exec` 起 ssh 讓 PID 就是它 |
 | CAN 走 vcan 時 `enc_frames` 14/399,無任何 warning | `CANHub` 在 `RunFor` 之間的暫停期把主機來的訊框丟掉 | C8 紅;Debug log 數「Received from」與韌體收到的差;修在 hub([37 篇](../37-bus-signal-bridging/README.md) §4) |
 | 同上,修了 hub 還是 331/399 | `i @CANHub_Fixed.cs` 執行期編譯要幾秒,External Control 已經開、橋接已經在推進,前幾十步的訊框沒人收 | 出口全部就位**之後**才開 External Control(`hilctl-common.resc` 的順序) |
+
+| realtime 下同一腳本末端差 lockstep 8–14%,五次各不同 | 橋接守不住 5 ms 牆鐘節拍(步距 4.8–5.3 ms、停頓到 50 ms),編碼器訊框跟著步走,韌體假設每筆 = 5 ms | `wall_ms` 欄對 `plant_x`;差與步距同向。開放:訊框收到時打 SysTick 微秒戳([35 篇](../35-hil-what-and-why/README.md) §5.1) |
 
 共同點:**每一個的第一眼症狀都指向別的地方**——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯、彈飛像腳輪或質量。每一個都是先讀原始碼或加一個更近的觀測點才看到真因;彈飛那一個,近一點的觀測點是「靜止後停在哪個高度」。
 

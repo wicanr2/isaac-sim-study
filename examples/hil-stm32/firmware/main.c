@@ -288,6 +288,7 @@ static int32_t s_sp_l, s_sp_r;            /* 設定點 mm/s */
 static int32_t s_integ_l, s_integ_r;
 static int32_t s_enc_l, s_enc_r;          /* 最新累計 tick */
 static int32_t s_enc_prev_l, s_enc_prev_r;
+static uint32_t s_enc_new;                /* 上次量測之後收到的編碼器訊框數 */
 static int32_t s_meas_l, s_meas_r;        /* mm/s */
 static int32_t s_duty_l, s_duty_r;
 static uint32_t s_last_cmd_ms;
@@ -325,12 +326,17 @@ static int32_t pi_step(int32_t sp, int32_t meas, int32_t *integ)
 
 static void control_step(void)
 {
-    /* 輪速量測:兩次控制週期之間的 tick 差 → mm/s
-     * mm/s = dticks * 周長(um) / TPR / 週期(ms)  (um/ms == mm/s) */
+    /* 輪速量測:tick 差 → mm/s。編碼器訊框每 CONTROL_PERIOD_MS 一筆是協定的節拍,
+     * 所以時間基準用「收到幾筆訊框」而不是「過了幾個控制週期」:匯流排抖動讓某個週期
+     * 收到 0 筆或 2 筆時,量測不會變成 0 或兩倍。0 筆就沿用上一次的量測(dl=dr=0,里程計不動)。
+     * mm/s = dticks * 周長(um) / TPR / (週期(ms) * 訊框數)  (um/ms == mm/s) */
     int32_t dl = s_enc_l - s_enc_prev_l, dr = s_enc_r - s_enc_prev_r;
     s_enc_prev_l = s_enc_l; s_enc_prev_r = s_enc_r;
-    s_meas_l = (int32_t)((int64_t)dl * WHEEL_CIRC_UM / ENC_TICKS_PER_REV / CONTROL_PERIOD_MS);
-    s_meas_r = (int32_t)((int64_t)dr * WHEEL_CIRC_UM / ENC_TICKS_PER_REV / CONTROL_PERIOD_MS);
+    if (s_enc_new) {
+        s_meas_l = (int32_t)((int64_t)dl * WHEEL_CIRC_UM / ENC_TICKS_PER_REV / (CONTROL_PERIOD_MS * (int32_t)s_enc_new));
+        s_meas_r = (int32_t)((int64_t)dr * WHEEL_CIRC_UM / ENC_TICKS_PER_REV / (CONTROL_PERIOD_MS * (int32_t)s_enc_new));
+        s_enc_new = 0;
+    }
 
     /* 里程計:差速模型,中點法 */
     float dl_mm = (float)dl * ((float)WHEEL_CIRC_UM / 1000.0f) / (float)ENC_TICKS_PER_REV;
@@ -453,6 +459,7 @@ int main(void)
                 s_enc_r = (int32_t)((uint32_t)d[4] | ((uint32_t)d[5] << 8) | ((uint32_t)d[6] << 16) | ((uint32_t)d[7] << 24));
                 g_dbg.enc_l = s_enc_l; g_dbg.enc_r = s_enc_r;
                 g_dbg.enc_frames++;
+                s_enc_new++;
             }
         }
 

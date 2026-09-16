@@ -13,7 +13,7 @@
 ```
 USART1 收 cmd_vel 框包(CRC16)→ 兩輪速度設定點
 CAN 0x181 收編碼器累計 tick    → 輪速量測 + 里程計
-每 5 ms:PI → TIM3 PWM(CCR1/CCR2)+ 方向腳 PB8/PB9 + 致能腳 PB10
+每 5 ms:輪速(Δtick ÷ 收到的訊框數 × 5 ms)→ PI → TIM3 PWM(CCR1/CCR2)+ 方向腳 PB8/PB9 + 致能腳 PB10
 每 20 ms:USART1 回 odom、CAN 0x201 回馬達狀態
 安全:500 ms 沒命令 → 停;PC13 急停拉高 → 停
 ```

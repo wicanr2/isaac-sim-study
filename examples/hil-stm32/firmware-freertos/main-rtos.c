@@ -246,20 +246,25 @@ static int32_t pi_step(int32_t sp, int32_t meas, int32_t *integ)
 static void control_step(void)
 {
     /* CAN 編碼器:控制步開頭把 FIFO 收乾(5 ms 一筆,FIFO 裝 3 筆,輪詢即可) */
-    uint32_t id; uint8_t d[8]; uint8_t dlc;
+    uint32_t id; uint8_t d[8]; uint8_t dlc; uint32_t enc_new = 0;
     while (can_recv(&id, d, &dlc)) {
         if (id == CAN_ID_ENCODER && dlc == 8) {
             s_enc_l = (int32_t)((uint32_t)d[0] | ((uint32_t)d[1] << 8) | ((uint32_t)d[2] << 16) | ((uint32_t)d[3] << 24));
             s_enc_r = (int32_t)((uint32_t)d[4] | ((uint32_t)d[5] << 8) | ((uint32_t)d[6] << 16) | ((uint32_t)d[7] << 24));
             g_dbg.enc_l = s_enc_l; g_dbg.enc_r = s_enc_r;
             g_dbg.enc_frames++;
+            enc_new++;
         }
     }
 
+    /* 時間基準用「收到幾筆訊框」(協定:每 CONTROL_PERIOD_MS 一筆),不用控制週期數;
+     * 0 筆就沿用上次量測——同裸機版 firmware/main.c */
     int32_t dl = s_enc_l - s_enc_prev_l, dr = s_enc_r - s_enc_prev_r;
     s_enc_prev_l = s_enc_l; s_enc_prev_r = s_enc_r;
-    s_meas_l = (int32_t)((int64_t)dl * WHEEL_CIRC_UM / ENC_TICKS_PER_REV / CONTROL_PERIOD_MS);
-    s_meas_r = (int32_t)((int64_t)dr * WHEEL_CIRC_UM / ENC_TICKS_PER_REV / CONTROL_PERIOD_MS);
+    if (enc_new) {
+        s_meas_l = (int32_t)((int64_t)dl * WHEEL_CIRC_UM / ENC_TICKS_PER_REV / (CONTROL_PERIOD_MS * (int32_t)enc_new));
+        s_meas_r = (int32_t)((int64_t)dr * WHEEL_CIRC_UM / ENC_TICKS_PER_REV / (CONTROL_PERIOD_MS * (int32_t)enc_new));
+    }
 
     float dl_mm = (float)dl * ((float)WHEEL_CIRC_UM / 1000.0f) / (float)ENC_TICKS_PER_REV;
     float dr_mm = (float)dr * ((float)WHEEL_CIRC_UM / 1000.0f) / (float)ENC_TICKS_PER_REV;

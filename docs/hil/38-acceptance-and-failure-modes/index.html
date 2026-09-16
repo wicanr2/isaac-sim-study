@@ -104,7 +104,7 @@
 <p>紅在對的地方(C2),而且 C6 說明了<strong>為什麼</strong>紅:300 個壞框包全部被韌體擋下,一個都沒漏。沒有 C6 的話,「車不動」與「UART 根本沒接上」在 C2 上長得一樣。</p>
 <p>負對照要跟正對照用同一條指令、同一份腳本,只差一個旗標。它不是額外的測試,是「這套測試有效」的證據。</p>
 <h2 id="3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</h2>
-<p>同一腳本跑兩次,1201 行 CSV(每步 31 個欄位:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)<strong>逐 byte 相同</strong>。靠的是 <a href="../../hil/37-bus-signal-bridging/">37 篇</a> §3 的 ack:每筆注入確認進了週邊才推進時間。</p>
+<p>同一腳本跑兩次,1201 行 CSV(每步 31 個欄位;realtime 多一欄 <code>wall_ms</code>:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)<strong>逐 byte 相同</strong>。靠的是 <a href="../../hil/37-bus-signal-bridging/">37 篇</a> §3 的 ack:每筆注入確認進了週邊才推進時間。</p>
 <p>但換一個「同一個模型」的實作就不一樣了。<code>plant/fake_plant.py</code>(Python,走 UDP)與橋接內建的 Rust <code>Fake</code> 是同一組公式、同一份 calib:</p>
 <ul>
 <li>末端位姿相同:x 902.0、y −0.9、θ 0.9019</li>
@@ -198,6 +198,7 @@
 </tr>
 </tbody>
 </table></div>
+<p>| realtime 下同一腳本末端差 lockstep 8–14%,五次各不同 | 橋接守不住 5 ms 牆鐘節拍(步距 4.8–5.3 ms、停頓到 50 ms),編碼器訊框跟著步走,韌體假設每筆 = 5 ms | <code>wall_ms</code> 欄對 <code>plant_x</code>;差與步距同向。開放:訊框收到時打 SysTick 微秒戳(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1) |</p>
 <p>共同點:<strong>每一個的第一眼症狀都指向別的地方</strong>——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯、彈飛像腳輪或質量。每一個都是先讀原始碼或加一個更近的觀測點才看到真因;彈飛那一個,近一點的觀測點是「靜止後停在哪個高度」。</p>
 <h2 id="6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/isaac_plant.py"><code>plant/isaac_plant.py</code></a> 實作同一個受控體協定(TCP 版,因為 <code>ssh -L</code> 只轉 TCP):用 <code>pxr</code> / <code>UsdPhysics</code> 直接建一台差速車(Mesh 盒底盤 + 兩個球形輪 + 球關節腳輪),<code>DriveAPI</code> 的 angular 速度目標當馬達,<code>omni.physx</code> 手動步進,物理步長綁 calib 的 5 ms。它刻意不用 OmniGraph(<a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/">31 篇</a> §5:headless 下 <code>world.step(render=False)</code> 不 tick action graph)、也不依賴 <code>isaacsim.core.api</code> 或 <code>isaacsim.core.experimental</code> 任一邊(<a href="../../common/01-install-and-run-modes/">01 篇</a> §3 的命名空間搬家)。</p>
