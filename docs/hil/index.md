@@ -8,7 +8,8 @@
 
 | 部分 | 狀態 |
 |---|---|
-| STM32F4 韌體(裸機與 FreeRTOS 兩版)、Renode 平台、IronPython hook、Rust 橋接、假受控體閉環 | **本機實測**(Renode 1.16.1,docker,2026-09-15);數字都是實跑值 |
+| STM32F4 韌體(裸機與 FreeRTOS 兩版)、Renode 平台、IronPython hook、Rust 橋接(lockstep 與 realtime 兩種模式)、假受控體閉環 | **本機實測**(Renode 1.16.1,docker,2026-09-15/16);數字都是實跑值 |
+| ROS 2 Jazzy 上位(`/cmd_vel` → 框包、odom → `/odom` + `/tf`)與里程計閉環的方形 | **本機實測**(`ros:jazzy-ros-base`,rclpy 7.1.11,2026-09-16):lockstep 與 realtime 都 ALL PASS,閉合 35 / 70 mm |
 | Isaac Sim 6.0.1 的受控體腳本 | **場域 GPU 主機實測**(pip 版 6.0.1,PhysX、CPU 求解,同日):閉環 ALL PASS,odom 對真值 3.4 mm / 0.028 rad,兩次 CSV 逐 byte 相同。GPU 求解沒測 |
 | 實體 STM32 板 | 未做。時序與最壞延遲只有實板算數,見 [35 篇](35-hil-what-and-why/README.md) §7 |
 
@@ -27,10 +28,10 @@
 
 | # | 主題 | 一句話 |
 |---|---|---|
-| [35](35-hil-what-and-why/README.md) | HIL 是什麼,為什麼硬體要放在下位 | NVIDIA 課程的 HIL 是 Jetson 跑感知,這裡是 MCU 跑底盤;三個時鐘域,lockstep 與 realtime 兩種模式同一套橋接;**韌體沒有「模擬模式」、橋接不做安全、每輪要有生效證明** |
+| [35](35-hil-what-and-why/README.md) | HIL 是什麼,為什麼硬體要放在下位 | NVIDIA 課程的 HIL 是 Jetson 跑感知,這裡是 MCU 跑底盤;三個時鐘域,lockstep 與 realtime 兩種模式同一套橋接;**realtime 下 Renode 跟不上牆鐘時車安靜地變慢而八項判準全綠**,拖慢它的是 PWM 事件率不是指令;韌體沒有「模擬模式」、橋接不做安全、每輪要有生效證明 |
 | [36](36-stm32-firmware-on-renode/README.md) | STM32F4 韌體在 Renode 上開機 | 無 HAL、無 libc 的最小韌體;「型別存在 ≠ 夠用」逐項盤點(CCR 讀得回、PWM 通道是 GPIO 線、**timer 週期是 ARR 不是 ARR+1**、CAN 交握有回應但濾波器有坑);printer 與 SRAM 兩條觀測管道;**WFI 讓 1 s 虛擬時間從 13.4 s 降到 1.83 s**,配套是收訊要改中斷 |
-| [37](37-bus-signal-bridging/README.md) | 匯流排訊號串接 | External Control 協定逐 byte;GPIO 讀的是輸出腳、寫的是輸入腳;IronPython hook 對每筆注入回 ack;**CAN 送出模擬器的三條路各碰到哪一層**;lockstep 迴圈六步與每步 29.6 ms 的成本;探埠的一個換行污染了握手 |
-| [38](38-acceptance-and-failure-modes/README.md) | 驗收與失敗形態 | 八項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;兩次 CSV 逐 byte 相同;**步邊界取樣的 2/305 不符**與事件時刻快照;十種失敗形態;換成 Isaac 6.0.1 的七件事各量到什麼——**PhysX 介面沒有 `update`、joint state 不寫回、地面 xformOpOrder 反了讓車飛起來**、滑移 3.1% |
+| [37](37-bus-signal-bridging/README.md) | 匯流排訊號串接 | External Control 協定逐 byte;GPIO 讀的是輸出腳、寫的是輸入腳;IronPython hook 對每筆注入回 ack,機器在跑時改排進時間域、關 Nagle;**CAN 送出模擬器的三條路各碰到哪一層**;lockstep 迴圈六步與每步 8–30 ms 的成本;`--upper` 讓 ROS 2 節點講同一份框包;探埠的一個換行污染了握手 |
+| [38](38-acceptance-and-failure-modes/README.md) | 驗收與失敗形態 | 八項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;兩次 CSV 逐 byte 相同;**步邊界取樣的 2/305 不符**與事件時刻快照;十一種失敗形態;換成 Isaac 6.0.1 的七件事各量到什麼——**PhysX 介面沒有 `update`、joint state 不寫回、地面 xformOpOrder 反了讓車飛起來**、滑移 3.1%;ROS 2 方形閉環的閉合誤差拆成轉角過頭與起步偏航 |
 | [39](39-freertos-firmware-in-the-loop/README.md) | 同一台車換 FreeRTOS | 三個 task 一條 ISR,協定、暫存器、控制律、`g_dbg` 版面與裸機版逐字相同,橋接不改;`ctrl_missed=0`、stack 餘量、`rx_wakeups=300`;末端位姿相同而途中 CCR 差在相位;**RTOS 才踩到的 Renode 缺口:port 先寫 CVR 再寫 LOAD,SysTick 第一個週期跑 2^24 cycle(233 ms)**,裸機版永遠不會踩到——修在 NVIC 不改 port.c |
 
 ## 怎麼讀

@@ -76,6 +76,9 @@ CPU 從 2 ms 起就睡在 WFI,235 ms 內沒有任何中斷叫醒它。2^24 個 7
 | FreeRTOS port:CTRL=0 → **CVR=0 → LOAD=71999** → CTRL=7 | `0xFFFD2F` | 從 0xFFFFFF 起跑 |
 | 裸機版:CTRL=0 → **LOAD=71999 → CVR=0** → CTRL=7 | `0x1166F` | 從 71999 起跑,正確 |
 
+<p align="center"><img src="../../img/hil-systick-first-period.svg" width="860" alt="兩種 SysTick 寫入順序下的計數器軌跡:1 ms 起跳 vs 第一個週期 233 ms"></p>
+
+
 ARMv7-M(B3.3.3)規定 `ENABLE` 由 0 變 1 時計數器從 `SYST_RVR` 載入。Renode 1.16.1 的 `NVIC.SysTick` 只在寫 CVR 時載入,而且只在 RELOAD 已經非零時——port 的順序下 RELOAD 還是 0,什麼都沒發生,啟用時也不載入,計數器就從重置值起跑。
 
 裸機版永遠不會踩到,因為它先寫 LOAD。FreeRTOS 的 `port.c` 是第三方碼、在硬體上也正確,**韌體不改**;修在 Renode:`NVIC.cs` 的 ENABLE 0→1 加一次 `LoadReloadValue()`,NUnit 兩條(兩種順序)——原版 1/2 紅、修正版 2/2 綠,進 fork 的第二個 commit([37 篇](../37-bus-signal-bridging/README.md) §4)。修正版的 NVIC 進不了 1.16.1 的平台描述(CPU 模型對 `nvic` 參數型別檢查,改名的類掛不上),所以閉環仍在原版上跑,`run_loop.sh` 對 FreeRTOS 版把開機等待從 100 ms 拉到 400 ms;NVIC 修了之後可以回 100。

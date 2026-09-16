@@ -28,8 +28,12 @@
 </thead>
 <tbody>
 <tr>
-<td>STM32F4 韌體(裸機與 FreeRTOS 兩版)、Renode 平台、IronPython hook、Rust 橋接、假受控體閉環</td>
-<td><strong>本機實測</strong>(Renode 1.16.1,docker,2026-09-15);數字都是實跑值</td>
+<td>STM32F4 韌體(裸機與 FreeRTOS 兩版)、Renode 平台、IronPython hook、Rust 橋接(lockstep 與 realtime 兩種模式)、假受控體閉環</td>
+<td><strong>本機實測</strong>(Renode 1.16.1,docker,2026-09-15/16);數字都是實跑值</td>
+</tr>
+<tr>
+<td>ROS 2 Jazzy 上位(<code>/cmd_vel</code> → 框包、odom → <code>/odom</code> + <code>/tf</code>)與里程計閉環的方形</td>
+<td><strong>本機實測</strong>(<code>ros:jazzy-ros-base</code>,rclpy 7.1.11,2026-09-16):lockstep 與 realtime 都 ALL PASS,閉合 35 / 70 mm</td>
 </tr>
 <tr>
 <td>Isaac Sim 6.0.1 的受控體腳本</td>
@@ -65,7 +69,7 @@
 <tr>
 <td><a href="../hil/35-hil-what-and-why/">35</a></td>
 <td>HIL 是什麼,為什麼硬體要放在下位</td>
-<td>NVIDIA 課程的 HIL 是 Jetson 跑感知,這裡是 MCU 跑底盤;三個時鐘域,lockstep 與 realtime 兩種模式同一套橋接;<strong>韌體沒有「模擬模式」、橋接不做安全、每輪要有生效證明</strong></td>
+<td>NVIDIA 課程的 HIL 是 Jetson 跑感知,這裡是 MCU 跑底盤;三個時鐘域,lockstep 與 realtime 兩種模式同一套橋接;<strong>realtime 下 Renode 跟不上牆鐘時車安靜地變慢而八項判準全綠</strong>,拖慢它的是 PWM 事件率不是指令;韌體沒有「模擬模式」、橋接不做安全、每輪要有生效證明</td>
 </tr>
 <tr>
 <td><a href="../hil/36-stm32-firmware-on-renode/">36</a></td>
@@ -75,12 +79,12 @@
 <tr>
 <td><a href="../hil/37-bus-signal-bridging/">37</a></td>
 <td>匯流排訊號串接</td>
-<td>External Control 協定逐 byte;GPIO 讀的是輸出腳、寫的是輸入腳;IronPython hook 對每筆注入回 ack;<strong>CAN 送出模擬器的三條路各碰到哪一層</strong>;lockstep 迴圈六步與每步 29.6 ms 的成本;探埠的一個換行污染了握手</td>
+<td>External Control 協定逐 byte;GPIO 讀的是輸出腳、寫的是輸入腳;IronPython hook 對每筆注入回 ack,機器在跑時改排進時間域、關 Nagle;<strong>CAN 送出模擬器的三條路各碰到哪一層</strong>;lockstep 迴圈六步與每步 8–30 ms 的成本;<code>--upper</code> 讓 ROS 2 節點講同一份框包;探埠的一個換行污染了握手</td>
 </tr>
 <tr>
 <td><a href="../hil/38-acceptance-and-failure-modes/">38</a></td>
 <td>驗收與失敗形態</td>
-<td>八項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;兩次 CSV 逐 byte 相同;<strong>步邊界取樣的 2/305 不符</strong>與事件時刻快照;十種失敗形態;換成 Isaac 6.0.1 的七件事各量到什麼——<strong>PhysX 介面沒有 <code>update</code>、joint state 不寫回、地面 xformOpOrder 反了讓車飛起來</strong>、滑移 3.1%</td>
+<td>八項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;兩次 CSV 逐 byte 相同;<strong>步邊界取樣的 2/305 不符</strong>與事件時刻快照;十一種失敗形態;換成 Isaac 6.0.1 的七件事各量到什麼——<strong>PhysX 介面沒有 <code>update</code>、joint state 不寫回、地面 xformOpOrder 反了讓車飛起來</strong>、滑移 3.1%;ROS 2 方形閉環的閉合誤差拆成轉角過頭與起步偏航</td>
 </tr>
 <tr>
 <td><a href="../hil/39-freertos-firmware-in-the-loop/">39</a></td>

@@ -167,6 +167,8 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 </tr>
 </tbody>
 </table></div>
+<p align="center"><img src="../../img/hil-systick-first-period.svg" width="860" alt="兩種 SysTick 寫入順序下的計數器軌跡:1 ms 起跳 vs 第一個週期 233 ms"></p>
+
 <p>ARMv7-M(B3.3.3)規定 <code>ENABLE</code> 由 0 變 1 時計數器從 <code>SYST_RVR</code> 載入。Renode 1.16.1 的 <code>NVIC.SysTick</code> 只在寫 CVR 時載入,而且只在 RELOAD 已經非零時——port 的順序下 RELOAD 還是 0,什麼都沒發生,啟用時也不載入,計數器就從重置值起跑。</p>
 <p>裸機版永遠不會踩到,因為它先寫 LOAD。FreeRTOS 的 <code>port.c</code> 是第三方碼、在硬體上也正確,<strong>韌體不改</strong>;修在 Renode:<code>NVIC.cs</code> 的 ENABLE 0→1 加一次 <code>LoadReloadValue()</code>,NUnit 兩條(兩種順序)——原版 1/2 紅、修正版 2/2 綠,進 fork 的第二個 commit(<a href="../../hil/37-bus-signal-bridging/">37 篇</a> §4)。修正版的 NVIC 進不了 1.16.1 的平台描述(CPU 模型對 <code>nvic</code> 參數型別檢查,改名的類掛不上),所以閉環仍在原版上跑,<code>run_loop.sh</code> 對 FreeRTOS 版把開機等待從 100 ms 拉到 400 ms;NVIC 修了之後可以回 100。</p>
 <p>這個缺口的形狀值得記:<strong>同一個週邊,兩支韌體用不同順序寫暫存器,一支正常、一支慢 233 ms</strong>,而慢的那支沒有任何錯誤——它只是「開機比較久」。<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3 的盤點是拿裸機韌體的存取樣式去驗的,換一支韌體就有新的樣式要驗。</p>
