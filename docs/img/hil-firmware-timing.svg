@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="470" viewBox="0 0 860 470" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="860" height="470" fill="#ffffff"/>
+  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">韌體的形狀:兩個週期、四個入口、一個誰都能讀的觀測結構</text>
+  <defs>
+    <marker id="fBlue" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#5b7fa6"/></marker>
+    <marker id="fRed" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#b03a2e"/></marker>
+    <marker id="fGry" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#888"/></marker>
+  </defs>
+
+  <!-- 20 ms 時間軸 -->
+  <text x="40" y="58" font-size="12.5" font-weight="bold" fill="#333">一個 20 ms 回報週期(SysTick 1 ms 驅動;迴圈尾 WFI,醒來只做該做的)</text>
+  <line x1="120" y1="150" x2="720" y2="150" stroke="#888" marker-end="url(#fGry)"/>
+  <g font-size="10.5" fill="#555" text-anchor="middle">
+    <text x="120" y="168">0</text><text x="260" y="168">5</text><text x="400" y="168">10</text><text x="540" y="168">15</text><text x="680" y="168">20 ms</text>
+  </g>
+  <!-- 控制步 -->
+  <g fill="#b03a2e">
+    <rect x="120" y="104" width="16" height="36"/><rect x="260" y="104" width="16" height="36"/><rect x="400" y="104" width="16" height="36"/><rect x="540" y="104" width="16" height="36"/>
+  </g>
+  <text x="110" y="126" text-anchor="end" font-size="11" fill="#7a1f16">5 ms 控制步</text>
+  <text x="120" y="88" font-size="10" fill="#7a1f16">讀編碼器 Δtick → 輪速 → PI(Q8,Kp 128 / Ki 13)→ CCR1/CCR2 + PB8/PB9 方向 + PB10 致能 → 里程計積分 → 安全閘門</text>
+  <!-- 回報 -->
+  <rect x="680" y="76" width="18" height="64" fill="#5b7fa6"/>
+  <text x="706" y="92" font-size="11" fill="#33506b">20 ms 回報</text>
+  <text x="706" y="108" font-size="10" fill="#33506b">USART1 odom 23 B</text>
+  <text x="706" y="122" font-size="10" fill="#33506b">CAN 0x201 duty、seq</text>
+  <!-- 入口(事件驅動) -->
+  <g font-size="10.5" fill="#555">
+    <text x="120" y="196">入口 1:USART1 RXNE 中斷 → ring buffer → 主迴圈解框包(A5 5A len type payload CRC16)→ 設定點</text>
+    <text x="120" y="214">入口 2:CAN 0x181 編碼器累計 tick(FIFO0,輪詢)   入口 3:PC13 急停(高 → 停)   入口 4:500 ms 沒命令 → 停</text>
+  </g>
+  <text x="120" y="240" font-size="10.5" fill="#888">115200 bps 每 ms 進 11 個 byte、DR 只裝 1 個:1 ms 輪詢一定掉資料,所以 UART 收訊走中斷;CAN FIFO0 裝 3 筆、5 ms 一筆,輪詢即可。</text>
+
+  <!-- g_dbg -->
+  <text x="40" y="282" font-size="12.5" font-weight="bold" fill="#333">g_dbg:17 個 u32,橋接從 nm 拿位址,第一個字對得上 magic 才算讀對東西</text>
+  <g font-size="9.5" font-family="monospace">
+    <rect x="40" y="296" width="780" height="26" fill="#f4f7fb" stroke="#5b7fa6"/>
+    <text x="48" y="313" fill="#33506b">magic 0x48494C31 | tick_ms | ctrl_steps | sp_l sp_r | meas_l meas_r | duty_l duty_r | enc_l enc_r | enc_frames cmd_frames bad_crc | flags | init_err | rx_overflow</text>
+  </g>
+  <text x="40" y="342" font-size="10.5" fill="#555">FreeRTOS 版前 17 字版面逐字相同,之後多 9 個:ctrl_missed、report_missed、rx_wakeups、三個 task 的 stack 餘量、assert_line、stack_overflow、malloc_failed。</text>
+
+  <!-- 三個設計決定 -->
+  <g font-size="11">
+    <rect x="40" y="362" width="250" height="88" rx="8" fill="#fafafa" stroke="#ddd"/>
+    <text x="165" y="384" text-anchor="middle" font-weight="bold" fill="#333">沒有 HAL、沒有 libc</text>
+    <text x="165" y="404" text-anchor="middle" fill="#555">每個寫進週邊的位元都能回答</text>
+    <text x="165" y="420" text-anchor="middle" fill="#555">「模擬器有沒有實作它」</text>
+    <text x="165" y="438" text-anchor="middle" fill="#888">text 4732 B(-O2,soft-float)</text>
+    <rect x="305" y="362" width="250" height="88" rx="8" fill="#fafafa" stroke="#ddd"/>
+    <text x="430" y="384" text-anchor="middle" font-weight="bold" fill="#333">沒有「模擬模式」</text>
+    <text x="430" y="404" text-anchor="middle" fill="#555">鮑率、CAN 位元時序、AF 全照硬體寫</text>
+    <text x="430" y="420" text-anchor="middle" fill="#555">Renode 不看鮑率,照寫</text>
+    <text x="430" y="438" text-anchor="middle" fill="#888">缺口修在 Renode,不改韌體</text>
+    <rect x="570" y="362" width="250" height="88" rx="8" fill="#fafafa" stroke="#ddd"/>
+    <text x="695" y="384" text-anchor="middle" font-weight="bold" fill="#333">WFI 而不是輪詢</text>
+    <text x="695" y="404" text-anchor="middle" fill="#555">1 s 虛擬時間:13.4 s → 1.83 s 牆鐘</text>
+    <text x="695" y="420" text-anchor="middle" fill="#555">指令數 1.0×10⁸ → 5.1×10⁵</text>
+    <text x="695" y="438" text-anchor="middle" fill="#888">MMIO 輪詢是模擬裡最貴的操作</text>
+  </g>
+</svg>

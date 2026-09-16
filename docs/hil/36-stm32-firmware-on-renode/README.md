@@ -18,6 +18,9 @@ CAN 0x181 收編碼器累計 tick    → 輪速量測 + 里程計
 安全:500 ms 沒命令 → 停;PC13 急停拉高 → 停
 ```
 
+<p align="center"><img src="../../img/hil-firmware-timing.svg" width="860" alt="韌體的 5 ms 控制步與 20 ms 回報、四個入口、g_dbg 版面、三個設計決定"></p>
+
+
 三個設計決定,每一個都與「在模擬器裡驗」有關:
 
 **沒有 HAL、沒有 libc。** 暫存器定義自己寫([`regs.h`](../../../examples/hil-stm32/firmware/regs.h),位址與位元出自 RM0090),只連 libgcc(soft-float)。理由:每一個寫進週邊的位元都要能回答「模擬器有沒有實作它」。HAL 會在你看不到的地方碰暫存器——既有內部專案的 `HAL_CAN_Init()` 在 Renode 上凍在 `Error_Handler()`,而那支韌體的作者沒有寫過任何一行 CAN 暫存器。
@@ -46,10 +49,11 @@ Renode 內建的 `platforms/cpus/stm32f4.repl` 對這支韌體夠用——記憶
 | `STM32_Timer`(TIM3) | ARR、CCR1/2、CCMR1(OC1M)、CCER、CR1、CNT | 全部寫入後讀得回;**OC1PE / OC2PE 未實作**(warning);PWM 通道輸出是真的 GPIO 線:PWM1 模式下 `timer.Connections[0].IsSet` 在 CNT < CCR 時為 True | 夠用。橋接讀 CCR 算 duty |
 | 同上,計數週期 | ARR | **週期是 ARR,硬體是 ARR+1**。兩組量測:ARR=999、10 MHz 跑 1 ms → CNT=10(=10000 mod 999);ARR=99 → CNT=1(=10000 mod 99) | PWM 頻率差 0.1%,無感。已修,見 [37 篇](../37-bus-signal-bridging/README.md) §4 |
 | 同上,PWM 腳位初值 | CEN、EGR.UG | 致能後、第一次溢位前腳位不動(CNT=200 < CCR=500 時讀到 False);硬體的 OCxREF 是持續比較 | 5 ms 一步的閉環看不到(第一次溢位在 10 µs 內);已修,同上 |
+| 同上,執行成本 | ARR、CCR(事件率) | 10 kHz 載波 × 3 個 `LimitTimer` = 每秒 3 萬個 C# 事件,自由跑只到 0.55×;ARR 拉到 152 Hz 就 1.17×([35 篇](../35-hil-what-and-why/README.md) §5.1) | lockstep 無感;realtime 模式跟不上牆鐘,`calib.json` 的 `pwm_prescaler` 是繞過去的旋鈕,根因未修 |
 | `STM32_UART`(USART1/2) | SR(RXNE/TXE/TC)、DR、BRR、CR1 | TXE 恆為 1;RX 有佇列。**TC 在 CPU 寫 DR 後正常設回、TCIE 拉中斷**(本篇探針);既有內部專案在 DMA 傳送下量到「TC 永不重設」,那條路徑本篇沒走,兩者不衝突 | 韌體輪詢 TXE、不等 TC。真硬體同樣正確 |
 | `STMCAN`(CAN1) | MCR/MSR、BTR、TSR、TI0R/TDT0R/TDL0R/TDH0R、RF0R、RI0R/RDT0R/RDL0R/RDH0R、FMR/FM1R/FS1R/FFA1R/FA1R/F0R1/F0R2 | MCR.INRQ=1 → MSR 0xC01(INAK=1,SLAK 清);mailbox 寫入 TXRQ 後 `FrameSent` 立刻觸發;`OnFrameReceived()` 注入的訊框進 FIFO0(FMP0=1、RI0R 帶 STID) | 夠用,**但濾波器有一個坑**(下一段) |
 | `STM32_GPIOPort` | MODER、AFRL、IDR、ODR、BSRR | 輸出腳在 `Connections[n]`;輸入腳用 `OnGPIO(n, v)`;`State` 是 protected,monitor Python 讀不到 | 夠用 |
-| NVIC + SysTick | ISER、SysTick CSR/RVR | SysTick 頻率來自平台描述的 `systickFrequency: 72000000`,**不是 RCC**;USART1 IRQ 37 正常進 | 夠用;鮑率與 SysTick 的時脈來源在模擬裡是兩個不相干的數 |
+| NVIC + SysTick | ISER、SysTick CSR/RVR/CVR | SysTick 頻率來自平台描述的 `systickFrequency: 72000000`,**不是 RCC**;USART1 IRQ 37 正常進。**ENABLE 0→1 不從 RELOAD 載入**——先寫 CVR 再寫 LOAD 的順序(FreeRTOS port)第一個週期跑滿 2^24 cycle | 裸機版先寫 LOAD,沒踩到;[39 篇](../39-freertos-firmware-in-the-loop/README.md) §4 踩到,已修 |
 
 CAN 濾波器的坑:`FMR` 的重置值是 `0x2A1C0E01`,其中 `CAN2SB`(bit 13:8)= 14,意思是 bank 0–13 屬於 CAN1。探針一開始寫 `FMR = 1`(只想設 FINIT),把 `CAN2SB` 清成 0——bank 0 從此屬於 CAN2,CAN1 的接收路徑對它 `Where(BelongsToMaster)` 一濾,訊框**靜默丟掉**:`OnFrameReceived()` 呼叫成功、`FrameReceived` 事件照樣觸發,FIFO 就是空的。真硬體的 HAL 用讀-改-寫所以不會踩到;自己寫暫存器的人會。韌體的 `can_init()` 因此全部用 `|=` / `&=`。
 

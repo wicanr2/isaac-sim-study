@@ -29,6 +29,8 @@ CAN 0x181 收編碼器累計 tick    → 輪速量測 + 里程計
 每 20 ms:USART1 回 odom、CAN 0x201 回馬達狀態
 安全:500 ms 沒命令 → 停;PC13 急停拉高 → 停
 </code></pre>
+<p align="center"><img src="../../img/hil-firmware-timing.svg" width="860" alt="韌體的 5 ms 控制步與 20 ms 回報、四個入口、g_dbg 版面、三個設計決定"></p>
+
 <p>三個設計決定,每一個都與「在模擬器裡驗」有關:</p>
 <p><strong>沒有 HAL、沒有 libc。</strong> 暫存器定義自己寫(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/firmware/regs.h"><code>regs.h</code></a>,位址與位元出自 RM0090),只連 libgcc(soft-float)。理由:每一個寫進週邊的位元都要能回答「模擬器有沒有實作它」。HAL 會在你看不到的地方碰暫存器——既有內部專案的 <code>HAL_CAN_Init()</code> 在 Renode 上凍在 <code>Error_Handler()</code>,而那支韌體的作者沒有寫過任何一行 CAN 暫存器。</p>
 <p><strong>沒有「模擬模式」。</strong> 鮑率、CAN 位元時序、GPIO 的 AF 設定全部照真硬體寫。Renode 不看鮑率,照寫。</p>
@@ -72,6 +74,12 @@ CAN 0x181 收編碼器累計 tick    → 輪速量測 + 里程計
 <td>5 ms 一步的閉環看不到(第一次溢位在 10 µs 內);已修,同上</td>
 </tr>
 <tr>
+<td>同上,執行成本</td>
+<td>ARR、CCR(事件率)</td>
+<td>10 kHz 載波 × 3 個 <code>LimitTimer</code> = 每秒 3 萬個 C# 事件,自由跑只到 0.55×;ARR 拉到 152 Hz 就 1.17×(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1)</td>
+<td>lockstep 無感;realtime 模式跟不上牆鐘,<code>calib.json</code> 的 <code>pwm_prescaler</code> 是繞過去的旋鈕,根因未修</td>
+</tr>
+<tr>
 <td><code>STM32_UART</code>(USART1/2)</td>
 <td>SR(RXNE/TXE/TC)、DR、BRR、CR1</td>
 <td>TXE 恆為 1;RX 有佇列。<strong>TC 在 CPU 寫 DR 後正常設回、TCIE 拉中斷</strong>(本篇探針);既有內部專案在 DMA 傳送下量到「TC 永不重設」,那條路徑本篇沒走,兩者不衝突</td>
@@ -91,9 +99,9 @@ CAN 0x181 收編碼器累計 tick    → 輪速量測 + 里程計
 </tr>
 <tr>
 <td>NVIC + SysTick</td>
-<td>ISER、SysTick CSR/RVR</td>
-<td>SysTick 頻率來自平台描述的 <code>systickFrequency: 72000000</code>,<strong>不是 RCC</strong>;USART1 IRQ 37 正常進</td>
-<td>夠用;鮑率與 SysTick 的時脈來源在模擬裡是兩個不相干的數</td>
+<td>ISER、SysTick CSR/RVR/CVR</td>
+<td>SysTick 頻率來自平台描述的 <code>systickFrequency: 72000000</code>,<strong>不是 RCC</strong>;USART1 IRQ 37 正常進。<strong>ENABLE 0→1 不從 RELOAD 載入</strong>——先寫 CVR 再寫 LOAD 的順序(FreeRTOS port)第一個週期跑滿 2^24 cycle</td>
+<td>裸機版先寫 LOAD,沒踩到;<a href="../../hil/39-freertos-firmware-in-the-loop/">39 篇</a> §4 踩到,已修</td>
 </tr>
 </tbody>
 </table></div>
