@@ -145,6 +145,8 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 <p><strong>匯流排快照。</strong> <code>FrameSent</code> handler 在送出 CAN 紀錄之後,立刻在同一個模擬時刻讀 <code>TIM3 CCR1/CCR2</code>,附一筆 <code>0xFFFF0003</code>。橋接拿它跟 CAN 訊框裡韌體自己回報的 duty 比——兩條獨立管道在<strong>同一個時刻</strong>比。為什麼不能拿步邊界讀到的 CCR 比,<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §4 有 2/305 筆的實例。</p>
 <p><strong>機器在跑的時候,注入不能直接呼叫週邊。</strong> <code>lockstep</code> 下注入時機器是暫停的,從背景執行緒直接 <code>WriteChar</code> 沒事。<code>realtime</code> 下機器在跑,同一行會卡死——第一個命令進得去,第二個 <code>WriteChar</code> 永遠不回來(模擬執行緒與注入執行緒搶週邊的鎖)。Renode 自己的外部裝置(socket terminal 的 <code>UARTBackend</code>、<code>CANHub</code>)走的是 <code>machine.HandleTimeDomainEvent(handler, arg, timestamp)</code>:把呼叫排進機器的時間域,在下一個同步點由模擬執行緒執行。hook 的 <code>_deliver</code> 照這條:<code>IsStarted</code> 為真就排隊,否則直呼。時間戳要用 <code>TimeDomainsManager.Instance.GetEffectiveVirtualTimeStamp()</code>——<code>VirtualTimeStamp</code> 只有註冊過的模擬執行緒能讀,從 hook 的執行緒讀會丟 <code>Tried to obtain a virtual time stamp of an unregistered thread</code>。</p>
 <p><strong>關掉 Nagle。</strong> 紀錄 13 bytes、一筆一答。<code>lockstep</code> 下 ack 是當時唯一的出站資料,立刻送;<code>realtime</code> 下 <code>FrameSent</code> 不斷從模擬執行緒寫小封包,ack 排在未確認資料後面,等對端的 delayed ACK——每步 42 ms,全部是這個。<code>client.NoDelay = True</code> 之後 hook 每步 2.4 ms。橋接那一側從一開始就 <code>set_nodelay(true)</code>,只設一邊不夠。</p>
+<p align="center"><img src="../../img/hil-hook-two-threads.svg" width="860" alt="hook 注入的兩條路:機器暫停時直接呼叫週邊,自由跑時排進機器的時間域;以及 Nagle"></p>
+
 <p>限制:一次一個 client;IronPython 的執行緒是 .NET 執行緒,<code>_send</code> 用 <code>Monitor.Enter</code> 保護;檔案全 ASCII。</p>
 <h2 id="4-can-送出模擬器的三條路各碰到哪一層">4. CAN 送出模擬器的三條路,各碰到哪一層</h2>
 <p>Renode 1.16.1 把 CAN 訊框送到模擬器外面的<strong>官方</strong>管道只有 <code>CreateSocketCANBridge</code>,它接的是一個 Linux CAN 網路介面。沒有實體卡時那個介面是 <code>vcan</code>——名字容易誤會,它是純軟體的虛擬介面(像 <code>lo</code>),但它是核心模組(這台 <code>CONFIG_CAN_VCAN=m</code>),載入要 root。</p>
@@ -179,6 +181,8 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 </tbody>
 </table></div>
 <p>②③ 是同一件事——都讓核心載入 <code>vcan.ko</code>,差別只在誰觸發。真正不碰核心的只有 ①。</p>
+<p align="center"><img src="../../img/hil-can-three-paths.svg" width="860" alt="CAN 訊框離開 Renode 的三條路各碰到 Renode 行程、使用者空間、核心的哪一層"></p>
+
 <p>①在 Renode 端遇到缺口時的處理原則:<strong>不繞路,修 Renode 原始碼</strong>。1.16.1 對應的 <code>renode-infrastructure</code> commit 是 <code>add012af003a0f620d3da52828262676f374d121</code>;修週邊模型可以 <code>i @file.cs</code> 執行期編譯載入,不必自建 Renode——改一行、跑一次探針是秒級迴圈。</p>
 <p>這一區用這條路修了 <code>STM32_Timer</code> 的三個缺口(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/upstream"><code>renode/upstream/</code></a>):計數週期 ARR+1、OCxPE 預載、致能時就驅動 PWM 腳。每一項有一支探針(原版紅、修正版綠)與一條上游樣式的 Robot 測試(原版 3 紅、修正版 3 綠);修正版接進閉環 <code>TIMERFIX=1 ./run_loop.sh</code> 仍 ALL PASS,而且 <code>.resc</code> 印出 timer 的型別名當生效證明——沒有這一行,「修正版也綠」與「根本沒載入」看起來一樣。第四個候選 <code>STM32_UART</code> 的 TC 閂鎖在 1.16.1 上<strong>無法重現</strong>(CPU 寫 DR 後 TC 正常設回、TCIE 拉中斷);既有內部紀錄的條件是 DMA 傳送,這裡沒走那條路,不下結論。</p>
 <p>第五個缺口是 FreeRTOS 版才踩到的:<code>NVIC</code> 的 SysTick 在 ENABLE 0→1 時不從 RELOAD 載入(<a href="../../hil/39-freertos-firmware-in-the-loop/">39 篇</a> §4),NUnit 原版 1/2 紅、修正版 2/2 綠。</p>

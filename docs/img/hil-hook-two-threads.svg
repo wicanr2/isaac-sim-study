@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="500" viewBox="0 0 860 500" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="860" height="500" fill="#ffffff"/>
+  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">hook 的注入走哪條路,取決於機器有沒有在跑:暫停時直呼,跑的時候排進機器的時間域</text>
+  <defs>
+    <marker id="hBlue" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#5b7fa6"/></marker>
+    <marker id="hOrg" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#b35c1e"/></marker>
+    <marker id="hRed" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#b03a2e"/></marker>
+    <marker id="hGrn" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#2e7d4f"/></marker>
+  </defs>
+
+  <!-- 三條泳道 -->
+  <g font-size="12" font-weight="bold">
+    <text x="20" y="80" fill="#7a3d0f">橋接(Rust)</text>
+    <text x="20" y="180" fill="#33506b">hook 背景執行緒</text>
+    <text x="20" y="196" fill="#5b7fa6" font-weight="normal" font-size="10.5">(.NET Thread,IronPython)</text>
+    <text x="20" y="300" fill="#7a1f16">模擬執行緒</text>
+    <text x="20" y="316" fill="#b03a2e" font-weight="normal" font-size="10.5">(Renode 時間域,週邊、CPU)</text>
+  </g>
+  <line x1="170" y1="60" x2="850" y2="60" stroke="#eee"/>
+  <line x1="170" y1="140" x2="850" y2="140" stroke="#eee"/>
+  <line x1="170" y1="250" x2="850" y2="250" stroke="#eee"/>
+  <line x1="170" y1="360" x2="850" y2="360" stroke="#eee"/>
+
+  <!-- 左半:lockstep(暫停) -->
+  <text x="330" y="52" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">lockstep:機器暫停中</text>
+  <rect x="190" y="68" width="280" height="24" rx="6" fill="#fff3e6" stroke="#b35c1e"/>
+  <text x="330" y="84" text-anchor="middle" font-size="11" fill="#7a3d0f">寫 13-byte 紀錄 → 等 ack → 才 run_for(5 ms)</text>
+  <line x1="260" y1="92" x2="260" y2="160" stroke="#b35c1e" stroke-width="1.5" marker-end="url(#hOrg)"/>
+  <rect x="190" y="162" width="280" height="40" rx="6" fill="#f4f7fb" stroke="#5b7fa6"/>
+  <text x="330" y="178" text-anchor="middle" font-size="11" fill="#33506b">IsStarted == false</text>
+  <text x="330" y="194" text-anchor="middle" font-size="11" fill="#33506b" font-family="monospace">usart1.WriteChar(b) / can1.OnFrameReceived(f)</text>
+  <line x1="260" y1="202" x2="260" y2="272" stroke="#5b7fa6" stroke-width="1.5" marker-end="url(#hBlue)"/>
+  <text x="268" y="240" font-size="10.5" fill="#5b7fa6">直接呼叫:沒人在跑,週邊沒有鎖競爭</text>
+  <rect x="190" y="274" width="280" height="40" rx="6" fill="#fbe3e0" stroke="#b03a2e"/>
+  <text x="330" y="290" text-anchor="middle" font-size="11" fill="#7a1f16">byte 進 USART1 佇列、訊框進 CAN FIFO</text>
+  <text x="330" y="306" text-anchor="middle" font-size="11" fill="#7a1f16">下一個 run_for 裡韌體才讀到 → 一步延遲</text>
+  <line x1="400" y1="202" x2="400" y2="96" stroke="#2e7d4f" stroke-width="1.5" marker-end="url(#hGrn)"/>
+  <text x="408" y="130" font-size="10.5" fill="#2e7d4f">ack(0xFFFF00AC)</text>
+  <text x="330" y="345" text-anchor="middle" font-size="11" fill="#555">同一份輸入一定落在同一步 → 兩次 CSV 逐 byte 相同</text>
+
+  <!-- 分隔 -->
+  <line x1="500" y1="44" x2="500" y2="360" stroke="#ccc" stroke-dasharray="4 3"/>
+
+  <!-- 右半:realtime(跑) -->
+  <text x="680" y="52" text-anchor="middle" font-size="13" font-weight="bold" fill="#333">realtime:機器自由跑</text>
+  <rect x="520" y="68" width="320" height="24" rx="6" fill="#fff3e6" stroke="#b35c1e"/>
+  <text x="680" y="84" text-anchor="middle" font-size="11" fill="#7a3d0f">每 5 ms 牆鐘寫紀錄 → 等 ack → sleep 到下一刻度</text>
+  <line x1="590" y1="92" x2="590" y2="160" stroke="#b35c1e" stroke-width="1.5" marker-end="url(#hOrg)"/>
+  <rect x="520" y="162" width="320" height="40" rx="6" fill="#f4f7fb" stroke="#5b7fa6"/>
+  <text x="680" y="178" text-anchor="middle" font-size="11" fill="#33506b">IsStarted == true</text>
+  <text x="680" y="194" text-anchor="middle" font-size="10" fill="#33506b" font-family="monospace">machine.HandleTimeDomainEvent(handler, arg, timestamp)</text>
+  <line x1="590" y1="202" x2="590" y2="272" stroke="#5b7fa6" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#hBlue)"/>
+  <text x="598" y="228" font-size="10.5" fill="#5b7fa6">排隊,不呼叫;下一個同步點</text>
+  <text x="598" y="242" font-size="10.5" fill="#5b7fa6">由模擬執行緒自己執行</text>
+  <rect x="520" y="274" width="320" height="40" rx="6" fill="#fbe3e0" stroke="#b03a2e"/>
+  <text x="680" y="290" text-anchor="middle" font-size="11" fill="#7a1f16">同步點:執行排隊的 WriteChar / OnFrameReceived</text>
+  <text x="680" y="306" text-anchor="middle" font-size="11" fill="#7a1f16">FrameSent、CharReceived 也在這條執行緒上發</text>
+  <line x1="760" y1="274" x2="760" y2="206" stroke="#b03a2e" stroke-width="1.5" marker-end="url(#hRed)"/>
+  <text x="768" y="230" font-size="10.5" fill="#b03a2e">handler 寫 socket</text>
+  <text x="768" y="244" font-size="10.5" fill="#b03a2e">(_send,Monitor 鎖)</text>
+  <line x1="730" y1="162" x2="730" y2="96" stroke="#2e7d4f" stroke-width="1.5" marker-end="url(#hGrn)"/>
+  <text x="700" y="130" font-size="10.5" fill="#2e7d4f" text-anchor="end">ack(排進去就回)</text>
+  <text x="680" y="345" text-anchor="middle" font-size="11" fill="#b03a2e">直接 WriteChar 會卡死:第二個命令永遠不回來(2026-09-15 實測)</text>
+
+  <!-- 底:Nagle -->
+  <rect x="40" y="378" width="800" height="96" rx="8" fill="#fafafa" stroke="#ddd"/>
+  <text x="60" y="400" font-size="12" font-weight="bold" fill="#333">同一條 socket 上的第二個坑:Nagle</text>
+  <text x="60" y="420" font-size="11" fill="#555">紀錄 13 bytes、一筆一答。暫停時 ack 是當下唯一的出站資料,立刻送。自由跑時 FrameSent 不斷寫小封包,ack 排在未確認資料後面,</text>
+  <text x="60" y="438" font-size="11" fill="#555">等對端的 delayed ACK:每步 42 ms,全部是這個。hook 端 client.NoDelay = True 之後每步 2.4 ms;橋接那側早就 set_nodelay,只設一邊不夠。</text>
+  <text x="60" y="462" font-size="11" fill="#888">VirtualTimeStamp 只有註冊過的模擬執行緒能讀;從 hook 執行緒讀會丟「unregistered thread」——用 GetEffectiveVirtualTimeStamp()。</text>
+</svg>

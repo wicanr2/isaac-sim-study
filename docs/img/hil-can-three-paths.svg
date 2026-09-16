@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="400" viewBox="0 0 860 400" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="860" height="400" fill="#ffffff"/>
+  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">CAN 訊框離開 Renode 的三條路,各自碰到哪一層</text>
+  <defs>
+    <marker id="nGrn" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#2e7d4f"/></marker>
+    <marker id="nGry" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#888"/></marker>
+  </defs>
+
+  <!-- 三層 -->
+  <rect x="40" y="60" width="780" height="70" rx="8" fill="#fff3e6" stroke="#b35c1e"/>
+  <text x="60" y="82" font-size="12" font-weight="bold" fill="#7a3d0f">Renode 行程(.NET)</text>
+  <rect x="40" y="150" width="780" height="70" rx="8" fill="#f4f7fb" stroke="#5b7fa6"/>
+  <text x="60" y="172" font-size="12" font-weight="bold" fill="#33506b">容器 / 使用者空間(netns、socket)</text>
+  <rect x="40" y="240" width="780" height="70" rx="8" fill="#fbe3e0" stroke="#b03a2e"/>
+  <text x="60" y="262" font-size="12" font-weight="bold" fill="#7a1f16">Linux 核心(模組、CAN 子系統)</text>
+
+  <!-- ① -->
+  <rect x="235" y="66" width="200" height="58" rx="6" fill="#e8f3ec" stroke="#2e7d4f" stroke-width="2"/>
+  <text x="335" y="86" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#1f5236">① IronPython hook</text>
+  <text x="335" y="102" text-anchor="middle" font-size="10" fill="#1f5236">掛 FrameSent、呼叫 OnFrameReceived</text>
+  <text x="335" y="116" text-anchor="middle" font-size="10" fill="#1f5236">.NET TcpListener 3600</text>
+  <line x1="335" y1="124" x2="335" y2="180" stroke="#2e7d4f" stroke-width="2" marker-end="url(#nGrn)"/>
+  <rect x="270" y="182" width="130" height="30" rx="6" fill="#fff" stroke="#2e7d4f"/>
+  <text x="335" y="201" text-anchor="middle" font-size="10.5" fill="#1f5236">橋接(Rust std TcpStream)</text>
+  <text x="335" y="234" text-anchor="middle" font-size="10.5" fill="#2e7d4f" font-weight="bold">不碰核心 —— 主線,實測</text>
+
+  <!-- ② -->
+  <rect x="470" y="66" width="170" height="58" rx="6" fill="#fff" stroke="#888"/>
+  <text x="555" y="86" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#555">② CreateSocketCANBridge</text>
+  <text x="555" y="102" text-anchor="middle" font-size="10" fill="#555">接一個 CAN 網路介面</text>
+  <text x="555" y="116" text-anchor="middle" font-size="10" fill="#555">(Renode 官方管道)</text>
+  <line x1="555" y1="124" x2="555" y2="180" stroke="#888" stroke-width="2" marker-end="url(#nGry)"/>
+  <rect x="470" y="182" width="170" height="30" rx="6" fill="#fff" stroke="#888"/>
+  <text x="555" y="201" text-anchor="middle" font-size="10" fill="#555">容器內 ip link add vcan0 type vcan</text>
+  <line x1="555" y1="212" x2="555" y2="268" stroke="#888" stroke-width="2" marker-end="url(#nGry)"/>
+  <rect x="470" y="270" width="170" height="30" rx="6" fill="#fff" stroke="#888"/>
+  <text x="555" y="289" text-anchor="middle" font-size="10" fill="#555">核心自動 request_module(vcan)</text>
+  <text x="555" y="330" text-anchor="middle" font-size="10.5" fill="#555">需要 --cap-add NET_ADMIN;未實測</text>
+
+  <!-- ③ -->
+  <rect x="660" y="66" width="150" height="58" rx="6" fill="#fff" stroke="#888"/>
+  <text x="735" y="86" text-anchor="middle" font-size="11.5" font-weight="bold" fill="#555">③ CreateSocketCANBridge</text>
+  <text x="735" y="102" text-anchor="middle" font-size="10" fill="#555">同 ②,介面由主機提供</text>
+  <line x1="735" y1="124" x2="735" y2="180" stroke="#888" stroke-width="2" marker-end="url(#nGry)"/>
+  <rect x="660" y="182" width="150" height="30" rx="6" fill="#fff" stroke="#888"/>
+  <text x="735" y="201" text-anchor="middle" font-size="10" fill="#555">橋接用 SocketCAN API(PF_CAN)</text>
+  <line x1="735" y1="212" x2="735" y2="268" stroke="#888" stroke-width="2" marker-end="url(#nGry)"/>
+  <rect x="660" y="270" width="150" height="30" rx="6" fill="#fff" stroke="#888"/>
+  <text x="735" y="289" text-anchor="middle" font-size="10" fill="#555">主機 sudo modprobe vcan</text>
+  <text x="735" y="330" text-anchor="middle" font-size="10.5" fill="#555">需要 root;未實測</text>
+
+  <!-- 左說明 -->
+  <text x="60" y="104" font-size="10.5" fill="#7a3d0f">STMCAN 模型:</text>
+  <text x="60" y="118" font-size="10.5" fill="#7a3d0f">FrameSent / OnFrameReceived</text>
+  <text x="60" y="194" font-size="10.5" fill="#33506b">docker --network none</text>
+  <text x="60" y="208" font-size="10.5" fill="#33506b">橋接共用 Renode 的 netns</text>
+  <text x="60" y="284" font-size="10.5" fill="#7a1f16">vcan 是純軟體介面,但是核心模組</text>
+  <text x="60" y="298" font-size="10.5" fill="#7a1f16">(CONFIG_CAN_VCAN=m)</text>
+
+  <text x="430" y="366" text-anchor="middle" font-size="11" fill="#333">②③ 是同一件事——都讓核心載入 vcan.ko,差別只在誰觸發。真正不碰核心的只有 ①;① 在 Renode 端遇到缺口時修 Renode 原始碼,不繞路。</text>
+  <text x="430" y="386" text-anchor="middle" font-size="10.5" fill="#888">37 篇 §4;Renode 1.16.1。</text>
+</svg>

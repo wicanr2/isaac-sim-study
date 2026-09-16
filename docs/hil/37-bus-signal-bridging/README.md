@@ -71,6 +71,9 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 
 **關掉 Nagle。** 紀錄 13 bytes、一筆一答。`lockstep` 下 ack 是當時唯一的出站資料,立刻送;`realtime` 下 `FrameSent` 不斷從模擬執行緒寫小封包,ack 排在未確認資料後面,等對端的 delayed ACK——每步 42 ms,全部是這個。`client.NoDelay = True` 之後 hook 每步 2.4 ms。橋接那一側從一開始就 `set_nodelay(true)`,只設一邊不夠。
 
+<p align="center"><img src="../../img/hil-hook-two-threads.svg" width="860" alt="hook 注入的兩條路:機器暫停時直接呼叫週邊,自由跑時排進機器的時間域;以及 Nagle"></p>
+
+
 限制:一次一個 client;IronPython 的執行緒是 .NET 執行緒,`_send` 用 `Monitor.Enter` 保護;檔案全 ASCII。
 
 ## 4. CAN 送出模擬器的三條路,各碰到哪一層
@@ -84,6 +87,9 @@ Renode 1.16.1 把 CAN 訊框送到模擬器外面的**官方**管道只有 `Crea
 | ③ 主機 `modprobe vcan` + `SocketCANBridge` | 碰 | Renode 官方路線;橋接用 SocketCAN API 收發 | 未實測 |
 
 ②③ 是同一件事——都讓核心載入 `vcan.ko`,差別只在誰觸發。真正不碰核心的只有 ①。
+
+<p align="center"><img src="../../img/hil-can-three-paths.svg" width="860" alt="CAN 訊框離開 Renode 的三條路各碰到 Renode 行程、使用者空間、核心的哪一層"></p>
+
 
 ①在 Renode 端遇到缺口時的處理原則:**不繞路,修 Renode 原始碼**。1.16.1 對應的 `renode-infrastructure` commit 是 `add012af003a0f620d3da52828262676f374d121`;修週邊模型可以 `i @file.cs` 執行期編譯載入,不必自建 Renode——改一行、跑一次探針是秒級迴圈。
 
