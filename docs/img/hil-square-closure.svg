@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="470" viewBox="0 0 860 470" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="860" height="470" fill="#ffffff"/>
+  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">ROS 2 方形閉環:閉合誤差來自轉角過頭與起步偏航,不是里程計</text>
+  <defs>
+    <marker id="qBlue" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#5b7fa6"/></marker>
+  </defs>
+
+  <!-- 左:方形軌跡(0.6 m 邊 = 240 px,原點 (120,380)),lockstep 每段結束位姿 -->
+  <g stroke="#ddd" stroke-width="1">
+    <line x1="120" y1="380" x2="360" y2="380"/><line x1="360" y1="380" x2="360" y2="140"/><line x1="360" y1="140" x2="120" y2="140"/><line x1="120" y1="140" x2="120" y2="380"/>
+  </g>
+  <text x="240" y="398" text-anchor="middle" font-size="10.5" fill="#888">理想:0.6 m 邊,回到 (0, 0)、θ = 2π</text>
+  <!-- 實際路徑(lockstep):放大 y 偏差看得見? 用真值數字,直接畫點 -->
+  <path d="M120,380 L360.8,380 L366.8,380 L360.4,137.2 L360.8,134.8 L118.4,145.6 L116,145.6 L129.6,386.8 L129.6,390.4" fill="none" stroke="#5b7fa6" stroke-width="2" marker-end="url(#qBlue)"/>
+  <g fill="#5b7fa6"><circle cx="360.8" cy="380" r="3"/><circle cx="360.4" cy="137.2" r="3"/><circle cx="118.4" cy="145.6" r="3"/><circle cx="129.6" cy="386.8" r="3"/></g>
+  <g font-size="10" fill="#33506b">
+    <text x="372" y="384">leg 0:x 0.602</text>
+    <text x="250" y="128" text-anchor="middle">leg 2:(0.601, 0.607) θ 1.589</text>
+    <text x="20" y="112">leg 4:(−0.004, 0.586) θ 3.179</text>
+    <text x="20" y="412">leg 6:(0.024, −0.017) θ 4.769</text>
+    <text x="140" y="430">終點:(0.024, −0.026) θ 6.352 → 閉合 35 mm、0.075 rad</text>
+  </g>
+  <text x="240" y="260" text-anchor="middle" font-size="11" fill="#5b7fa6">lockstep,每段結束由 /odom 判斷</text>
+  <text x="240" y="276" text-anchor="middle" font-size="10.5" fill="#888">(偏差以真實比例畫,看得到的只有右下角那 26 mm)</text>
+
+  <!-- 右:誤差拆解 -->
+  <text x="470" y="70" font-size="12.5" font-weight="bold" fill="#333">θ 的 0.075 rad 從哪來(lockstep,每段結束時的 odom)</text>
+  <g font-size="11">
+    <text x="470" y="96" fill="#7a1f16" font-weight="bold">轉角過頭(判斷「夠了」晚了幾筆)</text>
+    <text x="490" y="116" fill="#555">leg 1:+0.000   leg 3:+0.016   leg 5:+0.007   leg 7:+0.012</text>
+    <text x="490" y="134" fill="#888">odom 20 ms 一筆、cmd 20 ms 一筆;</text>
+    <text x="490" y="150" fill="#888">0.6 rad/s 下每筆 0.012 rad,「夠了」最多晚兩筆</text>
+    <text x="470" y="176" fill="#7a1f16" font-weight="bold">直線段偏航(剛從原地轉切到直走)</text>
+    <text x="490" y="196" fill="#555">leg 2:+0.018   leg 4:+0.003   leg 6:+0.012</text>
+    <text x="490" y="214" fill="#888">兩輪的 PI 從不同速度起步,加速的前幾十 ms 車還在轉</text>
+  </g>
+  <line x1="470" y1="228" x2="830" y2="228" stroke="#ddd"/>
+  <g font-size="11">
+    <text x="470" y="250" fill="#333" font-weight="bold">realtime 同一件事,兩項各自變大</text>
+    <text x="490" y="270" fill="#555">轉角最多 +0.029、直線段最多 +0.032;閉合 70 mm、0.141 rad</text>
+    <text x="490" y="288" fill="#888">延遲以牆鐘計,Renode 又領先 1%</text>
+  </g>
+  <line x1="470" y1="302" x2="830" y2="302" stroke="#ddd"/>
+  <g font-size="11">
+    <text x="470" y="324" fill="#1f5236" font-weight="bold">里程計本身:odom 對受控體真值</text>
+    <text x="490" y="344" fill="#555">lockstep 與 realtime 都是 4 mm / 1 mrad —— 在 C3 容差內</text>
+    <text x="490" y="362" fill="#888">閉合誤差是控制與延遲的事,里程計誤差是另一個數字,分開報</text>
+  </g>
+  <rect x="470" y="378" width="360" height="60" rx="8" fill="#fafafa" stroke="#ddd"/>
+  <text x="650" y="400" text-anchor="middle" font-size="11" fill="#333">C2 因此改量路徑長:方形走完位移 37 mm,路徑長 2.4 m;</text>
+  <text x="650" y="418" text-anchor="middle" font-size="11" fill="#333">首尾位移 &gt; 100 mm 的舊判準會把一個正確的閉環判成紅。</text>
+  <text x="430" y="458" text-anchor="middle" font-size="10.5" fill="#888">38 篇 §6.1;UPPER=ros ./run_loop.sh --seconds 40,2026-09-16;數字取自 out/ros.log 的每段結束位姿。</text>
+</svg>

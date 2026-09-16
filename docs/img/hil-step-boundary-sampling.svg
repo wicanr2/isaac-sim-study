@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="430" viewBox="0 0 860 430" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="860" height="430" fill="#ffffff"/>
+  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">步邊界取樣的盲點:一個 5 ms 視窗裡跑了兩次控制步,橋接只看得到最後那次</text>
+  <defs>
+    <marker id="sRed" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#b03a2e"/></marker>
+    <marker id="sGrn" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#2e7d4f"/></marker>
+  </defs>
+
+  <!-- 時間軸:1980–1995 ms,每 ms 40 px,起點 x=100 -->
+  <line x1="80" y1="150" x2="760" y2="150" stroke="#333" stroke-width="1.5"/>
+  <g font-size="10.5" fill="#555" text-anchor="middle">
+    <text x="100" y="170">1980</text><text x="300" y="170">1985</text><text x="500" y="170">1990</text><text x="700" y="170">1995 ms</text>
+  </g>
+  <g stroke="#bbb" stroke-width="1">
+    <line x1="100" y1="145" x2="100" y2="155"/><line x1="140" y1="147" x2="140" y2="153"/><line x1="180" y1="147" x2="180" y2="153"/><line x1="220" y1="147" x2="220" y2="153"/><line x1="260" y1="147" x2="260" y2="153"/>
+    <line x1="300" y1="145" x2="300" y2="155"/><line x1="340" y1="147" x2="340" y2="153"/><line x1="380" y1="147" x2="380" y2="153"/><line x1="420" y1="147" x2="420" y2="153"/><line x1="460" y1="147" x2="460" y2="153"/>
+    <line x1="500" y1="145" x2="500" y2="155"/><line x1="540" y1="147" x2="540" y2="153"/><line x1="580" y1="147" x2="580" y2="153"/><line x1="620" y1="147" x2="620" y2="153"/><line x1="660" y1="147" x2="660" y2="153"/><line x1="700" y1="145" x2="700" y2="155"/>
+  </g>
+  <text x="70" y="154" text-anchor="end" font-size="11" fill="#333">SysTick 1 ms</text>
+
+  <!-- 橋接的步(run_for 5 ms)-->
+  <text x="70" y="96" text-anchor="end" font-size="11" fill="#7a3d0f">橋接的步</text>
+  <rect x="100" y="84" width="200" height="18" fill="#fff3e6" stroke="#b35c1e"/>
+  <text x="200" y="97" text-anchor="middle" font-size="10.5" fill="#7a3d0f">step 375</text>
+  <rect x="300" y="84" width="200" height="18" fill="#fff3e6" stroke="#b35c1e" stroke-width="2"/>
+  <text x="400" y="97" text-anchor="middle" font-size="10.5" fill="#7a3d0f">step 376</text>
+  <rect x="500" y="84" width="200" height="18" fill="#fff3e6" stroke="#b35c1e"/>
+  <text x="600" y="97" text-anchor="middle" font-size="10.5" fill="#7a3d0f">step 377</text>
+  <!-- 邊界讀 CCR -->
+  <g font-size="10.5" fill="#b35c1e" text-anchor="middle">
+    <text x="300" y="72">邊界讀 CCR=297</text>
+    <text x="500" y="72">邊界讀 CCR=298</text>
+    <text x="700" y="72">邊界讀 CCR=306</text>
+  </g>
+
+  <!-- 韌體控制步(每 5 ms,在 tick 上)-->
+  <text x="70" y="126" text-anchor="end" font-size="11" fill="#7a1f16">韌體控制步</text>
+  <g fill="#b03a2e">
+    <circle cx="100" cy="122" r="5"/><circle cx="300" cy="122" r="5" stroke="#333" stroke-width="1.5"/><circle cx="500" cy="122" r="5" stroke="#333" stroke-width="1.5"/><circle cx="700" cy="122" r="5"/>
+  </g>
+  <text x="400" y="112" text-anchor="middle" font-size="10" fill="#b03a2e">控制步每 5 ms 一次,剛好落在 run_for 的邊界上:算進這一步或下一步,由執行順序決定</text>
+  <path d="M300,128 L300,150" stroke="#b03a2e" stroke-width="1" stroke-dasharray="2 2"/>
+  <path d="M500,128 L500,150" stroke="#b03a2e" stroke-width="1" stroke-dasharray="2 2"/>
+  <!-- 視窗內兩次 -->
+  <path d="M302,200 Q400,240 498,200" fill="none" stroke="#b03a2e" stroke-width="1.5" marker-end="url(#sRed)"/>
+  <text x="400" y="252" text-anchor="middle" font-size="11" fill="#b03a2e">step 376 的視窗裡兩個邊界 tick 都算進來:先算 305 並發 CAN 框,再算 298 蓋掉 CCR</text>
+  <rect x="300" y="186" width="200" height="14" fill="#fbe3e0" opacity="0.7"/>
+  <text x="304" y="196" font-size="9.5" fill="#7a1f16">305</text>
+  <text x="496" y="196" font-size="9.5" fill="#7a1f16" text-anchor="end">298</text>
+  <text x="70" y="197" text-anchor="end" font-size="11" fill="#7a1f16">TIM3 CCR1</text>
+  <rect x="100" y="186" width="200" height="14" fill="#eee"/><text x="200" y="196" text-anchor="middle" font-size="9.5" fill="#555">297</text>
+  <rect x="500" y="186" width="200" height="14" fill="#eee"/><text x="600" y="196" text-anchor="middle" font-size="9.5" fill="#555">298 → 306</text>
+
+  <!-- 兩種比法 -->
+  <rect x="60" y="280" width="360" height="110" rx="8" fill="#fbe3e0" stroke="#b03a2e"/>
+  <text x="240" y="302" text-anchor="middle" font-size="12" font-weight="bold" fill="#7a1f16">C4 第一版:拿邊界讀到的 CCR 比</text>
+  <text x="240" y="324" text-anchor="middle" font-size="11" fill="#7a1f16">CAN 框說 duty 305,邊界看到 298</text>
+  <text x="240" y="342" text-anchor="middle" font-size="11" fill="#7a1f16">305 在任何一個邊界都沒出現過</text>
+  <text x="240" y="366" text-anchor="middle" font-size="12" fill="#b03a2e" font-weight="bold">305 筆有 2 筆不符</text>
+  <rect x="440" y="280" width="360" height="110" rx="8" fill="#e8f3ec" stroke="#2e7d4f"/>
+  <text x="620" y="302" text-anchor="middle" font-size="12" font-weight="bold" fill="#1f5236">改成:在事件發生的當下取樣</text>
+  <text x="620" y="324" text-anchor="middle" font-size="11" fill="#1f5236">hook 的 FrameSent handler 在同一個模擬時刻</text>
+  <text x="620" y="342" text-anchor="middle" font-size="11" fill="#1f5236">讀 CCR1/CCR2,附一筆 0xFFFF0003 快照回來</text>
+  <text x="620" y="366" text-anchor="middle" font-size="12" fill="#2e7d4f" font-weight="bold">305 / 305 一致</text>
+  <text x="430" y="414" text-anchor="middle" font-size="11" fill="#888">橋接在步邊界看到的是狀態的採樣,不是狀態的歷史;ctrl_steps 總數對(6100 ms 剛好 1220 次),只是分佈在視窗間抖動。</text>
+</svg>
