@@ -49,7 +49,7 @@ Renode 內建的 `platforms/cpus/stm32f4.repl` 對這支韌體夠用——記憶
 | `STM32_Timer`(TIM3) | ARR、CCR1/2、CCMR1(OC1M)、CCER、CR1、CNT | 全部寫入後讀得回;**OC1PE / OC2PE 未實作**(warning);PWM 通道輸出是真的 GPIO 線:PWM1 模式下 `timer.Connections[0].IsSet` 在 CNT < CCR 時為 True | 夠用。橋接讀 CCR 算 duty |
 | 同上,計數週期 | ARR | **週期是 ARR,硬體是 ARR+1**。兩組量測:ARR=999、10 MHz 跑 1 ms → CNT=10(=10000 mod 999);ARR=99 → CNT=1(=10000 mod 99) | PWM 頻率差 0.1%,無感。已修,見 [37 篇](../37-bus-signal-bridging/README.md) §4 |
 | 同上,PWM 腳位初值 | CEN、EGR.UG | 致能後、第一次溢位前腳位不動(CNT=200 < CCR=500 時讀到 False);硬體的 OCxREF 是持續比較 | 5 ms 一步的閉環看不到(第一次溢位在 10 µs 內);已修,同上 |
-| 同上,執行成本 | ARR、CCR(事件率) | 10 kHz 載波 × 3 個 `LimitTimer` = 每秒 3 萬個 C# 事件,自由跑只到 0.55×;ARR 拉到 152 Hz 就 1.17×([35 篇](../35-hil-what-and-why/README.md) §5.1) | lockstep 無感;realtime 模式跟不上牆鐘,`calib.json` 的 `pwm_prescaler` 是繞過去的旋鈕,根因未修 |
+| 同上,執行成本 | ARR、CCR(事件率) | 10 kHz 載波 × 3 個 `LimitTimer` = 每秒 3 萬個 C# 事件,自由跑只到 0.55×;ARR 拉到 152 Hz 就 1.17×([35 篇](../35-hil-what-and-why/README.md) §5.1) | lockstep 無感;realtime 模式跟不上牆鐘。每個事件 50–100 µs 且與回呼內容無關(§5.1),`calib.json` 的 `pwm_prescaler` 是旋鈕,模型裡沒有不改可觀測行為的修法 |
 | `STM32_UART`(USART1/2) | SR(RXNE/TXE/TC)、DR、BRR、CR1 | TXE 恆為 1;RX 有佇列。**TC 在 CPU 寫 DR 後正常設回、TCIE 拉中斷**(本篇探針);既有內部專案在 DMA 傳送下量到「TC 永不重設」,那條路徑本篇沒走,兩者不衝突 | 韌體輪詢 TXE、不等 TC。真硬體同樣正確 |
 | `STMCAN`(CAN1) | MCR/MSR、BTR、TSR、TI0R/TDT0R/TDL0R/TDH0R、RF0R、RI0R/RDT0R/RDL0R/RDH0R、FMR/FM1R/FS1R/FFA1R/FA1R/F0R1/F0R2 | MCR.INRQ=1 → MSR 0xC01(INAK=1,SLAK 清);mailbox 寫入 TXRQ 後 `FrameSent` 立刻觸發;`OnFrameReceived()` 注入的訊框進 FIFO0(FMP0=1、RI0R 帶 STID) | 夠用,**但濾波器有一個坑**(下一段) |
 | `STM32_GPIOPort` | MODER、AFRL、IDR、ODR、BSRR | 輸出腳在 `Connections[n]`;輸入腳用 `OnGPIO(n, v)`;`State` 是 protected,monitor Python 讀不到 | 夠用 |
@@ -90,6 +90,23 @@ main loop
 降 MIPS 有效但代價是模擬的 MCU 變慢(真 F4 約 72 MIPS)。WFI 同樣有效而且保留真實速度:CPU 睡到下一個中斷,Renode 直接跳到那個時刻,1 s 只執行 51 萬條指令。
 
 **WFI 的配套**:迴圈醒來的節奏變成 SysTick 的 1 ms。115200 bps 每毫秒進 11 個 byte,而 DR 只裝得下 1 個——1 ms 輪詢一次一定掉資料。所以 USART1 收訊改成中斷 + ring buffer。**Renode 的 UART 模型有佇列,輪詢版在模擬裡「看起來也對」**;這是模擬器比硬體寬容的地方,設計要以硬體為準。CAN 的 FIFO0 裝得下 3 筆、編碼器 5 ms 一筆,輪詢即可。
+
+### 5.1 第二個瓶頸:timer 事件,一個 50–100 µs
+
+WFI 之後 CPU 幾乎不執行指令,但 realtime 模式下 Renode 仍跟不上牆鐘([35 篇](../35-hil-what-and-why/README.md) §5.1)。拆開量([`renode/perf_timer_events.resc`](../../../examples/hil-stm32/renode/perf_timer_events.resc):開機後 `cpu IsHalted true`,從匯流排設 TIM3 的 ARR、CCER、CCR,自由跑 3 s 牆鐘讀虛擬時間;同一批交錯跑三次,量子 1 ms,docker 2 核,主機 14 核 load 8–11):
+
+| TIM3 設定 | 每秒事件數 | 3 s 牆鐘走了多少虛擬時間(三次) | 每個事件 |
+|---|---|---|---|
+| 10 kHz,兩個比較通道有輸出 | 30,000 | 1.71 / 1.71 / 2.01 s | ≈ 55 µs |
+| 10 kHz,比較通道全關(CCER=0) | 10,000 | 2.86 / 3.08 / 3.37 s | ≈ 100 µs |
+| 1 kHz,兩通道 | 3,000 | 12.4 / 16.0 s(一次異常值不計) | ≈ 70 µs |
+| 152 Hz(ARR=0xFFFF),兩通道 | 456 | 41 / 51 / 59 s | — |
+
+CPU 停住時模擬器只在事件之間跳,152 Hz 能跑到 14–20 倍實時;10 kHz 三個事件就把它壓到 0.6×。**每個 `LimitTimer` 事件 50–100 µs**,與回呼裡做什麼無關:把比較通道回呼裡的 GPIO 操作全部拿掉([`upstream/gen_timer_probes.py`](../../../examples/hil-stm32/renode/upstream/gen_timer_probes.py) 的 `ProbeNoGpio`)速度不變;讓比較通道不排事件(`ProbeNoCc`)才回到只剩主計數器的速度。成本在時間框架處理每一個排程點的路徑上,不在 `STM32_Timer.cs` 的那幾行。
+
+所以這一項**沒有修在模型裡**。PWM 一個週期至少三個事件(上升沿、兩個下降沿),少排事件等於不推腳位的邊緣——接在腳上的 GPIO 埠、External Control 的 `GetState`、任何掛在 `Connections[i]` 上的東西都會讀到舊值。只有「沒人接、沒開中斷、沒開 DMA」的通道可以惰性算,而 vendor 的 `stm32f4.repl` 把 TIM3 的通道接到 `gpioPortA` 6/7,這一區的閉環又靠 External Control 讀 CCR 不讀腳位,要吃到這個省法得先改平台描述。把主計數器也改成惰性(只在暫存器讀寫時從時脈源算 CNT)是另一個規模的改寫,而且事件本身的成本是 Renode 核心的事,不是週邊的事——這裡留 `pwm_prescaler` 當旋鈕,把「每個事件 50–100 µs」這個數字留給上游討論。
+
+主機負載讓同一組設定的數字差三成:同一批交錯跑、看最小值,不拿單次當結論。用容器 cgroup 的 CPU 時間代替牆鐘量過一次,結果對事件數不單調(`RunFor` 期間時間框架的執行緒會空轉),放棄。
 
 ## 6. 驗收:五項,一項是負對照
 

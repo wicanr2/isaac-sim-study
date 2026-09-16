@@ -1,0 +1,31 @@
+# 量 STM32_Timer 的事件成本:開機後把 CPU 停住(CPU 本來就都在 WFI),從匯流排設 TIM3 的
+# ARR(事件率)、CCER(幾個比較通道)、CCR(讓比較事件真的發生),自由跑 3 s 牆鐘讀虛擬時間。
+# 主機負載會讓單次數字差三成以上:同一批交錯跑多次,看最小值與中位數。
+# 用法:-e "$arr=999" -e "$ccer=0x11"(bit0 CC1E、bit4 CC2E)-e "$ccr=300"
+$arr ?= 999
+$ccer ?= 0x11
+$ccr ?= 300
+$quantum ?= "0.001"
+$bin ?= @/w/firmware/build/hilctl.elf
+using sysbus
+mach create "hilctl"
+emulation SetGlobalQuantum $quantum
+machine LoadPlatformDescription @/w/renode/hilctl.repl
+usart2 CreateFileBackend @/w/renode/out/usart2.txt true
+sysbus LoadELF $bin
+emulation RunFor "0.2"
+cpu IsHalted true
+sysbus WriteDoubleWord 0x4000042C $arr
+sysbus WriteDoubleWord 0x40000420 $ccer
+sysbus WriteDoubleWord 0x40000434 $ccr
+sysbus WriteDoubleWord 0x40000438 $ccr
+echo "[timer-events] ARR / CCER / CCR1:"
+sysbus ReadDoubleWord 0x4000042C
+sysbus ReadDoubleWord 0x40000420
+sysbus ReadDoubleWord 0x40000434
+start
+python "import time; time.sleep(3.0)"
+pause
+echo "[timer-events] virtual time after 3.0 s wall:"
+machine ElapsedVirtualTime
+quit

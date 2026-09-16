@@ -13,7 +13,7 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/" class="on"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-韌體的形狀">1. 韌體的形狀</a></li><li class="l2"><a href="#2-平台描述vendor-一份拿掉一行">2. 平台描述:vendor 一份,拿掉一行</a></li><li class="l2"><a href="#3-逐項盤點有是什麼意思">3. 逐項盤點:「有」是什麼意思</a></li><li class="l2"><a href="#4-兩條觀測管道">4. 兩條觀測管道</a></li><li class="l2"><a href="#5-速度瓶頸是-mmio-輪詢解法是-wfi">5. 速度:瓶頸是 MMIO 輪詢,解法是 WFI</a></li><li class="l2"><a href="#6-驗收五項一項是負對照">6. 驗收:五項,一項是負對照</a></li><li class="l2"><a href="#7-monitor-與-ironpython-的坑">7. monitor 與 IronPython 的坑</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/" class="on"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-韌體的形狀">1. 韌體的形狀</a></li><li class="l2"><a href="#2-平台描述vendor-一份拿掉一行">2. 平台描述:vendor 一份,拿掉一行</a></li><li class="l2"><a href="#3-逐項盤點有是什麼意思">3. 逐項盤點:「有」是什麼意思</a></li><li class="l2"><a href="#4-兩條觀測管道">4. 兩條觀測管道</a></li><li class="l2"><a href="#5-速度瓶頸是-mmio-輪詢解法是-wfi">5. 速度:瓶頸是 MMIO 輪詢,解法是 WFI</a></li><li class="l3"><a href="#51-第二個瓶頸timer-事件一個-50100-µs">5.1 第二個瓶頸:timer 事件,一個 50–100 µs</a></li><li class="l2"><a href="#6-驗收五項一項是負對照">6. 驗收:五項,一項是負對照</a></li><li class="l2"><a href="#7-monitor-與-ironpython-的坑">7. monitor 與 IronPython 的坑</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="36-stm32f4-韌體在-renode-上開機型別存在不等於夠用">36 · STM32F4 韌體在 Renode 上開機:「型別存在」不等於「夠用」</h1>
 <p>把一支韌體放進 Renode,第一個問題不是「跑不跑得起來」,是<strong>「它跑起來之後,你怎麼知道它在跑」</strong>。第二個問題是,平台描述裡列了 USART、TIM、CAN,這些模型對你的韌體夠不夠用——而這件事只能逐個暫存器驗,型別名稱不會告訴你。</p>
@@ -77,7 +77,7 @@ CAN 0x181 收編碼器累計 tick    → 輪速量測 + 里程計
 <td>同上,執行成本</td>
 <td>ARR、CCR(事件率)</td>
 <td>10 kHz 載波 × 3 個 <code>LimitTimer</code> = 每秒 3 萬個 C# 事件,自由跑只到 0.55×;ARR 拉到 152 Hz 就 1.17×(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1)</td>
-<td>lockstep 無感;realtime 模式跟不上牆鐘,<code>calib.json</code> 的 <code>pwm_prescaler</code> 是繞過去的旋鈕,根因未修</td>
+<td>lockstep 無感;realtime 模式跟不上牆鐘。每個事件 50–100 µs 且與回呼內容無關(§5.1),<code>calib.json</code> 的 <code>pwm_prescaler</code> 是旋鈕,模型裡沒有不改可觀測行為的修法</td>
 </tr>
 <tr>
 <td><code>STM32_UART</code>(USART1/2)</td>
@@ -155,6 +155,47 @@ main loop
 <p>40 步與連續 1 s 的速率一樣,所以瓶頸不在 <code>RunFor</code> 的切換,是指令執行本身——每次週邊存取都要進 C# 的匯流排分派,一個只做 MMIO 輪詢的迴圈等於把最貴的操作做到滿。</p>
 <p>降 MIPS 有效但代價是模擬的 MCU 變慢(真 F4 約 72 MIPS)。WFI 同樣有效而且保留真實速度:CPU 睡到下一個中斷,Renode 直接跳到那個時刻,1 s 只執行 51 萬條指令。</p>
 <p><strong>WFI 的配套</strong>:迴圈醒來的節奏變成 SysTick 的 1 ms。115200 bps 每毫秒進 11 個 byte,而 DR 只裝得下 1 個——1 ms 輪詢一次一定掉資料。所以 USART1 收訊改成中斷 + ring buffer。<strong>Renode 的 UART 模型有佇列,輪詢版在模擬裡「看起來也對」</strong>;這是模擬器比硬體寬容的地方,設計要以硬體為準。CAN 的 FIFO0 裝得下 3 筆、編碼器 5 ms 一筆,輪詢即可。</p>
+<h3 id="51-第二個瓶頸timer-事件一個-50100-µs">5.1 第二個瓶頸:timer 事件,一個 50–100 µs</h3>
+<p>WFI 之後 CPU 幾乎不執行指令,但 realtime 模式下 Renode 仍跟不上牆鐘(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1)。拆開量(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/perf_timer_events.resc"><code>renode/perf_timer_events.resc</code></a>:開機後 <code>cpu IsHalted true</code>,從匯流排設 TIM3 的 ARR、CCER、CCR,自由跑 3 s 牆鐘讀虛擬時間;同一批交錯跑三次,量子 1 ms,docker 2 核,主機 14 核 load 8–11):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>TIM3 設定</th>
+<th>每秒事件數</th>
+<th>3 s 牆鐘走了多少虛擬時間(三次)</th>
+<th>每個事件</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>10 kHz,兩個比較通道有輸出</td>
+<td>30,000</td>
+<td>1.71 / 1.71 / 2.01 s</td>
+<td>≈ 55 µs</td>
+</tr>
+<tr>
+<td>10 kHz,比較通道全關(CCER=0)</td>
+<td>10,000</td>
+<td>2.86 / 3.08 / 3.37 s</td>
+<td>≈ 100 µs</td>
+</tr>
+<tr>
+<td>1 kHz,兩通道</td>
+<td>3,000</td>
+<td>12.4 / 16.0 s(一次異常值不計)</td>
+<td>≈ 70 µs</td>
+</tr>
+<tr>
+<td>152 Hz(ARR=0xFFFF),兩通道</td>
+<td>456</td>
+<td>41 / 51 / 59 s</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p>CPU 停住時模擬器只在事件之間跳,152 Hz 能跑到 14–20 倍實時;10 kHz 三個事件就把它壓到 0.6×。<strong>每個 <code>LimitTimer</code> 事件 50–100 µs</strong>,與回呼裡做什麼無關:把比較通道回呼裡的 GPIO 操作全部拿掉(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/upstream/gen_timer_probes.py"><code>upstream/gen_timer_probes.py</code></a> 的 <code>ProbeNoGpio</code>)速度不變;讓比較通道不排事件(<code>ProbeNoCc</code>)才回到只剩主計數器的速度。成本在時間框架處理每一個排程點的路徑上,不在 <code>STM32_Timer.cs</code> 的那幾行。</p>
+<p>所以這一項<strong>沒有修在模型裡</strong>。PWM 一個週期至少三個事件(上升沿、兩個下降沿),少排事件等於不推腳位的邊緣——接在腳上的 GPIO 埠、External Control 的 <code>GetState</code>、任何掛在 <code>Connections[i]</code> 上的東西都會讀到舊值。只有「沒人接、沒開中斷、沒開 DMA」的通道可以惰性算,而 vendor 的 <code>stm32f4.repl</code> 把 TIM3 的通道接到 <code>gpioPortA</code> 6/7,這一區的閉環又靠 External Control 讀 CCR 不讀腳位,要吃到這個省法得先改平台描述。把主計數器也改成惰性(只在暫存器讀寫時從時脈源算 CNT)是另一個規模的改寫,而且事件本身的成本是 Renode 核心的事,不是週邊的事——這裡留 <code>pwm_prescaler</code> 當旋鈕,把「每個事件 50–100 µs」這個數字留給上游討論。</p>
+<p>主機負載讓同一組設定的數字差三成:同一批交錯跑、看最小值,不拿單次當結論。用容器 cgroup 的 CPU 時間代替牆鐘量過一次,結果對事件數不單調(<code>RunFor</code> 期間時間框架的執行緒會空轉),放棄。</p>
 <h2 id="6-驗收五項一項是負對照">6. 驗收:五項,一項是負對照</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/io_check.resc"><code>renode/io_check.resc</code></a> 不經橋接,用 monitor 直接餵資料,把韌體這一層獨立驗到綠:</p>
 <div class="tw"><table>
