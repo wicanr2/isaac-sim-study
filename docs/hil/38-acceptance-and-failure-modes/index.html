@@ -13,7 +13,7 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-八項判準在開跑前寫死">1. 八項判準,在開跑前寫死</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-八項判準在開跑前寫死">1. 八項判準,在開跑前寫死</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="38-驗收與失敗形態先閉環再換-isaac">38 · 驗收與失敗形態:先閉環,再換 Isaac</h1>
 <p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後是把受控體換成 Isaac Sim 6.0.1 時七件事各量到什麼。</p>
@@ -236,7 +236,52 @@
 </tr>
 </tbody>
 </table></div>
-<p>ROS 2 Jazzy 在這個拓撲裡的位置是<strong>上位</strong>:一個 rclpy 節點訂 <code>/cmd_vel</code>、發 <code>/odom</code>,對橋接講 UART 框包。Isaac 那側不需要 ros2 bridge——受控體介面是 TCP/UDP 文字協定,不是 topic。</p>
+<h3 id="61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</h3>
+<p>ROS 2 在這個拓撲裡的位置是<strong>上位</strong>。<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/hil_base_driver.py"><code>ros/hil_base_driver.py</code></a>(rclpy 7.1.11,<code>ros:jazzy-ros-base</code>)訂 <code>/cmd_vel</code>、每 20 ms 送一個 cmd_vel 框包;收 odom 框包發 <code>/odom</code> 與 <code>/tf</code>(odom → base_link)。它對橋接講的是韌體那份序列協定(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/hilproto.py"><code>ros/hilproto.py</code></a>,與 Rust 側同一組已知答案),橋接開 <code>--upper tcp-listen:0.0.0.0:3800</code> 之後在上位側只當一條序列線:byte 原樣進 USART1、原樣送回。Isaac 那側不需要 ros2 bridge——受控體介面是 TCP/UDP 文字協定,不是 topic。</p>
+<p>閉環用 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/square_client.py"><code>ros/square_client.py</code></a>:訂 <code>/odom</code>、發 <code>/cmd_vel</code>,四條 0.6 m 的邊、四個 +90° 的角,<strong>每一段的結束由里程計判斷,不是計時</strong>——所以它不在乎 Renode 跑幾倍實時,慢只是等久一點。<code>UPPER=ros ./run_loop.sh --seconds 40</code>:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>lockstep</th>
+<th>realtime</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>C1–C8</td>
+<td>ALL PASS</td>
+<td>ALL PASS</td>
+</tr>
+<tr>
+<td>上位送出 / 韌體收到的 cmd 框包</td>
+<td>1733 / 1733</td>
+<td>1257 / 1257</td>
+</tr>
+<tr>
+<td>回到起點的閉合誤差(odom)</td>
+<td>35 mm、0.075 rad</td>
+<td>70 mm、0.141 rad</td>
+</tr>
+<tr>
+<td>受控體真值末端 (x, y, θ)</td>
+<td>28.2, −23.2, 6.359</td>
+<td>49.1, −50.5, 6.425</td>
+</tr>
+<tr>
+<td>odom 末端</td>
+<td>24, −26, 6.358</td>
+<td>45, −53, 6.424</td>
+</tr>
+<tr>
+<td>牆鐘(方形本身)</td>
+<td>36.5 s(Renode 20 s)</td>
+<td>28.1 s</td>
+</tr>
+</tbody>
+</table></div>
+<p>閉合誤差來自兩個地方,從每段結束時印的位姿可以拆開看(lockstep):轉角<strong>過頭</strong> 0.000 / 0.016 / 0.007 / 0.012 rad——里程計 20 ms 一筆、命令 20 ms 一筆,0.6 rad/s 下每一筆就是 0.012 rad,「夠了」的判斷最多晚兩筆;直線段<strong>偏航</strong> +0.018 / +0.003 / +0.012 rad——剛從原地轉切到直走,兩輪的 PI 從不同的速度起步,車在加速的前幾十毫秒還在轉。realtime 下同樣兩項各自變大(轉角最多 0.029、直線段最多 0.032):延遲以牆鐘計,Renode 又領先 1%。odom 對真值(4 mm、1 mrad)兩者都在 C3 容差內——閉合誤差是<strong>控制與延遲</strong>的事,不是里程計的事,兩個數字要分開看。</p>
+<p>C2 因為這個場景改成量<strong>路徑長</strong>而不是首尾位移:方形走完位移 37 mm,路徑長 2.4 m;C3 的容差也改用路徑長(里程計誤差跟著走過的距離累積)。預設腳本下兩者只差 15 mm(轉彎過渡的弧),數字不變。</p>
 <h2 id="7-建議的分階段">7. 建議的分階段</h2>
 <p>不要一開始就接 Isaac。順序:</p>
 <div class="tw"><table>
@@ -269,13 +314,18 @@
 <td>§6 七項;C3 容差重定</td>
 </tr>
 <tr>
+<td>ROS 2 上位</td>
+<td>上位換 rclpy 節點,閉環由里程計判斷</td>
+<td>C1–C8 全綠;閉合誤差與 odom 誤差分開報</td>
+</tr>
+<tr>
 <td>實板</td>
 <td>Renode 換實體 STM32,橋接換實板後端</td>
 <td>全部重跑;<strong>時序與最壞延遲在這裡才算數</strong></td>
 </tr>
 </tbody>
 </table></div>
-<p>每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第四階段。</p>
+<p>每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第五階段。</p>
 <h2 id="8-檢查清單">8. 檢查清單</h2>
 <ul>
 <li>[ ] 判準寫在程式裡,開跑前定好,任一 FAIL 非零碼離開</li>

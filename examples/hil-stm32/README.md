@@ -10,6 +10,7 @@ PLANT=udp ./run_loop.sh          # 受控體改走 UDP(plant/fake_plant.py,另�
 PLANT=remote ./run_loop.sh       # 受控體在場域 GPU 主機(先 tools/isaac_plant_ctl.sh start),自動開 ssh -L
 FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正版 STM32_Timer(renode/upstream/)
 ./run_loop.sh --mode realtime    # Renode 自由跑,橋接每 5 ms 牆鐘取樣;QUANTUM=0.001 改同步量子(預設 0.0001)
+UPPER=ros ./run_loop.sh --seconds 40   # 上位換 ROS 2 Jazzy(ros:jazzy-ros-base 容器):base driver + 里程計閉環的方形
 ./run_loop.sh --seconds 3 --script "0:200,0;2:0,0"
 ```
 
@@ -23,7 +24,8 @@ FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正�
 | `firmware/` | 裸機 STM32F4 韌體(C,無 HAL / libc):USART1 框包 + CRC16(中斷收訊)、TIM3 PWM、方向/致能 GPIO、PC13 急停、bxCAN 編碼器與狀態、5 ms PI、20 ms odom、WFI | Renode 1.16.1 實測 |
 | `firmware-freertos/` | 同一台車的 FreeRTOS V11.3.1 版(三個 task + USART1 ISR;kernel 最小子集 vendor 在 `kernel/`,MIT);`FW=freertos ./run_loop.sh` | Renode 實測 ALL PASS |
 | `renode/` | vendor 的 1.16.1 `stm32f4.repl`(拿掉 `ApplySVD`)、開機腳本、`hil_hook.py`(IronPython:CAN/UART ↔ TCP,每筆注入回 ack;機器在跑時走 `HandleTimeDomainEvent`)、`boot_check` / `perf_check` / `perf_freerun` / `io_check` 驗收腳本 | 實測 |
-| `bridge-rs/` | Rust 橋接:External Control client、hook 對端、上位協定、Fake/UDP 受控體、lockstep 迴圈、八項驗收 | 實測 |
+| `bridge-rs/` | Rust 橋接:External Control client、hook 對端、上位協定、Fake/UDP/TCP 受控體、lockstep / realtime 迴圈、`--upper tcp-listen` 上位出口、八項驗收 | 實測 |
+| `ros/` | ROS 2 Jazzy 上位:`hil_base_driver.py`(/cmd_vel → 框包,odom → /odom + /tf)、`square_client.py`(里程計閉環方形)、`hilproto.py`(協定 Python 版)、`run_square.sh` | `ros:jazzy-ros-base` 實測 ALL PASS |
 | `plant/fake_plant.py` | UDP 版假受控體(Python),與 Rust 內建 `Fake` 同模型 | 實測 ALL PASS |
 | `plant/isaac_plant.py` | Isaac Sim 6.0.1 版受控體(UDP / TCP;`--probe` 量驗收清單) | 場域 GPU 主機實測 ALL PASS;結論在檔尾與 [38 篇 §6](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
 | `tools/remote.sh`、`tools/isaac_plant_ctl.sh` | 場域 GPU 主機的連線包裝(主機資訊從機密入口腳本推出)與受控體 start/stop/log/load | 實測 |
@@ -36,7 +38,8 @@ FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正�
 | 3500 | `emulation CreateExternalControlServer` | 時間推進、TIM3 CCR、GPIO 讀寫、`g_dbg` 讀(Renode External Control API) |
 | 3600 | `hil_hook.py` | CAN 訊框雙向、UART 位元組雙向、ack、匯流排快照(13 bytes 一筆) |
 | 3456 | `CreateServerSocketTerminal` | USART1 原始位元組,留作對照,橋接不用 |
-| 3700 | `fake_plant.py` / `isaac_plant.py` | 受控體 UDP 文字協定 |
+| 3700 | `fake_plant.py` / `isaac_plant.py` | 受控體 UDP / TCP 文字協定 |
+| 3800 | 橋接 `--upper tcp-listen` | 上位 UART 框包原樣進出(ROS 2 節點連這裡) |
 
 ## 產物
 
@@ -50,4 +53,5 @@ FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正�
 - 兩次跑 CSV 逐 byte 相同;`--negative bad-crc` → `bad_crc=300`、位移 0、C2 紅
 - 韌體 text 4732 B;WFI 讓 1 s 虛擬時間從 13.4 s 降到 1.83 s
 - Isaac 6.0.1 受控體(遠端,`ssh -L`):每步 52 ms;odom 對真值 3.4 / 2.0 mm、0.028 rad;滑移 3.1%;兩次 CSV 逐 byte 相同(CPU 求解)
+- ROS 2 方形閉環(0.6 m 邊、里程計判段):lockstep 閉合 35 mm / 0.075 rad、realtime 70 mm / 0.141 rad;odom 對真值 4 mm / 1 mrad;兩者 ALL PASS
 - `--mode realtime`(主機閒時):每步 5.0 ms 牆鐘;`pwm_prescaler` 0 → Renode 0.46× 實時、車只走 1/3(ALL PASS + `[warn]`);9 → 1.01×,末端對 lockstep 差 17–31 mm / 0.03–0.06 rad,兩次跑不同

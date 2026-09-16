@@ -16,6 +16,7 @@ mod ec;
 mod hook;
 mod plant;
 mod proto;
+mod upper;
 
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -37,6 +38,7 @@ struct Args {
     slip: f64,
     dbg_extra: u32,
     mode: String,
+    upper: String,
 }
 
 fn parse_args() -> Args {
@@ -55,6 +57,7 @@ fn parse_args() -> Args {
         slip: 0.0,
         dbg_extra: 0,
         mode: "lockstep".into(),
+        upper: "script".into(),
     };
     let v: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -78,6 +81,8 @@ fn parse_args() -> Args {
             "--dbg-extra" => a.dbg_extra = val.parse().expect("--dbg-extra"),
             // lockstep(預設):橋接推進 Renode;realtime:Renode 自由跑,橋接以牆鐘 dt 取樣/注入
             "--mode" => a.mode = val,
+            // 上位:script(預設,內建腳本)或 tcp-listen:ADDR(外部上位連進來講 UART 框包,例如 ROS 2 節點)
+            "--upper" => a.upper = val,
             other => {
                 eprintln!("未知參數 {other}");
                 std::process::exit(2);
@@ -216,7 +221,21 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let mut can_status_count = 0u32;
     let mut sent_cmds = 0u32;
     let mut corrupted = 0u32;
+    // 外部上位:橋接只當序列線;用同一個 Parser 數它送進來的 cmd_vel 框包(C7)並記最後一個命令
+    let mut up: Option<upper::Upper> = match a.upper.strip_prefix("tcp-listen:") {
+        Some(addr) => Some(upper::Upper::listen(addr).expect("--upper tcp-listen")),
+        None if a.upper == "script" => None,
+        None => { eprintln!("--upper 只接受 script 或 tcp-listen:ADDR"); std::process::exit(2); }
+    };
+    let mut up_parser = proto::Parser::default();
+    let mut up_last_cmd = (0i16, 0i16);
+    let mut up_any_move = false;
+    if let Some(u) = up.as_ref() {
+        println!("[effect] upper=tcp-listen({}) script 忽略;等外部上位連線", a.upper);
+        let _ = u;
+    }
     let mut last_plant = plant::PlantOut::default();
+    let mut path_len_mm = 0.0f64;
     let mut can_cmp_total = 0u32;
     let mut can_cmp_mismatch = 0u32;
     let wall0 = Instant::now();
@@ -236,8 +255,23 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     for k in 0..steps {
         let t_s = k as f64 * dt_s;
 
-        // 1. 上位:每個回報週期送一次 cmd_vel
-        if k % report_every == 0 {
+        // 1. 上位:內建腳本每個回報週期送一次 cmd_vel;外部上位則把這一步之前收到的 byte 全部注入
+        if let Some(u) = up.as_mut() {
+            let bytes = u.poll_rx();
+            if !bytes.is_empty() {
+                hk.uart_send(&bytes).expect("uart_send");
+                hk.wait_acks().expect("ack");
+                let mut fr = Vec::new();
+                up_parser.feed(&bytes, &mut fr);
+                for (ty, pl) in fr {
+                    if ty == proto::MSG_CMD_VEL && pl.len() == 4 {
+                        sent_cmds += 1;
+                        up_last_cmd = (i16::from_le_bytes([pl[0], pl[1]]), i16::from_le_bytes([pl[2], pl[3]]));
+                        if up_last_cmd != (0, 0) { up_any_move = true; }
+                    }
+                }
+            }
+        } else if k % report_every == 0 {
             let (v, w) = cmd_at(&script, t_s);
             let mut f = proto::cmd_vel(v, w);
             if a.negative == "bad-crc" {
@@ -295,6 +329,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         let mut pending_can: Option<(i16, i16)> = None;
         for r in hk.take_inbox() {
             if r.id == hook::ID_UART_FROM_MCU {
+                if let Some(u) = up.as_mut() { u.tx(&r.data); }
                 parser.feed(&r.data, &mut frames);
             } else if r.id == c.can_id_motor_status && r.data.len() >= 6 {
                 let dl = i16::from_le_bytes([r.data[0], r.data[1]]);
@@ -346,6 +381,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             dt_s
         };
         let out = pl.step(k, plant_dt, cmd).expect("plant step");
+        path_len_mm += ((out.x_mm - last_plant.x_mm).powi(2) + (out.y_mm - last_plant.y_mm).powi(2)).sqrt();
         last_plant = out;
         t_plant += ph.elapsed();
         let ph = Instant::now();
@@ -357,7 +393,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         t_hook += ph.elapsed();
 
         // 6. 紀錄
-        let (cv, cw) = cmd_at(&script, t_s);
+        let (cv, cw) = if up.is_some() { up_last_cmd } else { cmd_at(&script, t_s) };
         let cs = can_status.unwrap_or((0, 0, 0, 0));
         writeln!(log, "{k},{t_us},{cv},{cw},{sp_l},{sp_r},{meas_l},{meas_r},{duty_l_dbg},{ccr1},{ccr2},{},{},{},{flags},\
 {:.1},{:.1},{:.4},{:.1},{:.1},{},{},{},{},{},{},{},{},{},{},{}",
@@ -416,14 +452,20 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let expect_time = steps as u64 * c.control_period_ms * 1000;
     let renode_el_us = t_end - t0;
     let expect_odom = if realtime { renode_el_us / (c.report_period_ms * 1000) } else { (steps / report_every) as u64 };
-    let dist = (last_plant.x_mm.powi(2) + last_plant.y_mm.powi(2)).sqrt();
+    // 走過的路徑長,不是首尾位移:方形閉環回到原點時位移 ≈ 0,但車確實走了 2.4 m;
+    // C3 的容差也該隨路徑長放大(里程計誤差跟著走過的距離累積,不是跟著離起點多遠)
+    let dist = path_len_mm;
     // 容差 = 韌體數值誤差(25 mm / 0.03 rad)+ 里程計對真值的系統性差(2% 距離)+ 受控體滑移(--slip)
     let tol_mm = 25.0 + (0.02 + a.slip) * dist;
     let tol_rad = 0.03 + a.slip * last_plant.th_rad.abs();
     let dx = (last_odom.x_mm as f64 - last_plant.x_mm).abs();
     let dy = (last_odom.y_mm as f64 - last_plant.y_mm).abs();
     let dth = (last_odom.th_mrad as f64 / 1000.0 - last_plant.th_rad).abs();
-    let expect_move = script.iter().any(|&(_, v, w)| v != 0 || w != 0);
+    let expect_move = if up.is_some() { up_any_move } else { script.iter().any(|&(_, v, w)| v != 0 || w != 0) };
+    if let Some(u) = up.as_ref() {
+        println!("[run] upper: connected_once={} connected_at_end={} cmd_frames_from_upper={} bad_crc_from_upper={}",
+            u.connected_once, u.is_connected(), sent_cmds, up_parser.bad_crc);
+    }
 
     let checks = vec![
         // realtime:Renode 跑多快由主機決定,不是驗收項;驗收的是「三個時鐘互相一致」——
@@ -432,8 +474,8 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         Check { name: if realtime { "C1 (realtime) 0 < Renode 時間 ≤ 牆鐘 + 5%" } else { "C1 時間完整性 renode_t == steps*dt" },
             pass: if realtime { renode_el_us > 0 && renode_el_us as f64 <= wall.as_micros() as f64 * 1.05 + 20_000.0 } else { renode_el_us == expect_time },
             detail: format!("{} vs {}", renode_el_us, if realtime { wall.as_micros() as u64 } else { expect_time }) },
-        Check { name: "C2 車有動(腳本有命令時)", pass: !expect_move || dist > 100.0,
-            detail: format!("plant 位移 {:.1} mm", dist) },
+        Check { name: "C2 車有動(有非零命令時,路徑長 > 100 mm)", pass: !expect_move || dist > 100.0,
+            detail: format!("plant 路徑長 {:.1} mm", dist) },
         Check { name: "C3 韌體 odom 對受控體真值", pass: dx <= tol_mm && dy <= tol_mm && dth <= tol_rad,
             detail: format!("dx={dx:.1} dy={dy:.1} dth={dth:.4} (tol {tol_mm:.1} mm / {tol_rad:.4} rad)") },
         Check { name: "C4 兩條獨立管道一致:每筆 CAN 狀態 duty == 同一時刻的 CCR 快照", pass: can_cmp_total > 0 && can_cmp_mismatch == 0,

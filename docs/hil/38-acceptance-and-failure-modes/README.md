@@ -114,7 +114,24 @@ step 376: 前一步 CCR=297,這一步 CCR=298,下一步 CCR=306;CAN 框說 305
 | 6 | C1–C8 | **ALL PASS**:C3 dx 3.4 / dy 2.0 mm、dθ 0.0276 rad(容差 87.8 mm / 0.0737 rad,slip 0.05);負對照位移 0、C2 紅。每步 52 ms 牆鐘(隧道約 +19 ms、Isaac 步進約 +3 ms) |
 | 7 | 決定性 | 兩次跑 CSV **全部欄位逐 byte 相同**。`is_gpu_dynamics_enabled()` = True 而 `get_physics_sim_device()` = cpu——兩個值都記,決定性在這個組合下成立;GPU 求解沒測 |
 
-ROS 2 Jazzy 在這個拓撲裡的位置是**上位**:一個 rclpy 節點訂 `/cmd_vel`、發 `/odom`,對橋接講 UART 框包。Isaac 那側不需要 ros2 bridge——受控體介面是 TCP/UDP 文字協定,不是 topic。
+### 6.1 上位換成 ROS 2 Jazzy:方形閉環
+
+ROS 2 在這個拓撲裡的位置是**上位**。[`ros/hil_base_driver.py`](../../../examples/hil-stm32/ros/hil_base_driver.py)(rclpy 7.1.11,`ros:jazzy-ros-base`)訂 `/cmd_vel`、每 20 ms 送一個 cmd_vel 框包;收 odom 框包發 `/odom` 與 `/tf`(odom → base_link)。它對橋接講的是韌體那份序列協定([`ros/hilproto.py`](../../../examples/hil-stm32/ros/hilproto.py),與 Rust 側同一組已知答案),橋接開 `--upper tcp-listen:0.0.0.0:3800` 之後在上位側只當一條序列線:byte 原樣進 USART1、原樣送回。Isaac 那側不需要 ros2 bridge——受控體介面是 TCP/UDP 文字協定,不是 topic。
+
+閉環用 [`ros/square_client.py`](../../../examples/hil-stm32/ros/square_client.py):訂 `/odom`、發 `/cmd_vel`,四條 0.6 m 的邊、四個 +90° 的角,**每一段的結束由里程計判斷,不是計時**——所以它不在乎 Renode 跑幾倍實時,慢只是等久一點。`UPPER=ros ./run_loop.sh --seconds 40`:
+
+| | lockstep | realtime |
+|---|---|---|
+| C1–C8 | ALL PASS | ALL PASS |
+| 上位送出 / 韌體收到的 cmd 框包 | 1733 / 1733 | 1257 / 1257 |
+| 回到起點的閉合誤差(odom) | 35 mm、0.075 rad | 70 mm、0.141 rad |
+| 受控體真值末端 (x, y, θ) | 28.2, −23.2, 6.359 | 49.1, −50.5, 6.425 |
+| odom 末端 | 24, −26, 6.358 | 45, −53, 6.424 |
+| 牆鐘(方形本身) | 36.5 s(Renode 20 s) | 28.1 s |
+
+閉合誤差來自兩個地方,從每段結束時印的位姿可以拆開看(lockstep):轉角**過頭** 0.000 / 0.016 / 0.007 / 0.012 rad——里程計 20 ms 一筆、命令 20 ms 一筆,0.6 rad/s 下每一筆就是 0.012 rad,「夠了」的判斷最多晚兩筆;直線段**偏航** +0.018 / +0.003 / +0.012 rad——剛從原地轉切到直走,兩輪的 PI 從不同的速度起步,車在加速的前幾十毫秒還在轉。realtime 下同樣兩項各自變大(轉角最多 0.029、直線段最多 0.032):延遲以牆鐘計,Renode 又領先 1%。odom 對真值(4 mm、1 mrad)兩者都在 C3 容差內——閉合誤差是**控制與延遲**的事,不是里程計的事,兩個數字要分開看。
+
+C2 因為這個場景改成量**路徑長**而不是首尾位移:方形走完位移 37 mm,路徑長 2.4 m;C3 的容差也改用路徑長(里程計誤差跟著走過的距離累積)。預設腳本下兩者只差 15 mm(轉彎過渡的弧),數字不變。
 
 ## 7. 建議的分階段
 
@@ -126,9 +143,10 @@ ROS 2 Jazzy 在這個拓撲裡的位置是**上位**:一個 rclpy 節點訂 `/cm
 | 韌體 | 加 Renode 裡的韌體 | C1–C8 全綠;負對照轉紅 |
 | 受控體換 UDP | 假受控體改另一個行程 | 與內建版末端一致、途中容差內 |
 | Isaac | 受控體換 `isaac_plant.py` | §6 七項;C3 容差重定 |
+| ROS 2 上位 | 上位換 rclpy 節點,閉環由里程計判斷 | C1–C8 全綠;閉合誤差與 odom 誤差分開報 |
 | 實板 | Renode 換實體 STM32,橋接換實板後端 | 全部重跑;**時序與最壞延遲在這裡才算數** |
 
-每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第四階段。
+每一階段結束才往下一階段,每一階段都留下可重跑的指令與 CSV。這一區做到第五階段。
 
 ## 8. 檢查清單
 

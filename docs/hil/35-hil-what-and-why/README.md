@@ -111,7 +111,7 @@ STM32F4 韌體(Renode;之後是實板)
 | 10 kHz(`pwm_prescaler` 0) | 0.55× | 0.75× | 0.73× |
 | 152 Hz(執行期把 ARR 改 0xFFFF) | — | 1.17× | — |
 
-接上橋接(每 5 ms 牆鐘 6 個 External Control 讀取 + hook 三次往返)再量,6 s 預設腳本:
+接上橋接(每 5 ms 牆鐘 6 個 External Control 讀取 + hook 三次往返)再量,6 s 預設腳本(主機 14 核、當時 load 7–9;同一設定在 load 12 時量到 0.30×——這個比值是主機當下的狀態,不是常數,所以橋接每次都印):
 
 | PWM 載波 | 量子 | renode/wall | 末端位姿 plant(x, y, θ) | 對 lockstep 的差 |
 |---|---|---|---|---|

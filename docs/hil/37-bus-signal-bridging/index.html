@@ -195,6 +195,7 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 <p><strong>一步延遲</strong>:第 5 步注入的訊框,韌體在下一步的 <code>run_for</code> 裡才讀。6 s 跑完 <code>enc_frames</code> = 1199 = steps − 1。</p>
 <p><strong>每步成本</strong>:主機閒時 8–13 ms(分段:<code>run_for</code> 9.3 ms、hook 2.2 ms、<code>ec_read</code> 1.0 ms),主機另有負載時 29.6 ms——橋接每步印 <code>[run] per-step wall: ec_read/hook/plant/run_for</code> 四段,看數字不用猜。要更快的話,順序是:把 drain 換成「等一個明確的 end-of-step 紀錄」(省 1 ms)、把 GPIO 三次讀合併成一次 <code>ODR</code> 匯流排讀(省 2 RPC)、最後才是把 <code>run_for</code> 拉長。</p>
 <p><code>--mode realtime</code> 用同一個迴圈,只換第 2 步:開跑前經 hook 送 <code>START</code>(<code>0xFFFF0010</code>,hook 呼叫 <code>StartAll()</code> 後 ack),每步不再 <code>run_for</code>,改 sleep 到下一個 5 ms 牆鐘刻度;受控體的 dt 用實際過了多久;跑完送 <code>PAUSE</code>(<code>0xFFFF0011</code>)。每步 5.0–5.2 ms(<code>ec_read</code> 1.8 + hook 2.4 + sleep 0.4),三個時鐘的分歧與後果量在 <a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1。</p>
+<p><strong>上位出口 <code>--upper tcp-listen:ADDR</code></strong>(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/bridge-rs/src/upper.rs"><code>src/upper.rs</code></a>):外部上位(ROS 2 節點)連進來,橋接在這一側只當序列線——每步開頭把收到的 byte 全部注入 USART1、等 ack;MCU 吐出的 byte 原樣送回。它不解語意,只用同一個 <code>Parser</code> 數框包(C7)、記最後一個命令進 CSV。內建腳本與外部上位送到韌體的 byte 完全相同,韌體分不出來——這是拓撲那張表「每個行程只認一種語言」的實作。</p>
 <h2 id="6-受控體介面">6. 受控體介面</h2>
 <p>橋接對受控體只暴露兩個結構:</p>
 <pre><code>MotorCmd { duty_l, duty_r: 0..1;  fwd_l, fwd_r, enabled: bool }

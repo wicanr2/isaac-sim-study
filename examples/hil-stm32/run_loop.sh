@@ -10,6 +10,8 @@
 #   FW=freertos ./run_loop.sh           # 韌體換成 FreeRTOS 版(firmware-freertos/)
 #   TIMERFIX=1 ./run_loop.sh            # TIM3 換成 renode/upstream/STM32_Timer_Fixed.cs(執行期載入的修正版)
 #   PLANT=remote ./run_loop.sh          # 受控體在場域 GPU 主機:自動開 ssh -L 隧道,受控體那端要先起好(埠 3700,TCP)
+#   UPPER=ros ./run_loop.sh --seconds 40  # 上位換成 ROS 2 Jazzy:另起 ros:jazzy-ros-base 容器跑 ros/run_square.sh
+#                                         #(base driver + 方形閉環),橋接 --upper tcp-listen:0.0.0.0:3800
 #
 # 全部在 docker:Renode 容器 --network none;橋接容器共用它的 netns(還是不通外網)。
 # 只停自己起的那一個容器(名稱帶 PID),不碰其他 docker 資源。
@@ -20,6 +22,8 @@ RENODE_IMAGE="${RENODE_IMAGE:-antmicro/renode:latest}"       # 1.16.1
 ARM_IMAGE="${ARM_IMAGE:-renode-golang-arm:bookworm}"          # arm-none-eabi-gcc 12.2
 RUST_IMAGE="${RUST_IMAGE:-rust:1-slim-bookworm}"
 PY_IMAGE="${PY_IMAGE:-ghcr.io/astral-sh/uv:python3.12-bookworm-slim}"   # 只用標準庫
+ROS_IMAGE="${ROS_IMAGE:-ros:jazzy-ros-base}"                  # rclpy 7.1.11 + tf2_msgs
+UPPER="${UPPER:-script}"
 PLANT="${PLANT:-fake}"
 RESC=hilctl; [ "${TIMERFIX:-0}" = 1 ] && RESC=hilctl-timerfix
 FW="${FW:-baremetal}"
@@ -33,6 +37,7 @@ esac
 CPUS="${CPUS:-2}"
 NAME="hil-renode-$$"
 PNAME="hil-plant-$$"
+RNAME="hil-ros-$$"
 TUNNEL_PID=""
 COMMON=(--rm --cpus "$CPUS" --memory 2g --pids-limit 256
         --log-opt max-size=10m --log-opt max-file=3
@@ -53,6 +58,7 @@ mkdir -p out renode/out
 cleanup() {
   docker stop -t 2 "$NAME" >/dev/null 2>&1 || true
   docker stop -t 2 "$PNAME" >/dev/null 2>&1 || true
+  docker stop -t 2 "$RNAME" >/dev/null 2>&1 || true
   # remote.sh 用 exec 起 ssh,所以 TUNNEL_PID 就是 ssh 本身
   [ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null || true
 }
@@ -99,15 +105,31 @@ case "$PLANT" in
     ;;
 esac
 
-echo "[bridge] 開跑:${PLANT_ARG[*]} $*"
+UPPER_ARG=()
+if [ "$UPPER" = ros ]; then
+  echo "[ros] 啟動 $RNAME($ROS_IMAGE,ros/run_square.sh,與 Renode 同 netns;log → out/ros.log)"
+  docker run -d --name "$RNAME" --network "container:$NAME" --cpus 1 --memory 1g --pids-limit 128 \
+    --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
+    -e "SIDE_M=${SIDE_M:-0.6}" -e "TIMEOUT_S=${TIMEOUT_S:-120.0}" \
+    -v "$PWD":/w -w /w/ros "$ROS_IMAGE" bash ./run_square.sh >/dev/null
+  UPPER_ARG=(--upper tcp-listen:0.0.0.0:3800)
+elif [ "$UPPER" != script ]; then
+  echo "UPPER 只接受 script 或 ros"; exit 2
+fi
+
+echo "[bridge] 開跑:${PLANT_ARG[*]} ${UPPER_ARG[*]} $*"
 set +e
 docker run --rm --network "container:$NAME" --cpus "$CPUS" --memory 1g --pids-limit 128 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w -w /w "$RUST_IMAGE" \
-  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "$@"
+  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "${UPPER_ARG[@]}" "$@"
 rc=$?
 set -e
 docker logs "$NAME" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > out/renode.log || true
+if [ "$UPPER" = ros ]; then
+  docker logs "$RNAME" > out/ros.log 2>&1 || true
+  grep "^\[square\]" out/ros.log || echo "[square] 沒有結果行(方形沒跑完?看 out/ros.log)"
+fi
 [ "$PLANT" = "udp" ] && docker logs "$PNAME" > out/plant.log 2>&1 || true
 echo "[done] rc=$rc  CSV: out/run.csv  Renode log: out/renode.log  USART2: renode/out/usart2.txt"
 exit $rc
