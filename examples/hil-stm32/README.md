@@ -35,6 +35,7 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 | `calib.json` | 韌體、橋接、受控體共用的唯一參數來源;`tools/gen_calib.py` 產 `firmware/calib.h`。`pwm_prescaler` 0 = 10 kHz 載波(Renode 自由跑 0.46×)、9 = 1 kHz(1.0×);不影響 lockstep 結果。`accel_limit_mm_s2` / `alpha_limit_mrad_s2`(韌體斜坡)、`ff_gain_q8`、`pi_kp_q8` / `pi_ki_q8`、`motor_tau_s` / `motor_accel_max_mm_s2` / `motor_deadband_duty`(三個受控體共用的馬達層) | 步階與 C9,[38 篇 §1.1](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
 | `tools/io_check.sh` | 在 Renode 容器裡跑 `renode/io_check.resc`:monitor 扮演板子(pull-up、PING、CNT、PC 腳),A–J 十項含 IWDG 重啟 | 實測 |
 | `tools/topview.py`、`tools/topview.sh` | 閉環 CSV(+ `--scan-log` 的雷射 + world.json)→ 俯視圖錄影 mp4/gif + 靜態軌跡圖:真值車、odom 幽靈車、雷射、碰撞、旗標條、輪速、CCR;末幀 = CSV 末列 | 實測,[38 篇 §6.5](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
+| `tools/topcam_check.py` | Isaac 真實俯視相機的幀(`isaac_plant.py --topview`)對 CSV 真值:每幀底盤藍像素重心 → 世界座標 → 偏差(判準 < 0.2 m);幀序列編 mp4 | 60 幀最大 9 mm |
 | `tools/rt_stats.py` | realtime CSV 的節拍統計:步距平均/最大、停頓次數、分段 Renode/牆鐘比、CCR 跳動 | 實測 |
 | `tools/step_response.py`、`tools/tune_sweep.sh` | 從 CSV 算步階響應(上升、超調、±2% 帶、最大加速度);kp × ki 網格掃描,每格用橋接 `--cfg` 經 External Control 改 `g_cfg`,不重編韌體 | 實測 |
 | `firmware/` | 裸機 STM32F4 韌體(C,無 HAL / libc)。`control.c`/`control.h` 是兩版共用的:USART1 框包 + CRC16、GPIO/TIM2-TIM4 encoder mode/TIM3 PWM/bxCAN/IWDG 的暫存器序列、5 ms 斜坡 + PI + 前饋、安全閘門(PC13 急停、PC14/15 驅動器故障、PC0 保險桿、堵轉、PING 心跳)、里程計、20 ms 回報、`g_dbg`/`g_cfg` 版面;`main.c` 只有 SysTick、USART1 ISR + ring buffer、主迴圈排程、餵狗 | Renode 1.16.1 實測;重構前後 lockstep CSV 逐 byte 相同 |
@@ -47,7 +48,7 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 | `world.json`、`plant/world.py`、`tools/gen_map.py` | 假雷射與碰撞的世界(房間 + 方塊 + goal);Rust `world.rs` 同一份公式;地圖從同一份 JSON 產(預設只畫牆,方塊靠雷射) | 實測 |
 | `plant/fake_plant.py` | UDP 版假受控體(Python),與 Rust 內建 `Fake` 同模型 | 實測 ALL PASS |
 | `plant/isaac_plant.py` | Isaac Sim 6.0.1 版受控體(UDP / TCP;`--probe` 量驗收清單;`--world` 牆與方塊當碰撞體、`omni.physx` 射線當雷射、`collided` 旗標) | 場域 GPU 主機實測 ALL PASS(含 Nav2、五個 `--fault`);結論在檔尾與 [38 篇 §6、§6.4](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
-| `tools/remote.sh`、`tools/isaac_plant_ctl.sh` | 場域 GPU 主機的連線包裝(主機資訊從機密入口腳本推出)與受控體 sync/start/stop/log/load/probe(`WORLD=1` 帶世界) | 實測 |
+| `tools/remote.sh`、`tools/isaac_plant_ctl.sh` | 場域 GPU 主機的連線包裝(主機資訊從機密入口腳本推出)與受控體 sync/start/stop/log/load/probe/fetch(`WORLD=1` 帶世界、`TOPVIEW=1` 開真實俯視相機) | 實測 |
 | `run_loop.sh` | 起 Renode 容器 → 橋接共用 netns → 跑 → 收 log → 停容器 | 實測 |
 
 ## 埠與訊號

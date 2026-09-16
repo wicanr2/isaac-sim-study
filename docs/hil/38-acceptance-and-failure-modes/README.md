@@ -292,7 +292,18 @@ Nav2 用最小組合(`ros/Dockerfile.nav2`:map_server、NavFn、DWB、bt_navigat
 | <img src="../../img/hil-topview-nav2-blind-fake.gif" width="420" alt="blind-scan 負對照,假受控體:撞方塊後凍結,韌體 STALL,driver 鎖住取消 goal"> | <img src="../../img/hil-topview-nav2-blind-isaac.gif" width="420" alt="blind-scan 負對照,Isaac:撞方塊後輪子打滑,odom 幽靈車一路走到 goal,真值車停在方塊上"> |
 | `blind-scan`,假受控體:5.7 s 撞方塊、輪子凍結 → **STALL** → driver 鎖住、goal `canceled`(§6.3 的鎖在這裡順便起了作用) | `blind-scan`,Isaac:同一個方塊,輪子打滑、沒有 STALL,**odom 幽靈車一路走到 goal、真值車停在方塊上**(§6.4) |
 
-Isaac 版的**真實俯視相機**(在場景裡掛一台正交相機、每 N 步 `app.update()` 抓一幀)還沒做:要量每幀多少 ms、以及渲染有沒有碰到物理(判準是開相機的 CSV 逐 byte 不變),等場域主機閒時。
+Isaac 版另有**真實俯視相機**(`isaac_plant.py --topview DIR`,`tools/isaac_plant_ctl.sh` 的 `TOPVIEW=1`):場景裡掛一台正交相機(5 m 高、看 −Z、畫面 +y 朝上,與上面的圖同向;USD 的 aperture 單位是場景單位的十分之一,視野 4.8 m 就寫 48)、一盞 DomeLight(headless 沒燈會全黑)、幾何用 `displayColor` 上色,`omni.replicator` 的 render product + `rgb` annotator 每 20 個 CMD(100 ms)抓一幀 PNG,跑完 `tools/isaac_plant_ctl.sh fetch` 抓回、[`tools/topcam_check.py`](../../../examples/hil-stm32/tools/topcam_check.py) 對照並編成 mp4。三件做了才知道的事(2026-09-16,場域 GPU 主機):
+
+- **timeline 沒 play 時 `app.update()` 不會讓 annotator 有資料**——20 個 update 之後仍是空的,要 `rep.orchestrator.step()` 才渲染(與 [31 篇](../../fleet/31-omnigraph-and-ros2-bridge-truth/README.md) headless 下 graph 不 tick 是同一件事)。
+- **`orchestrator.step()` 的 `delta_time` 預設 `None` 會讓 timeline 走一格,物理跟著多走一步**:開機 settle 從第 1 步就不同(`ticks_r` 0 → −1),整份 CSV 600 多個欄位不同、末端 901.2 / −1.1 / 0.8601。改 `delta_time=0.0, rt_subframes=1` 之後**開相機的 CSV 與沒開的逐 byte 相同**,每幀 62 ms(10 fps 模擬時間 → 6 s 的跑多 3.7 s)。「靜止時連抓 5 幀位姿逐 bit 相同」這個測試抓不到它——睡著的剛體本來就不動,要拿整份 CSV 比。
+- 相機幀裡底盤藍色像素的重心對 CSV 真值:**60 幀最大 9 mm**(判準 < 200 mm);`--probe` 第 10 項印同一個數字。
+
+同一個 `blind-scan` 場景的相機版(`UPPER=nav2 PLANT=remote`,`TOPVIEW=1`;900 幀對 CSV 真值最大 8 mm;每幀 72 ms):
+
+<p align="center"><img src="../../img/hil-topcam-nav2-blind-isaac.gif" width="480" alt="Isaac 真實俯視相機:blind-scan 負對照,車頂著方塊角打滑,前 60 s、1 fps"></p>
+
+
+
 
 ## 7. 建議的分階段
 

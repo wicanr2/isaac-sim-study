@@ -14,6 +14,9 @@
     橋接 → 受控體:CMD <seq> <dt_ms> <duty_l 0..1000> <duty_r> <fwd_l 0/1> <fwd_r> <en 0/1>
     受控體 → 橋接:ENC <seq> <ticks_l> <ticks_r> <x_mm> <y_mm> <th_rad> <vl_mm_s> <vr_mm_s> [collided 0/1]
     受控體 → 橋接(有 --world 時每 period_ms 一筆,在 ENC 之前):SCAN <seq> <n> <r0 m> ... <r(n-1)>
+--topview DIR:真實俯視相機(正交、5 m 高、DomeLight、displayColor 上色),omni.replicator 的 render product + rgb annotator
+每 --topview-every 個 CMD 抓一幀 PNG。資料只有 rep.orchestrator.step() 才會出現(timeline 沒 play,app.update() 20 次仍是空的);
+step 的 delta_time 一定要 0.0,預設 None 會讓物理多走一步、CSV 從第 1 步就不同(2026-09-16 量到);delta_time=0 時 CSV 逐 byte 不變,每幀 62 ms。
 --world world.json:牆與方塊進場景當靜態碰撞體(車真的會被擋住),雷射用 PhysX 的射線查詢
 (omni.physx 的 scene query;--probe 會把介面 dir() 列出來,並和 plant/world.py 的解析解逐束對照),
 collided 旗標用與另外兩個受控體同一份公式(plant/world.py 的 collides:半徑 robot_radius_m 的圓碰到牆線)
@@ -27,6 +30,7 @@ collided 旗標用與另外兩個受控體同一份公式(plant/world.py 的 col
 import argparse
 import json
 import math
+import pathlib
 import socket
 import sys
 
@@ -38,11 +42,13 @@ ap.add_argument("--tcp", action="store_true")
 ap.add_argument("--probe", action="store_true", help="不開 socket:跑固定命令量驗收清單 1/2/3/5/7 後離開")
 ap.add_argument("--world", default=None, help="world.json:牆與方塊當靜態碰撞體、PhysX 射線當雷射、collided 旗標")
 ap.add_argument("--laser-z", type=float, default=0.15, help="雷射高度 m(要高過車身:輪頂 0.10、底盤頂 0.08)")
+ap.add_argument("--topview", default=None, help="真實俯視相機錄影:每 --topview-every 步 app.update() 抓一幀,PNG 寫到這個目錄(issue #6)")
+ap.add_argument("--topview-every", type=int, default=20, help="每幾個 CMD 抓一幀(20 × 5 ms = 100 ms)")
+ap.add_argument("--topview-size", default="640x480")
 args = ap.parse_args()
 calib = json.load(open(args.calib, encoding="utf-8"))
 world = None
 if args.world:
-    import pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
     from world import World
     world = World(args.world)
@@ -194,6 +200,37 @@ cj.CreateLocalPos0Attr(Gf.Vec3f(-0.12, 0, -0.5 * r))
 cj.CreateCollisionEnabledAttr(False)
 # ⚠ 32 篇:腳輪半徑只有驅動輪一半時在平地會被彈飛——那是三輪叉車型;這裡是球關節腳輪,要實跑確認
 
+# ---- 俯視相機(--topview):正交、從 5 m 高往下看、畫面 +y 朝上,與 tools/topview.py 的圖同一個方向 ----
+# 沒有燈 headless 會渲染成全黑,所以掛一盞 DomeLight;幾何用 displayColor 上色(底盤藍、輪黑、牆深灰、方塊灰、地白)
+topcam = None
+if args.topview:
+    from pxr import UsdLux  # noqa: E402
+    UsdLux.DomeLight.Define(stage, Sdf.Path("/World/dome")).CreateIntensityAttr(1000.0)
+    def paint(prim_path, rgb):
+        g = UsdGeom.Gprim(stage.GetPrimAtPath(prim_path)); g.CreateDisplayColorAttr([Gf.Vec3f(*rgb)])
+    paint("/World/ground", (0.96, 0.96, 0.96)); paint("/World/robot/chassis", (0.08, 0.40, 0.75))
+    for w_ in ("wheel_l", "wheel_r", "caster"): paint(f"/World/robot/{w_}", (0.15, 0.15, 0.15))
+    if world is not None:
+        for pth in ("x_min", "x_max", "y_min", "y_max"): paint(f"/World/walls/{pth}", (0.27, 0.27, 0.27))
+        for i in range(len(world.boxes)): paint(f"/World/boxes/b{i}", (0.40, 0.40, 0.40))
+    W_, H_ = (int(v) for v in args.topview_size.split("x"))
+    if world is not None:
+        cx_, cy_ = (world.x_min + world.x_max) / 2, (world.y_min + world.y_max) / 2
+        view_w = max(world.x_max - world.x_min + 0.6, (world.y_max - world.y_min + 0.6) * W_ / H_)
+    else:
+        cx_, cy_, view_w = 0.5, 0.0, 3.0
+    topcam = UsdGeom.Camera.Define(stage, Sdf.Path("/World/topcam"))
+    topcam.CreateProjectionAttr(UsdGeom.Tokens.orthographic)
+    # USD:aperture 的單位是「場景單位的十分之一」(metersPerUnit=1 → 0.1 m);正交投影下 aperture 就是視野寬
+    topcam.CreateHorizontalApertureAttr(view_w * 10.0)
+    topcam.CreateVerticalApertureAttr(view_w * 10.0 * H_ / W_)
+    topcam.CreateClippingRangeAttr(Gf.Vec2f(0.1, 20.0))
+    topcam.AddTranslateOp().Set(Gf.Vec3d(cx_, cy_, 5.0))   # 不轉:相機沿自己的 −Z 看 = 世界 −Z,畫面上方 = 世界 +Y
+    # orchestrator.step 預設 delta_time=None 會讓 timeline 走一格(物理跟著多走一步,開機 settle 就不同);delta_time=0 只渲染
+    TOPVIEW = {"dir": pathlib.Path(args.topview), "every": max(1, args.topview_every), "n": 0, "cx": cx_, "cy": cy_, "view_w": view_w, "W": W_, "H": H_,
+               "step_kw": {"delta_time": 0.0, "rt_subframes": 1}}
+    TOPVIEW["dir"].mkdir(parents=True, exist_ok=True)
+
 app.update()
 
 physx = get_physx_interface()
@@ -255,6 +292,68 @@ def pose():
     # 寫成 atan2(rot[1][0], rot[0][0]) 會得到正負號相反的 yaw(2026-09-15 第一次閉環:-0.873 vs +0.901)。
     yaw = math.atan2(rot[0][1], rot[0][0])
     return t[0] * 1000.0, t[1] * 1000.0, yaw
+
+# ---- 俯視相機的 render product + rgb annotator(omni.replicator);介面名稱在 --probe 印出來 ----
+_rgb_ann = None
+def topview_init():
+    global _rgb_ann
+    import omni.replicator.core as rep
+    rp = rep.create.render_product(str(topcam.GetPath()), (TOPVIEW["W"], TOPVIEW["H"]))
+    _rgb_ann = rep.AnnotatorRegistry.get_annotator("rgb")
+    _rgb_ann.attach([rp])
+    TOPVIEW["rep"] = rep
+    # 暖機:render product 建好之後,rgb 資料要幾個 app.update() 之後才會出現(量到幾個就印幾個);
+    # 沒 play timeline 時若一直是空的,改走 rep.orchestrator.step()
+    warm = 0
+    for _ in range(20):
+        app.update(); warm += 1
+        if np.asarray(_rgb_ann.get_data()).size > 0:
+            break
+    if np.asarray(_rgb_ann.get_data()).size == 0:
+        import inspect
+        TOPVIEW["step_sig"] = str(inspect.signature(rep.orchestrator.step))
+        rep.orchestrator.step(**TOPVIEW.get("step_kw", {}))
+        TOPVIEW["use_step"] = True
+    arr = np.asarray(_rgb_ann.get_data())
+    TOPVIEW["timeline_playing"] = omni.timeline.get_timeline_interface().is_playing()
+    print(f"[isaac_plant] topview: timeline playing={TOPVIEW['timeline_playing']} step_kw={TOPVIEW['step_kw']}", flush=True)
+    print(f"[isaac_plant] topview: render_product {TOPVIEW['W']}x{TOPVIEW['H']} 正交 視野寬 {TOPVIEW['view_w']:.2f} m 中心 ({TOPVIEW['cx']:.2f}, {TOPVIEW['cy']:.2f});"
+          f" 暖機 {warm} 個 update 後資料 shape={arr.shape} dtype={arr.dtype} orchestrator.step={TOPVIEW.get('use_step', False)} {TOPVIEW.get('step_sig', '')}", flush=True)
+
+
+def topview_capture(tag=None):
+    """app.update() 一次(timeline 沒 play,Kit 不會步進物理)→ 讀 rgb → 寫 PNG。回傳 (frame_no, 路徑)。"""
+    import time as _time
+    t0 = _time.perf_counter()
+    if TOPVIEW.get("use_step"):
+        TOPVIEW["rep"].orchestrator.step(**TOPVIEW.get("step_kw", {}))
+    else:
+        app.update()
+    arr = np.asarray(_rgb_ann.get_data())
+    n_extra = 0
+    while arr.size == 0 and n_extra < 10:   # 資料晚一兩個 update 才到的話再等
+        app.update(); n_extra += 1; arr = np.asarray(_rgb_ann.get_data())
+    if arr.size == 0:
+        raise RuntimeError("topview: rgb annotator 一直是空的")
+    if arr.ndim == 3 and arr.shape[2] == 4:
+        arr = arr[:, :, :3]
+    fn = TOPVIEW["n"]; TOPVIEW["n"] += 1
+    path = TOPVIEW["dir"] / (f"{tag}.png" if tag else f"frame_{fn:05d}.png")
+    try:
+        from PIL import Image
+        Image.fromarray(np.ascontiguousarray(arr)).save(str(path))
+    except ImportError:
+        path = path.with_suffix(".ppm")
+        with open(path, "wb") as f:
+            f.write(b"P6\n%d %d\n255\n" % (arr.shape[1], arr.shape[0])); f.write(np.ascontiguousarray(arr).tobytes())
+    return fn, path, (_time.perf_counter() - t0) * 1000.0
+
+
+def topview_px(x_m, y_m):
+    """世界座標 → 像素(畫面上方 = +y)。給 --probe 對照用。"""
+    sx = TOPVIEW["W"] / TOPVIEW["view_w"]
+    return (x_m - TOPVIEW["cx"]) * sx + TOPVIEW["W"] / 2, TOPVIEW["H"] / 2 - (y_m - TOPVIEW["cy"]) * sx
+
 
 # ---- 雷射:PhysX 射線查詢;介面名稱不猜,啟動時列出 dir() 裡帶 raycast 的名字,沒有就退回解析解 ----
 sq = get_physx_scene_query_interface()
@@ -341,6 +440,28 @@ def probe():
     print(f"[probe] 8 雷射 {len(rc)} 束用 {scan_impl} 花 {(t1 - t0) * 1000:.1f} ms;對解析解 max|Δ|={diffs[worst] * 1000:.1f} mm(束 {worst},"
           f" {rc[worst]:.3f} vs {an[worst]:.3f});>5 mm 的束數={sum(d > 0.005 for d in diffs)};"
           f" 束 0/90/180/270 = {rc[0]:.3f}/{rc[90]:.3f}/{rc[180]:.3f}/{rc[270]:.3f}(解析 {an[0]:.3f}/{an[90]:.3f}/{an[180]:.3f}/{an[270]:.3f})", flush=True)
+    if topcam is not None:
+        topview_init()
+        fn, path, ms = topview_capture("probe_start")
+        arr = np.asarray(_rgb_ann.get_data())[:, :, :3]
+        # 找底盤藍色像素的重心,對照真值位姿算出來的像素;差 < 車半徑(0.2 m 換算的像素)才算相機對得上
+        blue = (arr[:, :, 2].astype(int) - arr[:, :, 0] > 60) & (arr[:, :, 2].astype(int) - arr[:, :, 1] > 20) & (arr[:, :, 2] > 120)
+        ys, xs = np.nonzero(blue)
+        x, y, th = pose()
+        ex, ey = topview_px(x / 1000.0, y / 1000.0)
+        sx = TOPVIEW["W"] / TOPVIEW["view_w"]
+        # 抓幀不准碰物理:靜止時連抓 5 幀,前後位姿與輪角要逐 bit 相同
+        p0 = (world_pos(chassis.GetPrim()), world_pos(wl.GetPrim()), _unwrap.get("l"), sim_t)
+        for _ in range(5):
+            topview_capture("probe_still")
+        p1 = (world_pos(chassis.GetPrim()), world_pos(wl.GetPrim()), _unwrap.get("l"), sim_t)
+        print(f"[probe] 10 抓 5 幀不步進:位姿 / 輪角 / sim_t 前後 {'逐 bit 相同' if p0 == p1 else '不同!'} {p0 if p0 != p1 else ''} {p1 if p0 != p1 else ''}", flush=True)
+        if len(xs):
+            print(f"[probe] 10 俯視相機 一幀 {ms:.1f} ms;底盤藍像素 {len(xs)} 個,重心 ({xs.mean():.1f}, {ys.mean():.1f}) px,真值換算 ({ex:.1f}, {ey:.1f}) px;"
+                  f" 差 {math.hypot(xs.mean() - ex, ys.mean() - ey) / sx * 1000:.0f} mm(判準 < 200);寫 {path}", flush=True)
+        else:
+            print(f"[probe] 10 俯視相機 一幀 {ms:.1f} ms;**沒找到底盤的藍色像素**(燈 / 顏色 / 視野有問題);寫 {path};"
+                  f" 像素值範圍 {arr.min()}..{arr.max()} 平均 {arr.mean():.1f}", flush=True)
     # 9:往 +x 滿速 1 m/s 跑 5 s(world.json 預設世界會先撞到方塊 2 的角、被頂歪):看真值停在哪、
     #    collided 旗標何時亮(解析公式:0.2 m 圓)、頂住後輪子有沒有繼續轉(編碼器 vs 真值)
     drv_l.GetTargetVelocityAttr().Set(math.degrees(V_FULL / R_MM))
@@ -357,6 +478,14 @@ def probe():
     print(f"[probe] 9 往 +x 滿速 {5 * n} 步:真值 x={x:.1f} mm y={y:.1f} θ={th:.3f} 底盤前緣 x={front * 1000:.1f} mm(x_max 牆內側 {world.x_max * 1000:.0f});"
           f" collided 旗標第一次亮在步 {first_flag[0] if first_flag else '沒亮'} x={first_flag[1] if first_flag else 0:.1f} mm;"
           f" 左輪角 撞前 {first_flag[2] if first_flag else 0:.1f} → 末 {_unwrap['l']:.1f} rad(還在轉 = 抵牆打滑,編碼器會繼續數)", flush=True)
+    if topcam is not None:
+        fn, path, ms = topview_capture("probe_end")
+        arr = np.asarray(_rgb_ann.get_data())[:, :, :3]
+        blue = (arr[:, :, 2].astype(int) - arr[:, :, 0] > 60) & (arr[:, :, 2].astype(int) - arr[:, :, 1] > 20) & (arr[:, :, 2] > 120)
+        ys, xs = np.nonzero(blue)
+        ex, ey = topview_px(x / 1000.0, y / 1000.0); sx = TOPVIEW["W"] / TOPVIEW["view_w"]
+        print(f"[probe] 10 俯視相機 末幀:藍像素重心 ({xs.mean() if len(xs) else -1:.1f}, {ys.mean() if len(xs) else -1:.1f}) 真值換算 ({ex:.1f}, {ey:.1f});"
+              f" 差 {(math.hypot(xs.mean() - ex, ys.mean() - ey) / sx * 1000) if len(xs) else -1:.0f} mm;寫 {path}", flush=True)
 
 
 if args.probe:
@@ -364,6 +493,8 @@ if args.probe:
     app.close()
     sys.exit(0)
 
+if topcam is not None:
+    topview_init()
 host, port = args.bind.rsplit(":", 1)
 if args.tcp:
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -409,6 +540,9 @@ def handle(line: str):
     ticks_r = int(math.floor(ar / (2 * math.pi) * TPR))
     x, y, th = pose()
     n_cmd += 1
+    if topcam is not None and (n_cmd - 1) % TOPVIEW["every"] == 0:
+        _, _, ms = topview_capture()
+        TOPVIEW["ms"] = TOPVIEW.get("ms", 0.0) + ms
     out = ""
     collided = 0
     if world is not None:
@@ -421,7 +555,8 @@ def handle(line: str):
     if n_cmd % 200 == 0:
         print(f"[isaac_plant] {n_cmd} cmds x={x - x0:.1f} y={y - y0:.1f} th={th - th0:.4f} "
               f"ticks=({ticks_l},{ticks_r}) joint_state_fallback={fallback_used}"
-              + (f" collided={collided}" if world is not None else ""), flush=True)
+              + (f" collided={collided}" if world is not None else "")
+              + (f" topview_frames={TOPVIEW['n']} 每幀 {TOPVIEW.get('ms', 0.0) / max(1, TOPVIEW['n']):.1f} ms" if topcam is not None else ""), flush=True)
     out += f"ENC {seq} {ticks_l} {ticks_r} {x - x0:.6f} {y - y0:.6f} {th - th0:.9f} {vl:.6f} {vr:.6f} {collided}\n"
     return out
 

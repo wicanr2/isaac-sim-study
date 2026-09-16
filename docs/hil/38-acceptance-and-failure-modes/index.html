@@ -657,7 +657,15 @@
 </tr>
 </tbody>
 </table></div>
-<p>Isaac 版的<strong>真實俯視相機</strong>(在場景裡掛一台正交相機、每 N 步 <code>app.update()</code> 抓一幀)還沒做:要量每幀多少 ms、以及渲染有沒有碰到物理(判準是開相機的 CSV 逐 byte 不變),等場域主機閒時。</p>
+<p>Isaac 版另有<strong>真實俯視相機</strong>(<code>isaac_plant.py --topview DIR</code>,<code>tools/isaac_plant_ctl.sh</code> 的 <code>TOPVIEW=1</code>):場景裡掛一台正交相機(5 m 高、看 −Z、畫面 +y 朝上,與上面的圖同向;USD 的 aperture 單位是場景單位的十分之一,視野 4.8 m 就寫 48)、一盞 DomeLight(headless 沒燈會全黑)、幾何用 <code>displayColor</code> 上色,<code>omni.replicator</code> 的 render product + <code>rgb</code> annotator 每 20 個 CMD(100 ms)抓一幀 PNG,跑完 <code>tools/isaac_plant_ctl.sh fetch</code> 抓回、<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/tools/topcam_check.py"><code>tools/topcam_check.py</code></a> 對照並編成 mp4。三件做了才知道的事(2026-09-16,場域 GPU 主機):</p>
+<ul>
+<li><strong>timeline 沒 play 時 <code>app.update()</code> 不會讓 annotator 有資料</strong>——20 個 update 之後仍是空的,要 <code>rep.orchestrator.step()</code> 才渲染(與 <a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/">31 篇</a> headless 下 graph 不 tick 是同一件事)。</li>
+<li><strong><code>orchestrator.step()</code> 的 <code>delta_time</code> 預設 <code>None</code> 會讓 timeline 走一格,物理跟著多走一步</strong>:開機 settle 從第 1 步就不同(<code>ticks_r</code> 0 → −1),整份 CSV 600 多個欄位不同、末端 901.2 / −1.1 / 0.8601。改 <code>delta_time=0.0, rt_subframes=1</code> 之後<strong>開相機的 CSV 與沒開的逐 byte 相同</strong>,每幀 62 ms(10 fps 模擬時間 → 6 s 的跑多 3.7 s)。「靜止時連抓 5 幀位姿逐 bit 相同」這個測試抓不到它——睡著的剛體本來就不動,要拿整份 CSV 比。</li>
+<li>相機幀裡底盤藍色像素的重心對 CSV 真值:<strong>60 幀最大 9 mm</strong>(判準 &lt; 200 mm);<code>--probe</code> 第 10 項印同一個數字。</li>
+</ul>
+<p>同一個 <code>blind-scan</code> 場景的相機版(<code>UPPER=nav2 PLANT=remote</code>,<code>TOPVIEW=1</code>;900 幀對 CSV 真值最大 8 mm;每幀 72 ms):</p>
+<p align="center"><img src="../../img/hil-topcam-nav2-blind-isaac.gif" width="480" alt="Isaac 真實俯視相機:blind-scan 負對照,車頂著方塊角打滑,前 60 s、1 fps"></p>
+
 <h2 id="7-建議的分階段">7. 建議的分階段</h2>
 <p>不要一開始就接 Isaac。順序:</p>
 <div class="tw"><table>

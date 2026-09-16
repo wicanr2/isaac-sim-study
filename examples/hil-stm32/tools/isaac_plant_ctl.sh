@@ -6,11 +6,14 @@ set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 R=tools/remote.sh
 WORLD_ARG=""; [ "${WORLD:-0}" = 1 ] && WORLD_ARG="--world world.json"
+# TOPVIEW=1:真實俯視相機,每 100 ms 一幀 PNG 到 ~/hil-plant/topcam/(start 前清空);fetch 把它 rsync 回 out/topcam_isaac/
+[ "${TOPVIEW:-0}" = 1 ] && WORLD_ARG="$WORLD_ARG --topview topcam"
 case "${1:-}" in
   sync)
     for f in plant/isaac_plant.py plant/world.py calib.json world.json; do $R up "$f" '~/hil-plant/'; done
     echo "[isaac_plant] synced: isaac_plant.py world.py calib.json world.json → ~/hil-plant/" ;;
   start)
+    [ "${TOPVIEW:-0}" = 1 ] && $R ssh 'rm -rf ~/hil-plant/topcam'
     $R ssh "cd ~/hil-plant && { [ -f isaac_plant.pid ] && kill \$(cat isaac_plant.pid) 2>/dev/null; sleep 1; } ;
             (nohup ~/isaac-run.sh isaac_plant.py --bind 127.0.0.1:3700 --calib calib.json --tcp $WORLD_ARG > isaac_plant.log 2>&1 & echo \$! > isaac_plant.pid)"
     for i in $(seq 1 60); do
@@ -22,6 +25,7 @@ case "${1:-}" in
   stop) $R ssh 'cd ~/hil-plant && [ -f isaac_plant.pid ] && kill $(cat isaac_plant.pid) 2>/dev/null && rm -f isaac_plant.pid && echo "[isaac_plant] stopped" || echo "[isaac_plant] 沒在跑"' ;;
   log)  $R ssh 'grep "isaac_plant\]" ~/hil-plant/isaac_plant.log | tail -${2:-5}' ;;
   load) $R ssh 'uptime | sed "s/.*load/load/"; nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader; nvidia-smi -q | grep "License Status"' ;;
+  fetch) mkdir -p "${2:-out/topcam_isaac}"; $R down '~/hil-plant/topcam/' "${2:-out/topcam_isaac}/"; ls "${2:-out/topcam_isaac}" | wc -l ;;
   probe) $R ssh "cd ~/hil-plant && ~/isaac-run.sh isaac_plant.py --calib calib.json --probe $WORLD_ARG 2>&1 | grep '\[probe\]'" ;;
-  *) echo "用法: $0 sync|start|stop|log [n]|load|probe   (WORLD=1 給 start/probe 加 --world world.json)"; exit 2 ;;
+  *) echo "用法: $0 sync|start|stop|log [n]|load|probe|fetch [dir]   (WORLD=1 加 --world world.json;TOPVIEW=1 加 --topview topcam)"; exit 2 ;;
 esac
