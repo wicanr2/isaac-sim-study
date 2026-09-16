@@ -35,6 +35,10 @@ pub fn encode(msg_type: u8, payload: &[u8]) -> Vec<u8> {
     f
 }
 
+pub fn ping() -> Vec<u8> {
+    encode(MSG_PING, &[])
+}
+
 pub fn cmd_vel(v_mm_s: i16, w_mrad_s: i16) -> Vec<u8> {
     let mut p = Vec::with_capacity(4);
     p.extend_from_slice(&v_mm_s.to_le_bytes());

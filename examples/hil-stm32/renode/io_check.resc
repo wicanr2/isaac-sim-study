@@ -1,65 +1,131 @@
-# 第 2 步驗收(不經橋接):UART 中斷收訊、CAN RX、控制迴圈 → PWM/GPIO,以及負對照(壞 CRC)。
-# g_dbg @0x200000f8:magic +0, tick +4, ctrl_steps +8, sp_l +C, sp_r +10, meas_l +14, meas_r +18,
-#   duty_l +1C, duty_r +20, enc_l +24, enc_r +28, enc_frames +2C, cmd_frames +30, bad_crc +34,
-#   flags +38, init_err +3C, rx_overflow +40
+# 第 2 步驗收(不經橋接):UART 中斷收訊、編碼器、控制迴圈 → PWM/GPIO、五項安全 I/O,以及負對照(壞 CRC)。
+# g_dbg / g_cfg 的位址由 io_check.py 從 firmware/build/hilctl.sym 查,不寫死。
+# 板子上的東西(pull-up、驅動器 nFAULT、保險桿接點、上位的 PING)這裡都由 monitor 扮演。
 include @/w/renode/hilctl.resc
 include @/w/renode/io_check.py
+# 低有效的三個輸入腳先拉高 = 接上 pull-up(Renode 的輸入腳預設 0,會被當成「觸發」)
+pin 14 1
+pin 15 1
+pin 0 1
 emulation RunFor "0.100"
+echo "[boot] resets(expect 0)、boot_csr(Renode 給重置值 0x0e000000,IWDGRSTF bit29 = 0)"
+dbg "resets"
+dbg "boot_csr"
 
 echo "[A] 壞 CRC 的 CMD_VEL → bad_crc 應 +1、cmd_frames 仍 0"
 uart1_feed "A55A04012C010000406F"
 emulation RunFor "0.010"
-echo "    bad_crc:"
-sysbus ReadDoubleWord 0x2000012C
-echo "    cmd_frames:"
-sysbus ReadDoubleWord 0x20000128
+dbg "bad_crc"
+dbg "cmd_frames"
 
-echo "[B] 正確的 CMD_VEL v=300 → cmd_frames 1、sp_l/sp_r 300、flags bit0 ENABLED、duty>0、CCR1>0、PB8/PB9/PB10 高"
+echo "[B] PING + CMD_VEL v=300,30 ms → cmd_frames 1、ping_frames 1、sp_l/sp_r 在斜坡上(1500 mm/s² × 30 ms = 45)、flags ENABLED、duty>0、CCR1>0、PB8/PB9/PB10 高"
+ping
 uart1_feed "A55A04012C0100004090"
 emulation RunFor "0.030"
-echo "    cmd_frames:"
-sysbus ReadDoubleWord 0x20000128
-echo "    sp_l / sp_r:"
-sysbus ReadDoubleWord 0x20000104
-sysbus ReadDoubleWord 0x20000108
-echo "    flags:"
-sysbus ReadDoubleWord 0x20000130
-echo "    duty_l:"
-sysbus ReadDoubleWord 0x20000114
+dbg "cmd_frames"
+dbg "ping_frames"
+dbg "sp_l"
+dbg "sp_r"
+dbg "flags"
+dbg "duty_l"
 echo "    TIM3 CCR1 / CCR2:"
 sysbus ReadDoubleWord 0x40000434
 sysbus ReadDoubleWord 0x40000438
 echo "    GPIOB ODR (expect bits 8,9,10 = 0x700):"
 sysbus ReadDoubleWord 0x40020414
 
-echo "[C] 編碼器訊框:左右各 +20 tick / 5 ms → 20*314159/4096/5 = 306.8 mm/s"
-can_feed "181" "1400000014000000"
+echo "[C] 編碼器:TIM2/TIM4 CNT 各 +20 tick / 5 ms,兩次 → meas_l = 20*314159/4096/5 = 306.8 → 306"
+enc_add 20 20
 emulation RunFor "0.005"
-can_feed "181" "2800000028000000"
+enc_add 20 20
 emulation RunFor "0.005"
-echo "    enc_frames:"
-sysbus ReadDoubleWord 0x20000124
-echo "    enc_l:"
-sysbus ReadDoubleWord 0x2000011C
-echo "    meas_l (expect 306):"
-sysbus ReadDoubleWord 0x2000010C
+dbg "enc_l"
+dbg "meas_l"
 
-echo "[D] 急停:PC13 拉高 → flags bit1、duty 0、PB10 低"
-sysbus.gpioPortC OnGPIO 13 true
+echo "[D] 急停:PC13 拉高 → flags ESTOP、duty 0、PB10 低(ODR 0x300)"
+pin 13 1
 emulation RunFor "0.010"
-echo "    flags:"
-sysbus ReadDoubleWord 0x20000130
-echo "    duty_l:"
-sysbus ReadDoubleWord 0x20000114
-echo "    GPIOB ODR:"
+dbg "flags"
+dbg "duty_l"
 sysbus ReadDoubleWord 0x40020414
+pin 13 0
 
-echo "[E] 命令逾時:放開急停、不再送命令,跑 600 ms → flags bit2、duty 0"
-sysbus.gpioPortC OnGPIO 13 false
+echo "[F] 驅動器故障:PC14 拉低 → flags DRV_FAULT、duty 0、PB10 低;拉高後 10 ms 內 ENABLED 回來"
+ping
+uart1_feed "A55A04012C0100004090"
+pin 14 0
+emulation RunFor "0.010"
+dbg "flags"
+dbg "duty_l"
+sysbus ReadDoubleWord 0x40020414
+pin 14 1
+emulation RunFor "0.010"
+dbg "flags"
+
+echo "[G] 保險桿:PC0 拉低 + CMD_VEL v=300 → flags BUMPER、sp 往 0 走(前進被拒);CMD_VEL v=-200 → sp 變負(倒車被接受)"
+ping
+pin 0 0
+uart1_feed "A55A04012C0100004090"
+emulation RunFor "0.100"
+dbg "flags"
+dbg "sp_l"
+uart1_feed "A55A040138FF00002490"
+emulation RunFor "0.100"
+dbg "sp_l"
+pin 0 1
+
+echo "[H] 心跳:CMD_VEL v=0 清狀態;PING + CMD_VEL v=300,之後只送命令不送 PING:+350 ms flags HB_LOST(300 ms 起)、sp 在往 0 走;+600 ms sp 0(命令逾時 500 ms 還沒到)"
+uart1_feed "A55A04010000000019C0"
+emulation RunFor "0.050"
+ping
+uart1_feed "A55A04012C0100004090"
+emulation RunFor "0.100"
+dbg "sp_l"
+uart1_feed "A55A04012C0100004090"
+emulation RunFor "0.250"
+dbg "flags"
+dbg "sp_l"
+uart1_feed "A55A04012C0100004090"
+emulation RunFor "0.250"
+dbg "flags"
+dbg "sp_l"
+
+echo "[I] 堵轉:CMD_VEL v=0 清狀態;PING + CMD_VEL v=300、編碼器不動 → +100 ms duty 在爬、+200 ms duty ≥ 600、再 200 ms flags STALL 且 duty 0;命令歸零 → 解"
+uart1_feed "A55A04010000000019C0"
+emulation RunFor "0.050"
+ping
+uart1_feed "A55A04012C0100004090"
+emulation RunFor "0.100"
+dbg "duty_l"
+ping
+uart1_feed "A55A04012C0100004090"
+emulation RunFor "0.100"
+dbg "duty_l"
+dbg "flags"
+ping
+uart1_feed "A55A04012C0100004090"
+emulation RunFor "0.100"
+ping
+uart1_feed "A55A04012C0100004090"
+emulation RunFor "0.100"
+dbg "flags"
+dbg "duty_l"
+ping
+uart1_feed "A55A04010000000019C0"
+emulation RunFor "0.010"
+dbg "flags"
+
+echo "[E] 命令逾時:不再送命令,600 ms → flags CMD_STALE(HB_LOST 也會亮);rx_overflow 0"
 emulation RunFor "0.600"
-echo "    flags:"
-sysbus ReadDoubleWord 0x20000130
-echo "    rx_overflow (expect 0):"
-sysbus ReadDoubleWord 0x20000138
+dbg "flags"
+dbg "rx_overflow"
+
+echo "[J] IWDG:tick 約 2100,g_cfg.hang_at_ms = 2300 → 韌體死掉(PWM 週邊照跑);IWDG 1 s 後整顆重置 → resets 1、tick 從頭數、flags WDT_RESET"
+dbg "tick_ms"
+cfg_write "hang_at_ms" 2300
+emulation RunFor "1.300"
+dbg "resets"
+dbg "tick_ms"
+dbg "flags"
 hil_hook_stats
 quit

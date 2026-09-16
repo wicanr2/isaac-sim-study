@@ -98,7 +98,7 @@
 <p>下位機韌體裡有五類邏輯,Python 運動學一條都沒有:</p>
 <ol>
 <li><strong>協定與 CRC</strong>:壞框包要被拒、不能半解析。<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §2 的負對照就是把每個命令的 CRC 弄壞,看韌體擋不擋。</li>
-<li><strong>安全閘門</strong>:沒命令 500 ms 要停、急停腳拉高要停,而且停的動作要<strong>發生在 PWM 與致能腳上</strong>,不是只改一個旗標。</li>
+<li><strong>安全閘門</strong>:沒命令 500 ms 要停、急停腳拉高要停、驅動器報錯要停、輪子卡住要停、撞到東西要拒絕前進、上位心跳斷了要降速,韌體自己死了要有看門狗把整顆重置——而且停的動作要<strong>發生在 PWM 與致能腳上</strong>,不是只改一個旗標。每一道閘都有一個能讓它失效的負對照(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.2):韌體死掉而看門狗沒開時,馬達用最後的 duty 轉了 4 s,車跑出 1.6 m。</li>
 <li><strong>閉環控制</strong>:PI 的積分要在停車時清空,否則下次起步會衝。</li>
 <li><strong>動態限制</strong>:上位發的 <code>cmd_vel</code> 是階躍,把它變成斜坡是下位的事。沒有斜坡時 PI 把 duty 一步拉滿,車的加速度只剩馬達層在限——假受控體量到 9300 mm/s²,Isaac 的 <code>DriveAPI</code> 直接吃 duty 時 91400、超調 60%;加了斜坡與馬達層之後兩者都在 1900 以下、超調 3%(38 篇 §1.1)。</li>
 <li><strong>時序</strong>:5 ms 控制、20 ms 回報、1 ms tick——這些在真 MCU 上互相搶 CPU。</li>

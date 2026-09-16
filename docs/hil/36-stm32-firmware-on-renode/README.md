@@ -14,8 +14,9 @@
 USART1 收 cmd_vel 框包(CRC16)→ v, w
 TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_source`;舊路 CAN 0x181 訊框仍在)
 每 5 ms:v, w 各自過斜坡(accel / alpha)→ 兩輪設定點 → PI + 速度前饋 → TIM3 PWM(CCR1/CCR2)+ 方向腳 PB8/PB9 + 致能腳 PB10
-每 20 ms:USART1 回 odom、CAN 0x201 回馬達狀態
-安全:500 ms 沒命令 → 停;PC13 急停拉高 → 停
+每 20 ms:USART1 回 odom、CAN 0x201 回馬達狀態(flags byte 同一份)
+安全:500 ms 沒命令 → 停;PC13 急停 → 停;PC14/15 驅動器故障(低)→ 停;PC0 保險桿斷 → 拒絕前進
+      duty ≥ 60% 而輪不動 200 ms → 堵轉鎖住;300 ms 沒 PING → 降速到 0;IWDG 1 s 沒餵 → 整顆重置
 ```
 
 <p align="center"><img src="../../img/hil-firmware-timing.svg" width="860" alt="韌體的 5 ms 控制步與 20 ms 回報、四個入口、g_dbg 版面、三個設計決定"></p>
@@ -54,6 +55,8 @@ Renode 內建的 `platforms/cpus/stm32f4.repl` 對這支韌體夠用——記憶
 | `STM32_UART`(USART1/2) | SR(RXNE/TXE/TC)、DR、BRR、CR1 | TXE 恆為 1;RX 有佇列。**TC 在 CPU 寫 DR 後正常設回、TCIE 拉中斷**(本篇探針);既有內部專案在 DMA 傳送下量到「TC 永不重設」,那條路徑本篇沒走,兩者不衝突 | 韌體輪詢 TXE、不等 TC。真硬體同樣正確 |
 | `STMCAN`(CAN1) | MCR/MSR、BTR、TSR、TI0R/TDT0R/TDL0R/TDH0R、RF0R、RI0R/RDT0R/RDL0R/RDH0R、FMR/FM1R/FS1R/FFA1R/FA1R/F0R1/F0R2 | MCR.INRQ=1 → MSR 0xC01(INAK=1,SLAK 清);mailbox 寫入 TXRQ 後 `FrameSent` 立刻觸發;`OnFrameReceived()` 注入的訊框進 FIFO0(FMP0=1、RI0R 帶 STID) | 夠用,**但濾波器有一個坑**(下一段) |
 | `STM32_GPIOPort` | MODER、AFRL、IDR、ODR、BSRR | 輸出腳在 `Connections[n]`;輸入腳用 `OnGPIO(n, v)`;`State` 是 protected,monitor Python 讀不到 | 夠用 |
+| `STM32_IndependentWatchdog`(IWDG) | KR(0x5555/0xCCCC/0xAAAA)、PR、RLR、SR | 照 RM0090 第 21 章的序列:`Reload` 才把 RLR 載入、起動從 0xFFF 起、PR 的 2^(2+PR) 分頻;逾時 `machine.RequestReset()` → 週邊全部重置、監視器的 `macro reset` 重載 ELF。**RCC_CSR 的 IWDGRSTF 不設**(模型裡的 `TODO`),SR 的 PVU/RVU 永遠 0 | 夠用:韌體 2.0 s 死掉、2.995 s 重啟([38 篇](../38-acceptance-and-failure-modes/README.md) §1.2)。重置來源另靠 `.noinit` 計數 |
+| `STM32_GPIOPort`,輸入腳 | PUPDR、IDR | **不看 PUPDR**:輸入腳預設 0,機器重置後也回 0 | 低有效的腳(nFAULT、保險桿常閉接點)由橋接扮演 pull-up 拉高,重啟後再拉一次 |
 | NVIC + SysTick | ISER、SysTick CSR/RVR/CVR | SysTick 頻率來自平台描述的 `systickFrequency: 72000000`,**不是 RCC**;USART1 IRQ 37 正常進。**ENABLE 0→1 不從 RELOAD 載入**——先寫 CVR 再寫 LOAD 的順序(FreeRTOS port)第一個週期跑滿 2^24 cycle | 裸機版先寫 LOAD,沒踩到;[39 篇](../39-freertos-firmware-in-the-loop/README.md) §4 踩到,已修 |
 
 CAN 濾波器的坑:`FMR` 的重置值是 `0x2A1C0E01`,其中 `CAN2SB`(bit 13:8)= 14,意思是 bank 0–13 屬於 CAN1。探針一開始寫 `FMR = 1`(只想設 FINIT),把 `CAN2SB` 清成 0——bank 0 從此屬於 CAN2,CAN1 的接收路徑對它 `Where(BelongsToMaster)` 一濾,訊框**靜默丟掉**:`OnFrameReceived()` 呼叫成功、`FrameReceived` 事件照樣觸發,FIFO 就是空的。真硬體的 HAL 用讀-改-寫所以不會踩到;自己寫暫存器的人會。韌體的 `can_init()` 因此全部用 `|=` / `&=`。
@@ -121,22 +124,27 @@ CPU 停住時模擬器只在事件之間跳,152 Hz 能跑到 14–20 倍實時;1
 
 主機負載讓同一組設定的數字差三成:同一批交錯跑、看最小值,不拿單次當結論。用容器 cgroup 的 CPU 時間代替牆鐘量過一次,結果對事件數不單調(`RunFor` 期間時間框架的執行緒會空轉),放棄。
 
-## 6. 驗收:五項,一項是負對照
+## 6. 驗收:十項,一項是負對照
 
-[`renode/io_check.resc`](../../../examples/hil-stm32/renode/io_check.resc) 不經橋接,用 monitor 直接餵資料,把韌體這一層獨立驗到綠:
+[`renode/io_check.resc`](../../../examples/hil-stm32/renode/io_check.resc)(`tools/io_check.sh` 跑)不經橋接,用 monitor 直接餵資料,把韌體這一層獨立驗到綠。monitor 在這裡扮演板子:先把三個低有效的輸入腳拉高(pull-up),PING 也由它送:
 
 | 項 | 做什麼 | 結果 |
 |---|---|---|
 | A 壞 CRC | 餵一個最後一 byte 反相的 CMD_VEL | `bad_crc` 1、`cmd_frames` 0 |
-| B 正確 CMD_VEL v=300 | 30 ms 後讀 | 設定點 300/300、flags ENABLED、duty 526、**CCR1 = 526**、GPIOB ODR = `0x700`(PB8/9/10 高) |
-| C 編碼器 | 兩筆 CAN 0x181 各 +20 tick,間隔 5 ms(`encoder_source: can` 的韌體) | `enc_frames` 2、`meas_l` 306 mm/s(理論 20 × 314159 / 4096 / 5 = 306.8) |
+| B PING + CMD_VEL v=300 | 30 ms 後讀 | 設定點 35/35(在 1500 mm/s² 的斜坡上)、flags ENABLED、duty 72、**CCR1 = 72**、GPIOB ODR = `0x700`(PB8/9/10 高) |
+| C 編碼器 | TIM2/TIM4 CNT 各 +20,兩次間隔 5 ms | `meas_l` 306 mm/s(理論 20 × 314159 / 4096 / 5 = 306.8) |
 | C′ 編碼器(TIM) | `probe_encoder.resc`:SMS=011,灌一個正向、兩個反向正交週期 | 原版 CNT 永遠 0;master 修正版 4 → 0 → 0xFFFC、DIR=1 |
-| D 急停 | `gpioPortC OnGPIO 13 true` | flags ESTOP、duty 0、ODR `0x300`(PB10 低,方向腳不動) |
-| E 命令逾時 | 放開急停、600 ms 不送命令 | flags CMD_STALE;`rx_overflow` 0 |
+| D 急停 | PC13 拉高 | flags ESTOP、duty 0、ODR `0x300`(PB10 低,方向腳不動) |
+| F 驅動器故障 | PC14 拉低 10 ms,再拉高 10 ms | DRV_FAULT、duty 0、ODR `0x300`;放開後 ENABLED 回來 |
+| G 保險桿 | PC0 拉低 + CMD_VEL v=300 100 ms;再 CMD_VEL v=−200 100 ms | BUMPER、設定點 0;倒車命令的設定點 −133(往 −200 的斜坡上) |
+| H 心跳 | CMD_VEL 照送、不送 PING | +350 ms:HB_LOST、設定點 237 往 0 走;+600 ms:0(命令逾時的 500 ms 還沒到) |
+| I 堵轉 | PING + CMD_VEL v=300、CNT 不動 | duty +100 ms 297、+200 ms 673(≥ 600 起算);+400 ms STALL、duty 0;CMD_VEL v=0 → ENABLED |
+| E 命令逾時 | 600 ms 不送命令 | flags CMD_STALE(HB_LOST 也亮);`rx_overflow` 0 |
+| J IWDG | `g_cfg.hang_at_ms` 寫成 tick + 210 → 韌體死掉;跑 1.3 s | `resets` 1、tick 從頭數(91)、flags WDT_RESET(DRV_FAULT、BUMPER 也亮:重置後輸入腳回 0,§3) |
 
-A 是負對照:它證明「B 過了」不是因為韌體什麼都收。
+A 是負對照:它證明「B 過了」不是因為韌體什麼都收。閉環層的五個 `*-off` 負對照在 [38 篇](../38-acceptance-and-failure-modes/README.md) §1.2。
 
-餵資料的 monitor 函式在 [`io_check.py`](../../../examples/hil-stm32/renode/io_check.py):`usart1.WriteChar(byte)` 是從外面塞一個收到的 byte,`can1.OnFrameReceived(frame)` 是從匯流排塞一個訊框。這兩個方法就是 [37 篇](../37-bus-signal-bridging/README.md)的 hook 在用的。
+餵資料的 monitor 函式在 [`io_check.py`](../../../examples/hil-stm32/renode/io_check.py):`usart1.WriteChar(byte)` 是從外面塞一個收到的 byte,`can1.OnFrameReceived(frame)` 是從匯流排塞一個訊框,`gpioPortC.OnGPIO(n, level)` 是推一個輸入腳。這些方法就是 [37 篇](../37-bus-signal-bridging/README.md)的 hook 在用的。`g_dbg` / `g_cfg` 的位址從 `firmware/build/hilctl.sym` 查——寫死的位址在韌體每改一版就錯一次。
 
 ## 7. monitor 與 IronPython 的坑
 

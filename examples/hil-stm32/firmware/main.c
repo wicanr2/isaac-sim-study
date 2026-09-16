@@ -4,7 +4,9 @@
  * 職責與真實下位機一樣:
  *   上位(USART1)給 cmd_vel  →  兩輪速度設定點  →  每 5 ms 一次 PI  →  PWM + 方向腳
  *   編碼器(CAN 0x181)回累計 tick  →  輪速量測 + 里程計  →  每 20 ms 回報 odom(USART1)
- *   安全:500 ms 沒命令 → 停;急停腳(PC13)拉高 → 停。安全在這裡,不在橋接。
+ *   安全:500 ms 沒命令 → 停;急停腳(PC13)拉高 → 停;驅動器故障腳(PC14/15)低 → 停;
+ *         保險桿(PC0)斷 → 拒絕前進;堵轉(duty 高而輪不動 200 ms)→ 停到上位歸零;
+ *         上位心跳(PING)300 ms 沒來 → 降速到 0;IWDG 1 s 沒餵 → 整顆重置。安全在這裡,不在橋接。
  *
  * 這支韌體沒有「模擬模式」:它不知道匯流排另一端是 Renode 的模型還是真的驅動器。
  *
@@ -35,9 +37,20 @@ typedef struct {
     volatile uint32_t flags;        /* 同 odom flags */
     volatile uint32_t init_err;     /* 初始化哪一步逾時(0 = 沒有) */
     volatile uint32_t rx_overflow;  /* USART1 ring buffer 滿而丟掉的 byte 數 */
+    volatile uint32_t resets;       /* 暖重置次數(.noinit 計數;IWDG 驗收靠它) */
+    volatile uint32_t boot_csr;     /* 開機時讀到的 RCC_CSR(真板 IWDGRSTF 在 bit29;Renode 讀到 0,紀錄用) */
+    volatile uint32_t ping_frames;  /* 收到的 PING 數(心跳) */
 } dbg_t;
 
 dbg_t g_dbg __attribute__((aligned(4)));
+
+/* 跨 reset 保留的區段:startup 不清、LoadELF 不寫。magic 對就是暖重置。 */
+typedef struct {
+    volatile uint32_t magic;        /* 0x4E4F494E "NOIN" */
+    volatile uint32_t resets;
+} noinit_t;
+
+noinit_t g_noinit __attribute__((section(".noinit"), aligned(4)));
 
 /* 執行期可改的控制參數:預設從 calib 來,橋接可在開機後經 External Control 寫 SRAM 覆蓋
  * (--cfg kp=..,ki=..,accel=..,ff=..),讓增益掃描與「關掉斜坡」的負對照不用重編韌體。
@@ -48,9 +61,18 @@ typedef struct {
     volatile int32_t  accel_mm_s2;  /* 線速度斜坡上限,0 = 不限 */
     volatile int32_t  ff_q8;        /* 前饋比例,256 = 100% */
     volatile int32_t  alpha_mrad_s2;/* 角速度斜坡上限,0 = 不限 */
+    /* ---- 安全 I/O(第 6 字起)。橋接在開機前把 --cfg 寫進 flash 裡 .data 的初始值(LMA),
+     * startup 照常複製,所以 IWDG 這種「init 就定案」的參數也改得到 ---- */
+    volatile int32_t  iwdg_ms;      /* IWDG 逾時;由 safety_mask 決定開不開 */
+    volatile int32_t  hang_at_ms;   /* 故障注入:tick 到這個值時關中斷死迴圈(0 = 不注入)。只給 IWDG 驗收用 */
+    volatile int32_t  hb_timeout_ms;/* 心跳逾時;0 = 不驗 */
+    volatile int32_t  stall_duty;   /* 堵轉判定 duty 門檻(‰) */
+    volatile int32_t  stall_ms;     /* 堵轉判定持續時間 */
+    volatile uint32_t safety_mask;  /* SAFETY_*,全開 0x1F;負對照關一項 */
 } cfg_t;
 
-cfg_t g_cfg __attribute__((aligned(4))) = { 0x48494C43u, PI_KP_Q8, PI_KI_Q8, ACCEL_LIMIT_MM_S2, FF_GAIN_Q8, ALPHA_LIMIT_MRAD_S2 };
+cfg_t g_cfg __attribute__((aligned(4))) = { 0x48494C43u, PI_KP_Q8, PI_KI_Q8, ACCEL_LIMIT_MM_S2, FF_GAIN_Q8, ALPHA_LIMIT_MRAD_S2,
+                                            IWDG_TIMEOUT_MS, 0, HB_TIMEOUT_MS, STALL_DUTY, STALL_MS, SAFETY_MASK };
 
 static volatile uint32_t s_tick_ms;
 
@@ -192,8 +214,12 @@ static void gpio_init(void)
     GPIO_BSRR(GPIOB_BASE) = (1u << (DIR_L_PIN + 16)) | (1u << (DIR_R_PIN + 16))
                           | (1u << (MOTOR_EN_PIN + 16));
 
-    /* PC13 急停 → 輸入(MODER 00,重置值就是) */
-    GPIO_MODER(GPIOC_BASE) &= ~(3u << 26);
+    /* PC13 急停、PC14/PC15 驅動器故障、PC0 保險桿 → 輸入(MODER 00,重置值就是)。
+     * 故障腳與保險桿低有效,開 pull-up:沒接東西時讀 1 = 正常。Renode 的 GPIO 不看 PUPDR,
+     * 輸入腳的預設是 0,所以橋接開機前要先把這三腳拉高(等於接上了 pull-up)。 */
+    GPIO_MODER(GPIOC_BASE) &= ~((3u << 26) | (3u << 28) | (3u << 30) | (3u << 0));
+    GPIO_PUPDR(GPIOC_BASE) = (GPIO_PUPDR(GPIOC_BASE) & ~((3u << 28) | (3u << 30) | (3u << 0)))
+                             | (1u << 28) | (1u << 30) | (1u << 0);
 
 #if ENC_SOURCE_TIM
     /* PA0/PA1 → AF1(TIM2_CH1/CH2)左輪編碼器;PB6/PB7 → AF2(TIM4_CH1/CH2)右輪 */
@@ -258,6 +284,35 @@ static int estop_asserted(void)
 {
     return (GPIO_IDR(GPIOC_BASE) >> ESTOP_PIN) & 1u;
 }
+
+static int drv_fault_asserted(void)
+{
+    uint32_t idr = GPIO_IDR(GPIOC_BASE);
+    return !((idr >> DRV_FAULT_L_PIN) & 1u) || !((idr >> DRV_FAULT_R_PIN) & 1u);
+}
+
+static int bumper_asserted(void)
+{
+    return !((GPIO_IDR(GPIOC_BASE) >> BUMPER_PIN) & 1u);
+}
+
+/* ------------------------------------------------------------------------ */
+/* IWDG(RM0090 §21):LSI 32 kHz、/32 → 1 ms 一格;起動後硬體上停不掉                   */
+/* ------------------------------------------------------------------------ */
+static void iwdg_init(uint32_t ms)
+{
+    if (ms == 0) ms = 1; else if (ms > 4096) ms = 4096;
+    IWDG_KR  = IWDG_KEY_UNLOCK;
+    IWDG_PR  = IWDG_PR_DIV32;
+    IWDG_RLR = ms - 1u;
+    /* 真板:PR/RLR 寫入要等 SR 的 PVU/RVU 清掉才生效(LSI 域慢);Renode 永遠讀 0,一圈就過 */
+    uint32_t spin = 0;
+    while ((IWDG_SR & (IWDG_SR_PVU | IWDG_SR_RVU)) && ++spin < 100000) { }
+    IWDG_KR  = IWDG_KEY_START;
+    IWDG_KR  = IWDG_KEY_RELOAD;   /* 起動時計數器從 0xFFF 起,先餵一次才從 RLR 算 */
+}
+
+static void iwdg_feed(void) { IWDG_KR = IWDG_KEY_RELOAD; }
 
 /* ------------------------------------------------------------------------ */
 /* bxCAN                                                                    */
@@ -343,6 +398,11 @@ static int32_t s_meas_l, s_meas_r;        /* mm/s */
 static int32_t s_duty_l, s_duty_r;
 static uint32_t s_last_cmd_ms;
 static int s_have_cmd;
+static uint32_t s_last_ping_ms;             /* 心跳:最後一筆 PING 的時刻 */
+static int s_have_ping;
+static int32_t s_stall_ms;                  /* 堵轉:連續「duty 高且輪不動」累計毫秒 */
+static int s_stalled;                       /* 堵轉鎖住,命令歸零才解 */
+static int s_warm_reset;                    /* 這次開機是暖重置 */
 
 /* 里程計用浮點(soft-float,由 libgcc 提供);沒有 libm,所以 sin/cos 自己寫。 */
 static float s_x_mm, s_y_mm, s_th_rad;
@@ -408,11 +468,31 @@ static void control_step(void)
     s_y_mm += ds * fsin(th_mid);
     s_th_rad += dth;
 
-    /* 安全閘門:急停或命令逾時 → 設定點歸零、積分清空、致能關 */
-    uint32_t flags = 0;
+    /* 安全閘門。兩種處置:「切」= 致能關、duty 0、積分清(急停、命令逾時、驅動器故障、堵轉);
+     * 「降」= 命令改 0 走斜坡下來,致能不關(心跳丟失、保險桿只擋前進)。 */
+    uint32_t flags = s_warm_reset ? ODOM_FLAG_WDT_RESET : 0;
+    uint32_t mask = g_cfg.safety_mask;
     int enable = 1;
+    int32_t cmd_v = s_cmd_v, cmd_w = s_cmd_w;
+    uint32_t now = now_ms();
     if (estop_asserted()) { flags |= ODOM_FLAG_ESTOP; enable = 0; }
-    if (!s_have_cmd || now_ms() - s_last_cmd_ms > CMD_TIMEOUT_MS) { flags |= ODOM_FLAG_CMD_STALE; enable = 0; }
+    if (!s_have_cmd || now - s_last_cmd_ms > CMD_TIMEOUT_MS) { flags |= ODOM_FLAG_CMD_STALE; enable = 0; }
+    if ((mask & SAFETY_DRV_FAULT) && drv_fault_asserted()) { flags |= ODOM_FLAG_DRV_FAULT; enable = 0; }
+    if ((mask & SAFETY_BUMPER) && bumper_asserted()) { flags |= ODOM_FLAG_BUMPER; if (cmd_v > 0) cmd_v = 0; }
+    if ((mask & SAFETY_HB) && g_cfg.hb_timeout_ms > 0
+        && (!s_have_ping || now - s_last_ping_ms > (uint32_t)g_cfg.hb_timeout_ms)) {
+        flags |= ODOM_FLAG_HB_LOST; cmd_v = 0; cmd_w = 0;
+    }
+    /* 堵轉:上一步的 duty 已經很高、輪子卻不動,持續 stall_ms → 鎖住;上位把命令歸零才解 */
+    if (mask & SAFETY_STALL) {
+        int32_t al = s_duty_l < 0 ? -s_duty_l : s_duty_l, ar = s_duty_r < 0 ? -s_duty_r : s_duty_r;
+        int32_t ml = s_meas_l < 0 ? -s_meas_l : s_meas_l, mr = s_meas_r < 0 ? -s_meas_r : s_meas_r;
+        int stuck = (al >= g_cfg.stall_duty && ml < STALL_SPEED_MM_S) || (ar >= g_cfg.stall_duty && mr < STALL_SPEED_MM_S);
+        s_stall_ms = stuck ? s_stall_ms + CONTROL_PERIOD_MS : 0;
+        if (s_stall_ms >= g_cfg.stall_ms) s_stalled = 1;
+        if (s_cmd_v == 0 && s_cmd_w == 0) { s_stalled = 0; s_stall_ms = 0; }
+        if (s_stalled) { flags |= ODOM_FLAG_STALL; enable = 0; }
+    }
 
     if (enable) {
         flags |= ODOM_FLAG_ENABLED;
@@ -420,8 +500,8 @@ static void control_step(void)
          * 轉→直的過渡兩輪不同步(量到方形每段偏航 +0.16 rad);0 = 直接跳(第一版行為) */
         int32_t dv = g_cfg.accel_mm_s2 * CONTROL_PERIOD_MS / 1000;
         int32_t dw = g_cfg.alpha_mrad_s2 * CONTROL_PERIOD_MS / 1000;
-        s_v_ramp = dv > 0 ? s_v_ramp + clamp_i32(s_cmd_v - s_v_ramp, -dv, dv) : s_cmd_v;
-        s_w_ramp = dw > 0 ? s_w_ramp + clamp_i32(s_cmd_w - s_w_ramp, -dw, dw) : s_cmd_w;
+        s_v_ramp = dv > 0 ? s_v_ramp + clamp_i32(cmd_v - s_v_ramp, -dv, dv) : cmd_v;
+        s_w_ramp = dw > 0 ? s_w_ramp + clamp_i32(cmd_w - s_w_ramp, -dw, dw) : cmd_w;
         /* v_l = v - w*track/2,w 是 mrad/s → (w * TRACK_MM / 2) / 1000 mm/s */
         int32_t half = s_w_ramp * TRACK_MM / 2 / 1000;
         s_sp_l = s_v_ramp - half;
@@ -509,6 +589,16 @@ int main(void)
     else { dbg_puts("can1 init FAILED step "); dbg_put_u32(g_dbg.init_err); dbg_puts("\r\n"); }
 
     motor_apply(0, 0, 0);
+
+    /* 暖重置偵測:真板看 RCC_CSR.IWDGRSTF(讀完用 RMVF 清);Renode 的 RCC 不設它,
+     * 所以另外靠 .noinit 的計數——magic 還在就是重置過,不是上電。兩個都記進 g_dbg。 */
+    g_dbg.boot_csr = RCC_CSR;
+    RCC_CSR |= RCC_CSR_RMVF;
+    if (g_noinit.magic == 0x4E4F494Eu) { g_noinit.resets++; s_warm_reset = 1; }
+    else { g_noinit.magic = 0x4E4F494Eu; g_noinit.resets = 0; }
+    if (g_dbg.boot_csr & RCC_CSR_IWDGRSTF) s_warm_reset = 1;
+    g_dbg.resets = g_noinit.resets;
+    if (g_cfg.safety_mask & SAFETY_IWDG) iwdg_init((uint32_t)g_cfg.iwdg_ms);
     dbg_puts("main loop\r\n");
 
     uint32_t next_ctrl = now_ms() + CONTROL_PERIOD_MS;
@@ -523,6 +613,7 @@ int main(void)
                 if (s_rx.type == MSG_CMD_VEL && s_rx.len == 4) handle_cmd_vel(s_rx.payload);
                 else if (s_rx.type == MSG_PING) {
                     uint8_t v[2] = { FW_VERSION_MAJOR, FW_VERSION_MINOR };
+                    s_last_ping_ms = now_ms(); s_have_ping = 1; g_dbg.ping_frames++;
                     proto_send(MSG_PONG, v, 2);
                 }
             }
@@ -548,6 +639,14 @@ int main(void)
         if ((int32_t)(t - next_ctrl) >= 0) {
             next_ctrl += CONTROL_PERIOD_MS;
             control_step();
+            /* 只在控制步真的跑了才餵:主迴圈活著但控制步沒排到,同樣該重置 */
+            if (g_cfg.safety_mask & SAFETY_IWDG) iwdg_feed();
+        }
+        /* 故障注入(只給 IWDG 驗收):模擬韌體死在關中斷的迴圈裡。PWM 週邊還在跑——
+         * 馬達會用最後的 duty 一直轉,直到 IWDG 把整顆重置 */
+        if (g_cfg.hang_at_ms > 0 && (int32_t)(t - (uint32_t)g_cfg.hang_at_ms) >= 0) {
+            __asm volatile("cpsid i");
+            for (;;) { }
         }
         if ((int32_t)(t - next_report) >= 0) {
             next_report += REPORT_PERIOD_MS;

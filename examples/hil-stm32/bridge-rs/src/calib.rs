@@ -22,6 +22,12 @@ pub struct Calib {
     pub motor_deadband_duty: f64,
     /// 韌體的編碼器來源:true = TIM2/TIM4 encoder mode(calib "encoder_source": "tim"),false = CAN 0x181
     pub encoder_tim: bool,
+    /// 安全 I/O(韌體從同一份 calib 拿;橋接拿來算判準的時限)
+    pub iwdg_timeout_ms: u64,
+    pub heartbeat_timeout_ms: u64,
+    pub heartbeat_period_ms: u64,
+    pub stall_ms: u64,
+    pub accel_limit_mm_s2: f64,
 }
 
 fn num(text: &str, key: &str) -> io::Result<f64> {
@@ -53,6 +59,11 @@ impl Calib {
             motor_tau_s: num(&t, "motor_tau_s").unwrap_or(0.05),
             motor_accel_max_mm_s2: num(&t, "motor_accel_max_mm_s2").unwrap_or(0.0),
             motor_deadband_duty: num(&t, "motor_deadband_duty").unwrap_or(0.0),
+            iwdg_timeout_ms: num(&t, "iwdg_timeout_ms").unwrap_or(1000.0) as u64,
+            heartbeat_timeout_ms: num(&t, "heartbeat_timeout_ms").unwrap_or(300.0) as u64,
+            heartbeat_period_ms: num(&t, "heartbeat_period_ms").unwrap_or(100.0) as u64,
+            stall_ms: num(&t, "stall_ms").unwrap_or(200.0) as u64,
+            accel_limit_mm_s2: num(&t, "accel_limit_mm_s2").unwrap_or(0.0),
         })
     }
 }

@@ -13,7 +13,7 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/" class="on"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-韌體的形狀">1. 韌體的形狀</a></li><li class="l2"><a href="#2-平台描述vendor-一份拿掉一行">2. 平台描述:vendor 一份,拿掉一行</a></li><li class="l2"><a href="#3-逐項盤點有是什麼意思">3. 逐項盤點:「有」是什麼意思</a></li><li class="l3"><a href="#31-編碼器從-can-訊框改成-tim-encoder-mode">3.1 編碼器:從 CAN 訊框改成 TIM encoder mode</a></li><li class="l2"><a href="#4-兩條觀測管道">4. 兩條觀測管道</a></li><li class="l2"><a href="#5-速度瓶頸是-mmio-輪詢解法是-wfi">5. 速度:瓶頸是 MMIO 輪詢,解法是 WFI</a></li><li class="l3"><a href="#51-第二個瓶頸timer-事件一個-50100-µs">5.1 第二個瓶頸:timer 事件,一個 50–100 µs</a></li><li class="l2"><a href="#6-驗收五項一項是負對照">6. 驗收:五項,一項是負對照</a></li><li class="l2"><a href="#7-monitor-與-ironpython-的坑">7. monitor 與 IronPython 的坑</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/" class="on"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-韌體的形狀">1. 韌體的形狀</a></li><li class="l2"><a href="#2-平台描述vendor-一份拿掉一行">2. 平台描述:vendor 一份,拿掉一行</a></li><li class="l2"><a href="#3-逐項盤點有是什麼意思">3. 逐項盤點:「有」是什麼意思</a></li><li class="l3"><a href="#31-編碼器從-can-訊框改成-tim-encoder-mode">3.1 編碼器:從 CAN 訊框改成 TIM encoder mode</a></li><li class="l2"><a href="#4-兩條觀測管道">4. 兩條觀測管道</a></li><li class="l2"><a href="#5-速度瓶頸是-mmio-輪詢解法是-wfi">5. 速度:瓶頸是 MMIO 輪詢,解法是 WFI</a></li><li class="l3"><a href="#51-第二個瓶頸timer-事件一個-50100-µs">5.1 第二個瓶頸:timer 事件,一個 50–100 µs</a></li><li class="l2"><a href="#6-驗收十項一項是負對照">6. 驗收:十項,一項是負對照</a></li><li class="l2"><a href="#7-monitor-與-ironpython-的坑">7. monitor 與 IronPython 的坑</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="36-stm32f4-韌體在-renode-上開機型別存在不等於夠用">36 · STM32F4 韌體在 Renode 上開機:「型別存在」不等於「夠用」</h1>
 <p>把一支韌體放進 Renode,第一個問題不是「跑不跑得起來」,是<strong>「它跑起來之後,你怎麼知道它在跑」</strong>。第二個問題是,平台描述裡列了 USART、TIM、CAN,這些模型對你的韌體夠不夠用——而這件事只能逐個暫存器驗,型別名稱不會告訴你。</p>
@@ -26,8 +26,9 @@
 <pre><code>USART1 收 cmd_vel 框包(CRC16)→ v, w
 TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_source`;舊路 CAN 0x181 訊框仍在)
 每 5 ms:v, w 各自過斜坡(accel / alpha)→ 兩輪設定點 → PI + 速度前饋 → TIM3 PWM(CCR1/CCR2)+ 方向腳 PB8/PB9 + 致能腳 PB10
-每 20 ms:USART1 回 odom、CAN 0x201 回馬達狀態
-安全:500 ms 沒命令 → 停;PC13 急停拉高 → 停
+每 20 ms:USART1 回 odom、CAN 0x201 回馬達狀態(flags byte 同一份)
+安全:500 ms 沒命令 → 停;PC13 急停 → 停;PC14/15 驅動器故障(低)→ 停;PC0 保險桿斷 → 拒絕前進
+      duty ≥ 60% 而輪不動 200 ms → 堵轉鎖住;300 ms 沒 PING → 降速到 0;IWDG 1 s 沒餵 → 整顆重置
 </code></pre>
 <p align="center"><img src="../../img/hil-firmware-timing.svg" width="860" alt="韌體的 5 ms 控制步與 20 ms 回報、四個入口、g_dbg 版面、三個設計決定"></p>
 
@@ -102,6 +103,18 @@ TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_sour
 <td>MODER、AFRL、IDR、ODR、BSRR</td>
 <td>輸出腳在 <code>Connections[n]</code>;輸入腳用 <code>OnGPIO(n, v)</code>;<code>State</code> 是 protected,monitor Python 讀不到</td>
 <td>夠用</td>
+</tr>
+<tr>
+<td><code>STM32_IndependentWatchdog</code>(IWDG)</td>
+<td>KR(0x5555/0xCCCC/0xAAAA)、PR、RLR、SR</td>
+<td>照 RM0090 第 21 章的序列:<code>Reload</code> 才把 RLR 載入、起動從 0xFFF 起、PR 的 2^(2+PR) 分頻;逾時 <code>machine.RequestReset()</code> → 週邊全部重置、監視器的 <code>macro reset</code> 重載 ELF。<strong>RCC_CSR 的 IWDGRSTF 不設</strong>(模型裡的 <code>TODO</code>),SR 的 PVU/RVU 永遠 0</td>
+<td>夠用:韌體 2.0 s 死掉、2.995 s 重啟(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.2)。重置來源另靠 <code>.noinit</code> 計數</td>
+</tr>
+<tr>
+<td><code>STM32_GPIOPort</code>,輸入腳</td>
+<td>PUPDR、IDR</td>
+<td><strong>不看 PUPDR</strong>:輸入腳預設 0,機器重置後也回 0</td>
+<td>低有效的腳(nFAULT、保險桿常閉接點)由橋接扮演 pull-up 拉高,重啟後再拉一次</td>
 </tr>
 <tr>
 <td>NVIC + SysTick</td>
@@ -209,8 +222,8 @@ main loop
 <p>CPU 停住時模擬器只在事件之間跳,152 Hz 能跑到 14–20 倍實時;10 kHz 三個事件就把它壓到 0.6×。<strong>每個 <code>LimitTimer</code> 事件 50–100 µs</strong>,與回呼裡做什麼無關:把比較通道回呼裡的 GPIO 操作全部拿掉(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/upstream/gen_timer_probes.py"><code>upstream/gen_timer_probes.py</code></a> 的 <code>ProbeNoGpio</code>)速度不變;讓比較通道不排事件(<code>ProbeNoCc</code>)才回到只剩主計數器的速度。成本在時間框架處理每一個排程點的路徑上,不在 <code>STM32_Timer.cs</code> 的那幾行。</p>
 <p>所以這一項<strong>沒有修在模型裡</strong>。PWM 一個週期至少三個事件(上升沿、兩個下降沿),少排事件等於不推腳位的邊緣——接在腳上的 GPIO 埠、External Control 的 <code>GetState</code>、任何掛在 <code>Connections[i]</code> 上的東西都會讀到舊值。只有「沒人接、沒開中斷、沒開 DMA」的通道可以惰性算,而 vendor 的 <code>stm32f4.repl</code> 把 TIM3 的通道接到 <code>gpioPortA</code> 6/7,這一區的閉環又靠 External Control 讀 CCR 不讀腳位,要吃到這個省法得先改平台描述。把主計數器也改成惰性(只在暫存器讀寫時從時脈源算 CNT)是另一個規模的改寫,而且事件本身的成本是 Renode 核心的事,不是週邊的事——這裡留 <code>pwm_prescaler</code> 當旋鈕,把「每個事件 50–100 µs」這個數字留給上游討論。</p>
 <p>主機負載讓同一組設定的數字差三成:同一批交錯跑、看最小值,不拿單次當結論。用容器 cgroup 的 CPU 時間代替牆鐘量過一次,結果對事件數不單調(<code>RunFor</code> 期間時間框架的執行緒會空轉),放棄。</p>
-<h2 id="6-驗收五項一項是負對照">6. 驗收:五項,一項是負對照</h2>
-<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/io_check.resc"><code>renode/io_check.resc</code></a> 不經橋接,用 monitor 直接餵資料,把韌體這一層獨立驗到綠:</p>
+<h2 id="6-驗收十項一項是負對照">6. 驗收:十項,一項是負對照</h2>
+<p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/io_check.resc"><code>renode/io_check.resc</code></a>(<code>tools/io_check.sh</code> 跑)不經橋接,用 monitor 直接餵資料,把韌體這一層獨立驗到綠。monitor 在這裡扮演板子:先把三個低有效的輸入腳拉高(pull-up),PING 也由它送:</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -226,14 +239,14 @@ main loop
 <td><code>bad_crc</code> 1、<code>cmd_frames</code> 0</td>
 </tr>
 <tr>
-<td>B 正確 CMD_VEL v=300</td>
+<td>B PING + CMD_VEL v=300</td>
 <td>30 ms 後讀</td>
-<td>設定點 300/300、flags ENABLED、duty 526、<strong>CCR1 = 526</strong>、GPIOB ODR = <code>0x700</code>(PB8/9/10 高)</td>
+<td>設定點 35/35(在 1500 mm/s² 的斜坡上)、flags ENABLED、duty 72、<strong>CCR1 = 72</strong>、GPIOB ODR = <code>0x700</code>(PB8/9/10 高)</td>
 </tr>
 <tr>
 <td>C 編碼器</td>
-<td>兩筆 CAN 0x181 各 +20 tick,間隔 5 ms(<code>encoder_source: can</code> 的韌體)</td>
-<td><code>enc_frames</code> 2、<code>meas_l</code> 306 mm/s(理論 20 × 314159 / 4096 / 5 = 306.8)</td>
+<td>TIM2/TIM4 CNT 各 +20,兩次間隔 5 ms</td>
+<td><code>meas_l</code> 306 mm/s(理論 20 × 314159 / 4096 / 5 = 306.8)</td>
 </tr>
 <tr>
 <td>C′ 編碼器(TIM)</td>
@@ -242,18 +255,43 @@ main loop
 </tr>
 <tr>
 <td>D 急停</td>
-<td><code>gpioPortC OnGPIO 13 true</code></td>
+<td>PC13 拉高</td>
 <td>flags ESTOP、duty 0、ODR <code>0x300</code>(PB10 低,方向腳不動)</td>
 </tr>
 <tr>
+<td>F 驅動器故障</td>
+<td>PC14 拉低 10 ms,再拉高 10 ms</td>
+<td>DRV_FAULT、duty 0、ODR <code>0x300</code>;放開後 ENABLED 回來</td>
+</tr>
+<tr>
+<td>G 保險桿</td>
+<td>PC0 拉低 + CMD_VEL v=300 100 ms;再 CMD_VEL v=−200 100 ms</td>
+<td>BUMPER、設定點 0;倒車命令的設定點 −133(往 −200 的斜坡上)</td>
+</tr>
+<tr>
+<td>H 心跳</td>
+<td>CMD_VEL 照送、不送 PING</td>
+<td>+350 ms:HB_LOST、設定點 237 往 0 走;+600 ms:0(命令逾時的 500 ms 還沒到)</td>
+</tr>
+<tr>
+<td>I 堵轉</td>
+<td>PING + CMD_VEL v=300、CNT 不動</td>
+<td>duty +100 ms 297、+200 ms 673(≥ 600 起算);+400 ms STALL、duty 0;CMD_VEL v=0 → ENABLED</td>
+</tr>
+<tr>
 <td>E 命令逾時</td>
-<td>放開急停、600 ms 不送命令</td>
-<td>flags CMD_STALE;<code>rx_overflow</code> 0</td>
+<td>600 ms 不送命令</td>
+<td>flags CMD_STALE(HB_LOST 也亮);<code>rx_overflow</code> 0</td>
+</tr>
+<tr>
+<td>J IWDG</td>
+<td><code>g_cfg.hang_at_ms</code> 寫成 tick + 210 → 韌體死掉;跑 1.3 s</td>
+<td><code>resets</code> 1、tick 從頭數(91)、flags WDT_RESET(DRV_FAULT、BUMPER 也亮:重置後輸入腳回 0,§3)</td>
 </tr>
 </tbody>
 </table></div>
-<p>A 是負對照:它證明「B 過了」不是因為韌體什麼都收。</p>
-<p>餵資料的 monitor 函式在 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/io_check.py"><code>io_check.py</code></a>:<code>usart1.WriteChar(byte)</code> 是從外面塞一個收到的 byte,<code>can1.OnFrameReceived(frame)</code> 是從匯流排塞一個訊框。這兩個方法就是 <a href="../../hil/37-bus-signal-bridging/">37 篇</a>的 hook 在用的。</p>
+<p>A 是負對照:它證明「B 過了」不是因為韌體什麼都收。閉環層的五個 <code>*-off</code> 負對照在 <a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.2。</p>
+<p>餵資料的 monitor 函式在 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/io_check.py"><code>io_check.py</code></a>:<code>usart1.WriteChar(byte)</code> 是從外面塞一個收到的 byte,<code>can1.OnFrameReceived(frame)</code> 是從匯流排塞一個訊框,<code>gpioPortC.OnGPIO(n, level)</code> 是推一個輸入腳。這些方法就是 <a href="../../hil/37-bus-signal-bridging/">37 篇</a>的 hook 在用的。<code>g_dbg</code> / <code>g_cfg</code> 的位址從 <code>firmware/build/hilctl.sym</code> 查——寫死的位址在韌體每改一版就錯一次。</p>
 <h2 id="7-monitor-與-ironpython-的坑">7. monitor 與 IronPython 的坑</h2>
 <p>這些每一個都會產生看起來像別的問題的錯誤訊息:</p>
 <ul>

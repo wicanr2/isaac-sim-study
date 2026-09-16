@@ -9,3 +9,5 @@ CLAUDE.md
 assets/*.usd
 assets/*.usdz
 assets/**/*.tar.gz
+__pycache__/
+*.pyc

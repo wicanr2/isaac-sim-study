@@ -57,16 +57,28 @@
 <td>寫的是<strong>輸入腳</strong>(<code>OnGPIO(n, v)</code>)</td>
 </tr>
 <tr>
+<td>驅動器故障、保險桿</td>
+<td>板子 → MCU</td>
+<td>External Control <code>gpio_set</code> gpioPortC 14/15、0(低有效)</td>
+<td>橋接扮演 pull-up:開機前拉高、IWDG 重啟後再拉一次;故障注入把它拉低(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.2)</td>
+</tr>
+<tr>
+<td>心跳</td>
+<td>上位 → MCU</td>
+<td>UART <code>PING</code>(0x03)每 100 ms,韌體回 <code>PONG</code></td>
+<td>橋接腳本模式自己送;ROS driver 也送;300 ms 沒收到韌體降速到 0</td>
+</tr>
+<tr>
 <td>韌體內部狀態</td>
 <td>MCU → 橋接</td>
 <td>External Control <code>sysbus_read</code> <code>g_dbg</code>(17 個字一次讀)</td>
 <td>生效證明與驗收用</td>
 </tr>
 <tr>
-<td>增益與斜坡</td>
+<td>增益、斜坡、安全遮罩</td>
 <td>橋接 → MCU</td>
-<td>External Control <code>sysbus_write</code> <code>g_cfg</code>(開機後、腳本前寫,再讀回印 <code>[effect]</code>)</td>
-<td><code>--cfg kp=..,ki=..,accel=..</code> 掃參數、<code>--negative no-ramp</code> 關斜坡,都不重編韌體(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.1)</td>
+<td>External Control <code>sysbus_write</code> 到 flash 裡 <code>.data</code> 初始值的 LMA(<strong>開機前</strong>),開機後從 SRAM 讀回印 <code>[effect]</code></td>
+<td><code>--cfg kp=..,ki=..,accel=..</code> 掃參數、<code>--negative no-ramp</code> 關斜坡、<code>*-off</code> 關一項安全功能、<code>--fault hang</code> 排一個死機時刻,都不重編韌體(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.1、§1.2)</td>
 </tr>
 <tr>
 <td>UART(上位協定)</td>

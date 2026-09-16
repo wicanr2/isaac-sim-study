@@ -19,6 +19,13 @@
   "motor_tau_s": 0.05,
   "motor_accel_max_mm_s2": 3000,
   "motor_deadband_duty": 0.05,
+  "iwdg_timeout_ms": 1000,
+  "heartbeat_timeout_ms": 300,
+  "heartbeat_period_ms": 100,
+  "stall_duty_permille": 600,
+  "stall_speed_mm_s": 20,
+  "stall_ms": 200,
+  "safety_mask": 31,
   "encoder_source": "tim",
   "can_id_encoder": 385,
   "can_id_motor_status": 513

@@ -6,7 +6,7 @@
  *   report_task (優先權 1)  每 20 ms 一次:odom(USART1)、馬達狀態(CAN)
  *   idle hook                WFI
  *
- * 與裸機版的差別刻意只在「誰排程」:協定、暫存器、控制律、g_dbg 前 17 個字的版面全部相同,
+ * 與裸機版的差別刻意只在「誰排程」:協定、暫存器、控制律、g_dbg 前 20 個字的版面全部相同,
  * 橋接不用改就能跑。g_dbg 後面多了 RTOS 才有的觀測欄位(deadline miss、stack 餘量、assert 行號)。
  *
  * 沒有「模擬模式」;安全在韌體不在橋接——同 35 篇的三條規則。
@@ -19,7 +19,7 @@
 #include "calib.h"
 #include "crc16.h"
 
-/* ---- 觀測結構:前 17 個字與裸機版逐字相同(橋接靠這個版面) ------------------------- */
+/* ---- 觀測結構:前 20 個字與裸機版逐字相同(橋接靠這個版面) ------------------------- */
 typedef struct {
     volatile uint32_t magic;
     volatile uint32_t tick_ms;
@@ -34,7 +34,10 @@ typedef struct {
     volatile uint32_t flags;
     volatile uint32_t init_err;
     volatile uint32_t rx_overflow;
-    /* ---- RTOS 版才有(第 17 字起) ---- */
+    volatile uint32_t resets;           /* 暖重置次數(.noinit 計數) */
+    volatile uint32_t boot_csr;         /* 開機時的 RCC_CSR */
+    volatile uint32_t ping_frames;      /* 收到的 PING 數 */
+    /* ---- RTOS 版才有(第 20 字起) ---- */
     volatile uint32_t ctrl_missed;      /* ctrl_task 的 xTaskDelayUntil 回 pdFALSE 的次數(錯過週期) */
     volatile uint32_t report_missed;
     volatile uint32_t rx_wakeups;       /* rx_task 被 ISR 叫醒的次數 */
@@ -48,16 +51,26 @@ typedef struct {
 
 dbg_t g_dbg __attribute__((aligned(4)));
 
-/* 執行期可改的控制參數(同裸機版):預設從 calib 來,橋接可在開機後經 External Control 寫 SRAM 覆蓋 */
+typedef struct { volatile uint32_t magic; volatile uint32_t resets; } noinit_t;
+noinit_t g_noinit __attribute__((section(".noinit"), aligned(4)));
+
+/* 執行期可改的控制參數(同裸機版,版面相同):橋接開機前寫進 flash 的 .data 初始值 */
 typedef struct {
     volatile uint32_t magic;        /* 0x48494C43 "HILC" */
     volatile int32_t  kp_q8, ki_q8;
     volatile int32_t  accel_mm_s2;  /* 線速度斜坡上限,0 = 不限 */
     volatile int32_t  ff_q8;        /* 前饋比例,256 = 100% */
     volatile int32_t  alpha_mrad_s2;/* 角速度斜坡上限,0 = 不限 */
+    volatile int32_t  iwdg_ms;
+    volatile int32_t  hang_at_ms;   /* 故障注入:ctrl_task 在這個 tick 關中斷死迴圈(0 = 不注入) */
+    volatile int32_t  hb_timeout_ms;
+    volatile int32_t  stall_duty;
+    volatile int32_t  stall_ms;
+    volatile uint32_t safety_mask;
 } cfg_t;
 
-cfg_t g_cfg __attribute__((aligned(4))) = { 0x48494C43u, PI_KP_Q8, PI_KI_Q8, ACCEL_LIMIT_MM_S2, FF_GAIN_Q8, ALPHA_LIMIT_MRAD_S2 };
+cfg_t g_cfg __attribute__((aligned(4))) = { 0x48494C43u, PI_KP_Q8, PI_KI_Q8, ACCEL_LIMIT_MM_S2, FF_GAIN_Q8, ALPHA_LIMIT_MRAD_S2,
+                                            IWDG_TIMEOUT_MS, 0, HB_TIMEOUT_MS, STALL_DUTY, STALL_MS, SAFETY_MASK };
 
 /* ------------------------------------------------------------------------ */
 /* 與裸機版相同的硬體層(複製而非共用 .c:兩支韌體要各自完整、可獨立閱讀) */
@@ -171,7 +184,10 @@ static void gpio_init(void)
     GPIO_MODER(GPIOB_BASE) = (GPIO_MODER(GPIOB_BASE) & ~((3u << 16) | (3u << 18) | (3u << 20)))
                              | (1u << 16) | (1u << 18) | (1u << 20);
     GPIO_BSRR(GPIOB_BASE) = (1u << (DIR_L_PIN + 16)) | (1u << (DIR_R_PIN + 16)) | (1u << (MOTOR_EN_PIN + 16));
-    GPIO_MODER(GPIOC_BASE) &= ~(3u << 26);
+    /* PC13 急停、PC14/15 驅動器故障、PC0 保險桿 → 輸入;後三腳低有效,開 pull-up(同裸機版) */
+    GPIO_MODER(GPIOC_BASE) &= ~((3u << 26) | (3u << 28) | (3u << 30) | (3u << 0));
+    GPIO_PUPDR(GPIOC_BASE) = (GPIO_PUPDR(GPIOC_BASE) & ~((3u << 28) | (3u << 30) | (3u << 0)))
+                             | (1u << 28) | (1u << 30) | (1u << 0);
 #if ENC_SOURCE_TIM
     /* PA0/PA1 → AF1(TIM2_CH1/CH2)左輪編碼器;PB6/PB7 → AF2(TIM4_CH1/CH2)右輪——同裸機版 */
     GPIO_MODER(GPIOA_BASE) = (GPIO_MODER(GPIOA_BASE) & ~((3u << 0) | (3u << 2))) | (2u << 0) | (2u << 2);
@@ -228,6 +244,26 @@ static void motor_apply(int32_t duty_l, int32_t duty_r, int enable)
 }
 
 static int estop_asserted(void) { return (GPIO_IDR(GPIOC_BASE) >> ESTOP_PIN) & 1u; }
+static int drv_fault_asserted(void)
+{
+    uint32_t idr = GPIO_IDR(GPIOC_BASE);
+    return !((idr >> DRV_FAULT_L_PIN) & 1u) || !((idr >> DRV_FAULT_R_PIN) & 1u);
+}
+static int bumper_asserted(void) { return !((GPIO_IDR(GPIOC_BASE) >> BUMPER_PIN) & 1u); }
+
+/* IWDG(RM0090 §21),同裸機版。餵狗放在最低優先的 report_task:高優先 task 把 CPU 吃光時它餵不到 */
+static void iwdg_init(uint32_t ms)
+{
+    if (ms == 0) ms = 1; else if (ms > 4096) ms = 4096;
+    IWDG_KR  = IWDG_KEY_UNLOCK;
+    IWDG_PR  = IWDG_PR_DIV32;
+    IWDG_RLR = ms - 1u;
+    uint32_t spin = 0;
+    while ((IWDG_SR & (IWDG_SR_PVU | IWDG_SR_RVU)) && ++spin < 100000) { }
+    IWDG_KR  = IWDG_KEY_START;
+    IWDG_KR  = IWDG_KEY_RELOAD;
+}
+static void iwdg_feed(void) { IWDG_KR = IWDG_KEY_RELOAD; }
 
 static int can_send(uint32_t std_id, const uint8_t *d, uint8_t dlc)
 {
@@ -256,6 +292,11 @@ static int can_recv(uint32_t *out_id, uint8_t *out_d, uint8_t *out_dlc)
 static volatile int32_t s_sp_l, s_sp_r;
 static volatile TickType_t s_last_cmd_tick;
 static volatile int s_have_cmd;
+static volatile TickType_t s_last_ping_tick;
+static volatile int s_have_ping;
+static int32_t s_stall_ms;
+static int s_stalled;
+static int s_warm_reset;
 static int32_t s_integ_l, s_integ_r;
 static int32_t s_cmd_v, s_cmd_w;           /* 上位命令(mm/s、mrad/s) */
 static int32_t s_v_ramp, s_w_ramp;         /* 斜坡後的 v、w */
@@ -334,11 +375,30 @@ static void control_step(void)
     s_y_mm += ds * fsin(th_mid);
     s_th_rad += dth;
 
-    uint32_t flags = 0;
+    /* 安全閘門(同裸機版):「切」= 致能關;「降」= 命令改 0 走斜坡 */
+    uint32_t flags = s_warm_reset ? ODOM_FLAG_WDT_RESET : 0;
+    uint32_t mask = g_cfg.safety_mask;
     int enable = 1;
+    int32_t cmd_v = s_cmd_v, cmd_w = s_cmd_w;
+    TickType_t now = xTaskGetTickCount();
     if (estop_asserted()) { flags |= ODOM_FLAG_ESTOP; enable = 0; }
-    if (!s_have_cmd || (xTaskGetTickCount() - s_last_cmd_tick) > pdMS_TO_TICKS(CMD_TIMEOUT_MS)) {
+    if (!s_have_cmd || (now - s_last_cmd_tick) > pdMS_TO_TICKS(CMD_TIMEOUT_MS)) {
         flags |= ODOM_FLAG_CMD_STALE; enable = 0;
+    }
+    if ((mask & SAFETY_DRV_FAULT) && drv_fault_asserted()) { flags |= ODOM_FLAG_DRV_FAULT; enable = 0; }
+    if ((mask & SAFETY_BUMPER) && bumper_asserted()) { flags |= ODOM_FLAG_BUMPER; if (cmd_v > 0) cmd_v = 0; }
+    if ((mask & SAFETY_HB) && g_cfg.hb_timeout_ms > 0
+        && (!s_have_ping || (now - s_last_ping_tick) > pdMS_TO_TICKS(g_cfg.hb_timeout_ms))) {
+        flags |= ODOM_FLAG_HB_LOST; cmd_v = 0; cmd_w = 0;
+    }
+    if (mask & SAFETY_STALL) {
+        int32_t al = s_duty_l < 0 ? -s_duty_l : s_duty_l, ar = s_duty_r < 0 ? -s_duty_r : s_duty_r;
+        int32_t ml = s_meas_l < 0 ? -s_meas_l : s_meas_l, mr = s_meas_r < 0 ? -s_meas_r : s_meas_r;
+        int stuck = (al >= g_cfg.stall_duty && ml < STALL_SPEED_MM_S) || (ar >= g_cfg.stall_duty && mr < STALL_SPEED_MM_S);
+        s_stall_ms = stuck ? s_stall_ms + CONTROL_PERIOD_MS : 0;
+        if (s_stall_ms >= g_cfg.stall_ms) s_stalled = 1;
+        if (s_cmd_v == 0 && s_cmd_w == 0) { s_stalled = 0; s_stall_ms = 0; }
+        if (s_stalled) { flags |= ODOM_FLAG_STALL; enable = 0; }
     }
     if (enable) {
         flags |= ODOM_FLAG_ENABLED;
@@ -346,8 +406,8 @@ static void control_step(void)
          * 轉→直的過渡兩輪不同步(量到方形每段偏航 +0.16 rad);0 = 直接跳(第一版行為) */
         int32_t dv = g_cfg.accel_mm_s2 * CONTROL_PERIOD_MS / 1000;
         int32_t dw = g_cfg.alpha_mrad_s2 * CONTROL_PERIOD_MS / 1000;
-        s_v_ramp = dv > 0 ? s_v_ramp + clamp_i32(s_cmd_v - s_v_ramp, -dv, dv) : s_cmd_v;
-        s_w_ramp = dw > 0 ? s_w_ramp + clamp_i32(s_cmd_w - s_w_ramp, -dw, dw) : s_cmd_w;
+        s_v_ramp = dv > 0 ? s_v_ramp + clamp_i32(cmd_v - s_v_ramp, -dv, dv) : cmd_v;
+        s_w_ramp = dw > 0 ? s_w_ramp + clamp_i32(cmd_w - s_w_ramp, -dw, dw) : cmd_w;
         /* v_l = v - w*track/2,w 是 mrad/s → (w * TRACK_MM / 2) / 1000 mm/s */
         int32_t half = s_w_ramp * TRACK_MM / 2 / 1000;
         s_sp_l = s_v_ramp - half;
@@ -399,6 +459,7 @@ static void rx_task(void *arg)
                 if (rx.type == MSG_CMD_VEL && rx.len == 4) handle_cmd_vel(rx.payload);
                 else if (rx.type == MSG_PING) {
                     uint8_t v[2] = { FW_VERSION_MAJOR, FW_VERSION_MINOR };
+                    s_last_ping_tick = xTaskGetTickCount(); s_have_ping = 1; g_dbg.ping_frames++;
                     proto_send(MSG_PONG, v, 2);
                 }
             }
@@ -417,6 +478,11 @@ static void ctrl_task(void *arg)
         g_dbg.tick_ms = xTaskGetTickCount();
         control_step();
         g_dbg.stack_min_ctrl = uxTaskGetStackHighWaterMark(NULL);
+        /* 故障注入(只給 IWDG 驗收):最高優先的 task 關中斷死迴圈,其他 task 全部餓死,沒人餵狗 */
+        if (g_cfg.hang_at_ms > 0 && (int32_t)(g_dbg.tick_ms - (uint32_t)g_cfg.hang_at_ms) >= 0) {
+            __asm volatile("cpsid i");
+            for (;;) { }
+        }
     }
 }
 
@@ -427,6 +493,7 @@ static void report_task(void *arg)
     uint16_t seq = 0;
     for (;;) {
         if (xTaskDelayUntil(&last, pdMS_TO_TICKS(REPORT_PERIOD_MS)) == pdFALSE) g_dbg.report_missed++;
+        if (g_cfg.safety_mask & SAFETY_IWDG) iwdg_feed();   /* 最低優先的 task 才餵得到 = 整個系統還在排程 */
         seq++;
         odom_payload_t o;
         o.seq = seq;
@@ -508,6 +575,15 @@ int main(void)
     dbg_puts(g_dbg.init_err ? "can1 init FAILED\r\n" : "can1 ready\r\n");
 
     motor_apply(0, 0, 0);
+
+    /* 暖重置偵測與 IWDG 起動(同裸機版) */
+    g_dbg.boot_csr = RCC_CSR;
+    RCC_CSR |= RCC_CSR_RMVF;
+    if (g_noinit.magic == 0x4E4F494Eu) { g_noinit.resets++; s_warm_reset = 1; }
+    else { g_noinit.magic = 0x4E4F494Eu; g_noinit.resets = 0; }
+    if (g_dbg.boot_csr & RCC_CSR_IWDGRSTF) s_warm_reset = 1;
+    g_dbg.resets = g_noinit.resets;
+    if (g_cfg.safety_mask & SAFETY_IWDG) iwdg_init((uint32_t)g_cfg.iwdg_ms);
 
     /* USART1 中斷:優先權 6(數值 >= configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY 才能用 FromISR API) */
     USART_CR1(USART1_BASE) |= USART_CR1_RXNEIE;

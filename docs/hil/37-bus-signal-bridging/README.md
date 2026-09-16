@@ -14,8 +14,10 @@
 | PWM duty | MCU → 受控體 | External Control `sysbus_read` TIM3 `CCR1/CCR2/ARR` | CCR 讀得回([36 篇](../36-stm32-firmware-on-renode/README.md) §3);訂閱 PWM 腳的邊緣事件每秒會有上萬筆 |
 | 方向、致能 | MCU → 受控體 | External Control `gpio_get` gpioPortB 8/9/10 | 讀的是**輸出腳**(`Connections[n].IsSet`) |
 | 急停 | 受控體 → MCU | External Control `gpio_set` gpioPortC 13 | 寫的是**輸入腳**(`OnGPIO(n, v)`) |
+| 驅動器故障、保險桿 | 板子 → MCU | External Control `gpio_set` gpioPortC 14/15、0(低有效) | 橋接扮演 pull-up:開機前拉高、IWDG 重啟後再拉一次;故障注入把它拉低([38 篇](../38-acceptance-and-failure-modes/README.md) §1.2) |
+| 心跳 | 上位 → MCU | UART `PING`(0x03)每 100 ms,韌體回 `PONG` | 橋接腳本模式自己送;ROS driver 也送;300 ms 沒收到韌體降速到 0 |
 | 韌體內部狀態 | MCU → 橋接 | External Control `sysbus_read` `g_dbg`(17 個字一次讀) | 生效證明與驗收用 |
-| 增益與斜坡 | 橋接 → MCU | External Control `sysbus_write` `g_cfg`(開機後、腳本前寫,再讀回印 `[effect]`) | `--cfg kp=..,ki=..,accel=..` 掃參數、`--negative no-ramp` 關斜坡,都不重編韌體([38 篇](../38-acceptance-and-failure-modes/README.md) §1.1) |
+| 增益、斜坡、安全遮罩 | 橋接 → MCU | External Control `sysbus_write` 到 flash 裡 `.data` 初始值的 LMA(**開機前**),開機後從 SRAM 讀回印 `[effect]` | `--cfg kp=..,ki=..,accel=..` 掃參數、`--negative no-ramp` 關斜坡、`*-off` 關一項安全功能、`--fault hang` 排一個死機時刻,都不重編韌體([38 篇](../38-acceptance-and-failure-modes/README.md) §1.1、§1.2) |
 | UART(上位協定) | 雙向 | IronPython hook(`usart1.WriteChar` / `CharReceived`) | 要 ack(§3);Renode 內建的 socket terminal 也能用但沒有 ack |
 | CAN | 雙向 | IronPython hook(`can1.OnFrameReceived` / `FrameSent`) | 不碰核心;三條路的取捨在 §4 |
 | 編碼器 tick | 受控體 → MCU | hook 一筆 `0xFFFF0020`(Δtick 左/右)→ Renode 裡的 .NET `QuadratureFeeder` 對 TIM2/TIM4 的 TI1/TI2 打正交邊緣;或 External Control 寫 CNT | lockstep 走邊緣(驗 encoder mode),realtime 寫 CNT(每個邊緣 50–100 µs);36 篇 §3.1 |

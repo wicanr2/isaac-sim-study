@@ -13,14 +13,14 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-九項判準在開跑前寫死">1. 九項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十項判準在開跑前寫死">1. 十項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="38-驗收與失敗形態先閉環再換-isaac">38 · 驗收與失敗形態:先閉環,再換 Isaac</h1>
 <p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後是把受控體換成 Isaac Sim 6.0.1 時七件事各量到什麼。</p>
 <blockquote>
 <p><strong>驗證狀態</strong>:§1–§5 在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 在場域 GPU 主機實測(Isaac Sim 6.0.1 pip 版,PhysX、CPU 求解、TGS;Renode 與橋接留在本機,受控體經 <code>ssh -L</code> 隧道,同日)。</p>
 </blockquote>
-<h2 id="1-九項判準在開跑前寫死">1. 九項判準,在開跑前寫死</h2>
+<h2 id="1-十項判準在開跑前寫死">1. 十項判準,在開跑前寫死</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/run_loop.sh"><code>run_loop.sh</code></a> 一條指令:起 Renode 容器(<code>--network none</code>)、橋接容器共用它的 netns、跑完只停自己起的那一個。橋接開頭先印生效證明:</p>
 <pre><code>[effect] encoder: calib=tim inject=hook
 [effect] renode ec=127.0.0.1:3500 hook=127.0.0.1:3600 machine=hilctl boot_ms=100 t0_us=100000
@@ -30,7 +30,7 @@
 [effect] g_cfg@0x20000000 kp_q8=256 ki_q8=6 accel_mm_s2=1500 ff_q8=256 alpha_mrad_s2=4000 (calib 預設)
 </code></pre>
 <p>每一行都是「這個變數進了系統」的證據:magic 對表示讀的是這支韌體、<code>ARR</code> 讀回值對上 calib 表示韌體吃的是同一份參數、<code>g_cfg</code> 那行是從 SRAM <strong>讀回來</strong>的增益與斜坡(<code>--cfg</code> 覆蓋之後也是讀回值,不是命令列的值)。</p>
-<p>預設腳本:0.5 s 起 v = 300 mm/s 走 3 s,再 w = 600 mrad/s 轉 1.5 s,然後停;共 6 s = 1200 步。九項判準(2026-09-16,現行 calib:斜坡 1500 mm/s² / 4000 mrad/s²、kp 256、ki 6、前饋 100%、馬達層 τ 50 ms):</p>
+<p>預設腳本:0.5 s 起 v = 300 mm/s 走 3 s,再 w = 600 mrad/s 轉 1.5 s,然後停;共 6 s = 1200 步。十項判準(2026-09-16,現行 calib:斜坡 1500 mm/s² / 4000 mrad/s²、kp 256、ki 6、前饋 100%、馬達層 τ 50 ms):</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -95,10 +95,16 @@
 <td>斜坡沒生效(韌體沒讀 <code>g_cfg</code>、算錯單位)</td>
 <td>2257 vs 2520 mm/s²</td>
 </tr>
+<tr>
+<td>C10</td>
+<td>安全 I/O:<code>--fault</code> 注入的那一項在時限內反應(§1.2 的表)</td>
+<td>看門狗沒餵/沒起動、故障腳沒接、保險桿不擋、堵轉不鎖、心跳沒驗</td>
+<td>沒注入時不驗;五項各自綠、五個 <code>*-off</code> 各自紅</td>
+</tr>
 </tbody>
 </table></div>
 <p>任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 <a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a>。末端位姿 x 900.8、y 0.4、θ 0.8627 是這份 calib 下的參考值,裸機與 FreeRTOS 兩版韌體、三種編碼器注入法、UDP 受控體、vcan 路都要對上它(§3、<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.1、<a href="../../hil/39-freertos-firmware-in-the-loop/">39 篇</a> §3)。</p>
-<p>負對照有三個,每一個只差一個旗標:<code>--negative bad-crc</code>(§2)、<code>--negative enc-swap</code>(編碼器 A/B 對調:韌體量到負速度,PI 正回饋把車推到 5.3 m,C3、C8、C9 紅)、<code>--negative no-ramp</code>(§1.1)。</p>
+<p>負對照有八個,每一個只差一個旗標:<code>--negative bad-crc</code>(§2)、<code>--negative enc-swap</code>(編碼器 A/B 對調:韌體量到負速度,PI 正回饋把車推到 5.3 m,C3、C8、C9 紅)、<code>--negative no-ramp</code>(§1.1)、五個安全 I/O 的 <code>*-off</code>(§1.2)。</p>
 <h3 id="11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</h3>
 <p>第一版韌體的 PI 直接追上位的階躍,受控體的馬達是「duty 乘滿速再一階趨近」——沒有死區、沒有扭矩上限。300 mm/s 的步階在假受控體上升 40 ms、超調 15%、最大加速度 9300 mm/s²;在 Isaac 上 <code>DriveAPI</code> 直接吃 duty,超調 60%、最大加速度 91400 mm/s²,在 ±2% 帶外晃了 525 ms。這兩個數字都不是「車」的行為,是「沒有動態限制的控制器 + 沒有物理上限的馬達」的行為。改了三件事,每一件放在它該在的那一層:</p>
 <p align="center"><img src="../../img/hil-ramp-and-motor-layer.svg" width="860" alt="命令到輪速的鏈:斜坡與 PI 在韌體、馬達層在受控體;兩張步階圖是假受控體與 Isaac 的前後對照"></p>
@@ -147,8 +153,74 @@
 </table></div>
 <p>上升 155 ms 是斜坡的值(300 / 1500 = 200 ms 到頂,10→90% 是其中 160 ms),不是 PI 的值;兩個受控體一樣,因為限制在韌體。Isaac 的 dθ 從 27.6 mrad 掉到 0.8:它的里程計誤差原本主要是轉向段的加速度撞擊——輪子在 5 ms 內從 0 到滿速,球形輪對地面打滑,而假受控體沒有這件事,所以兩者原本差 30 倍、現在同一級。</p>
 <p><strong>C9 與負對照。</strong> 判準是「受控體的輪加速度 ≤ (accel + alpha × 輪距/2) × 1.2」:v 與 w 同時起坡時一個輪子吃到兩者的和(1500 + 4000 × 0.15 = 2100),PI 追斜坡的瞬態量到 +7%,留 20%。<code>--negative no-ramp</code> 經 External Control 把 <code>g_cfg</code> 的 accel 與 alpha 寫 0(<code>[effect]</code> 那行讀回 0,韌體同一支),C9 按 calib 的 2100 驗:max 3000 vs 2520,紅——3000 是馬達層的上限,斜坡關掉時受控體撞到的是它。容差不能是 1.5:2100 × 1.5 = 3150 &gt; 3000,負對照會綠。這是 §2 那條規則的另一個用法:負對照不只驗「測試有效」,還會<strong>卡住容差</strong>。</p>
-<p><code>--mode realtime</code> 下三項換成一致性版本:C1「0 &lt; Renode 時間 ≤ 牆鐘 + 5%」(Renode 追牆鐘的節拍以量子為單位,量到領先最多 +1.8%)、C5 的期望值用 Renode 時間除以 20 ms(odom 是韌體按它的時間送的)、C8「≥ 90% steps」(沒有 <code>run_for</code>,一步延遲的等式不成立)。realtime 下九項全綠<strong>不代表</strong>車走對了——Renode 跑不到實時時,閉環速度會安靜地低到 ratio 倍,判準抓不到,見 <a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1。</p>
+<p><code>--mode realtime</code> 下三項換成一致性版本:C1「0 &lt; Renode 時間 ≤ 牆鐘 + 5%」(Renode 追牆鐘的節拍以量子為單位,量到領先最多 +1.8%)、C5 的期望值用 Renode 時間除以 20 ms(odom 是韌體按它的時間送的)、C8「≥ 90% steps」(沒有 <code>run_for</code>,一步延遲的等式不成立)。realtime 下一致性判準全綠<strong>不代表</strong>車走對了——Renode 跑不到實時時,閉環速度會安靜地低到 ratio 倍,判準抓不到,見 <a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1。</p>
 <p>C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌體用 5 項 Taylor 的 sin/cos、以 float 積分 1200 步的誤差)+ 里程計對真值的系統性差(2% 距離)+ 受控體的接觸滑移(<code>--slip</code> × 距離、<code>--slip</code> × |θ|)。假受控體 slip = 0;Isaac 實測轉向滑移 3.1%、直行 0.5%,用 0.05——這個數字是先在 §6 量到、再寫回判準的,不是看結果調的。</p>
+<h3 id="12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</h3>
+<p>第一版只有兩道閘:急停腳與 500 ms 命令逾時。真車底盤至少還要五道,每一道的失敗形狀都是「上位看起來正常,車在動」:韌體死掉(PWM 週邊照跑,馬達用最後的 duty 一直轉)、驅動器報錯沒人理、撞到東西還在推、輪子卡住還在灌電流、上位死了只剩命令逾時那 500 ms。五項都進了韌體(兩版同改),每一項的<strong>故障由橋接注入</strong>(它扮演板子:pull-up、驅動器的 nFAULT、保險桿接點、上位的心跳),<strong>判準寫在 C10</strong>,<strong>負對照用 <code>g_cfg.safety_mask</code> 關掉那一項的防護</strong>——同一支韌體、同一個故障、同一條判準,必須紅。</p>
+<p align="center"><img src="../../img/hil-safety-io-timeline.svg" width="860" alt="五項安全 I/O 的故障注入時間軸:輪速、CCR1 與韌體旗標"></p>
+
+<div class="tw"><table>
+<thead>
+<tr>
+<th>項</th>
+<th>韌體(RM0090)</th>
+<th>橋接注入(<code>--fault</code>)</th>
+<th>C10 判準</th>
+<th>實測</th>
+<th>負對照(<code>--negative</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>IWDG</td>
+<td><code>KR=0x5555 → PR=3(/32 → 1 kHz)→ RLR=999 → KR=0xCCCC → KR=0xAAAA</code>;每個控制步餵(FreeRTOS 版由最低優先的 report_task 餵)</td>
+<td><code>hang</code>:<code>g_cfg.hang_at_ms</code> 到時關中斷死迴圈</td>
+<td>死掉後 1.2 s 內重啟(<code>.noinit</code> 計數 +1、tick 從頭)、重啟那步 CCR 0</td>
+<td>1.995 s 死掉(<code>ctrl_steps</code> 停在 420)→ <strong>2.995 s 重啟</strong>(+1000 ms);死掉期間 CCR 停在 330(33% duty 轉了 1 s);重啟那步 CCR 0,5 ms 後上位的 cmd_vel 又進來,車又走</td>
+<td><code>iwdg-off</code>:不起動 IWDG → 沒重啟,CCR 330 轉到結束,車跑到 1.59 m,<strong>紅</strong></td>
+</tr>
+<tr>
+<td>驅動器故障腳</td>
+<td>PC14/PC15 輸入 + pull-up,低有效 → 致能關、duty 0、積分清</td>
+<td><code>drv-fault</code>:2.0–3.5 s <code>gpio_set</code> PC14 低</td>
+<td>拉低後 10 ms 內 DRV_FAULT、EN 低、CCR 0;放開後恢復</td>
+<td>旗標 <strong>+0 ms</strong>(同一個控制步);故障期間 300 步 CCR/EN 全 0;放開後恢復</td>
+<td><code>drv-fault-off</code>:旗標不出現,299 步 CCR≠0,<strong>紅</strong></td>
+</tr>
+<tr>
+<td>保險桿</td>
+<td>PC0 輸入 + pull-up,常閉接點斷開 = 撞到 → 前進命令改 0 走斜坡,倒車放行</td>
+<td><code>bumper</code>:受控體 x ≥ 500 mm 就把 PC0 拉低(腳本 3.5 s 改倒車)</td>
+<td>撞牆後 60 mm 內停、旗標亮、倒車後 x 少 100 mm 以上</td>
+<td>500.5 mm 撞到,最遠 <strong>537.2</strong>(+37.2:斜坡 30 mm + 一個控制步);倒車到 239.7</td>
+<td><code>bumper-off</code>:穿牆到 900.2,<strong>紅</strong></td>
+</tr>
+<tr>
+<td>堵轉</td>
+<td>上一步 |duty| ≥ 60% 且 |輪速| &lt; 20 mm/s 持續 200 ms → 鎖住(致能關),上位命令歸零才解</td>
+<td><code>stall</code>:2.0–3.5 s 受控體不動、編碼器不動</td>
+<td>卡住後 500 ms 內 STALL 且 CCR 0;命令歸零後解</td>
+<td>旗標 <strong>+345 ms</strong>(輪速衰減 ~150 ms + 200 ms);之後 3.5 s 的轉向命令被擋,5.0 s 歸零解鎖</td>
+<td><code>stall-off</code>:旗標不出現,duty 100% 灌到 3.5 s,<strong>紅</strong></td>
+</tr>
+<tr>
+<td>心跳</td>
+<td>上位每 100 ms 送 PING;300 ms 沒收到 → 命令改 0 走斜坡(與 500 ms 命令逾時分開)</td>
+<td><code>no-ping</code>:2.0 s 起不送 PING(cmd_vel 照送)</td>
+<td>PING 停後 320 ms 內 HB_LOST、700 ms 內車停</td>
+<td>旗標 <strong>+200 ms</strong>(最後一筆 PING 在 1.9 s);車停 +495 ms</td>
+<td><code>hb-off</code>:旗標不出現,車照跑到 900.8,<strong>紅</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>三個細節是做了才知道的:</p>
+<ul>
+<li><strong>堵轉的速度門檻要高於感測器的量子。</strong> 一個 tick = 76.7 µm,5 ms 一個控制步,所以最小的非零速度是 15 mm/s;門檻 5 mm/s 的話,輪子還在慢慢滑的那幾百毫秒裡每偶爾一個 tick 就把計時清零,量到 +525 ms 才鎖。門檻改 20 → +345 ms。</li>
+<li><strong>Renode 的 GPIO 輸入腳預設是 0,而且機器重置後回到 0。</strong> 低有效的腳在真板上靠 pull-up,Renode 不看 <code>PUPDR</code>;橋接開機前把三腳拉高,IWDG 重啟後也要再拉一次(重啟後那一步 DRV_FAULT 與 BUMPER 會亮一下)。這是「橋接扮演板子」的一部分,不是韌體的事——韌體照 RM0090 寫 <code>PUPDR = 01</code>。</li>
+<li><strong>暖重置的證據。</strong> 真板讀 <code>RCC_CSR.IWDGRSTF</code>;Renode 的 RCC 給重置值 <code>0x0E000000</code>(POR/PIN/BOR 三個旗標),不設 IWDGRSTF——這是 <code>STM32_IndependentWatchdog</code> 原始碼裡的 <code>TODO</code>。韌體另外用 <code>.noinit</code> 區段的計數(<code>LoadELF</code> 只寫檔案裡有的區段,<code>NOLOAD</code> 的 SRAM 跨 reset 保留),兩個都記進 <code>g_dbg</code>。看門狗模型本身照 RM0090 第 21 章的序列反應:<code>Reload()</code> 才把 RLR 載入計數器、起動時從 0xFFF 起、逾時 <code>machine.RequestReset()</code>;監視器的 <code>macro reset</code> 接著重載 ELF,韌體從 <code>Reset_Handler</code> 重來。<strong>這一項 Renode 沒有缺口。</strong></li>
+</ul>
+<p>負對照關掉防護的方法是改 <code>g_cfg.safety_mask</code>,而 IWDG 在 <code>main()</code> 初始化時就要決定開不開——所以 <code>g_cfg</code> 的寫入時機從「開機後寫 SRAM」改成「<strong>開機前寫 flash 裡 <code>.data</code> 的初始值</strong>」(LMA = <code>_sidata + (g_cfg − _sdata)</code>,startup 照常複製),<code>[effect]</code> 開機後從 SRAM 讀回來印。等於燒錄前改了參數區,<code>--cfg</code>、<code>--negative no-ramp</code> 也一併改走這條路,lockstep 數字逐字不變。</p>
+<p>重啟後韌體只把 <code>WDT_RESET</code> 亮在 flags 裡(到下次上電為止),上位的命令照收——要不要因為一次看門狗重啟就拒絕命令是政策,這裡沒做。</p>
 <h2 id="2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</h2>
 <p><code>./run_loop.sh --negative bad-crc</code> 把每個 cmd_vel 的最後一個 byte 反相:</p>
 <pre><code>[run] fw ... cmd_frames=0 enc_frames=1199 bad_crc=300 rx_overflow=0
@@ -255,7 +327,11 @@
 </tr>
 </tbody>
 </table></div>
-<p>| realtime 下同一腳本末端差 lockstep 8–14%,五次各不同 | 橋接守不住 5 ms 牆鐘節拍(步距 4.8–5.3 ms、停頓到 50 ms),編碼器訊框跟著步走,韌體假設每筆 = 5 ms | <code>wall_ms</code> 欄對 <code>plant_x</code>;差與步距同向。開放:訊框收到時打 SysTick 微秒戳(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1) |</p>
+<p>| realtime 下同一腳本末端差 lockstep 8–14%,五次各不同 | 橋接守不住 5 ms 牆鐘節拍(步距 4.8–5.3 ms、停頓到 50 ms),編碼器訊框跟著步走,韌體假設每筆 = 5 ms | <code>wall_ms</code> 欄對 <code>plant_x</code>;差與步距同向。收法:編碼器改 TIM encoder mode,韌體在自己的 tick 讀 CNT(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1) |
+| 方形閉環加了斜坡後閉合從 35 變 277 mm | 斜坡對兩輪各自限,轉→直時兩輪從不同速度起步、不同時到,每段直線畫弧 +0.16 rad | 每段結束的位姿;改成 v/w 各限(§1.1) |
+| 堵轉旗標晚了 525 ms 才亮 | 速度門檻 5 mm/s 低於感測器量子(一個 tick / 5 ms = 15 mm/s),輪子慢慢滑時偶爾一個 tick 就把計時清零 | 門檻 ≥ 量子(§1.2) |
+| IWDG 重啟後 DRV_FAULT、BUMPER 亮一步 | 機器重置把 GPIO 埠也重置,低有效的輸入腳回到 0;真板的 pull-up 在板子上 | 橋接偵測到 tick 倒退就重新拉高(§1.2) |
+| 韌體死掉了,車還在走 | 這不是 bug,是沒有看門狗時的必然:CPU 停了,TIM3 的 PWM 沒停 | <code>--negative iwdg-off</code>:CCR 停在 330、車跑 1.6 m;正對照 IWDG 1 s 後整顆重置 |</p>
 <p>共同點:<strong>每一個的第一眼症狀都指向別的地方</strong>——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯、彈飛像腳輪或質量。每一個都是先讀原始碼或加一個更近的觀測點才看到真因;彈飛那一個,近一點的觀測點是「靜止後停在哪個高度」。</p>
 <h2 id="6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/isaac_plant.py"><code>plant/isaac_plant.py</code></a> 實作同一個受控體協定(TCP 版,因為 <code>ssh -L</code> 只轉 TCP):用 <code>pxr</code> / <code>UsdPhysics</code> 直接建一台差速車(Mesh 盒底盤 + 兩個球形輪 + 球關節腳輪),<code>DriveAPI</code> 的 angular 速度目標當馬達,<code>omni.physx</code> 手動步進,物理步長綁 calib 的 5 ms。它刻意不用 OmniGraph(<a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/">31 篇</a> §5:headless 下 <code>world.step(render=False)</code> 不 tick action graph)、也不依賴 <code>isaacsim.core.api</code> 或 <code>isaacsim.core.experimental</code> 任一邊(<a href="../../common/01-install-and-run-modes/">01 篇</a> §3 的命名空間搬家)。</p>
@@ -296,7 +372,7 @@
 </tr>
 <tr>
 <td>6</td>
-<td>C1–C9</td>
+<td>C1–C10</td>
 <td><strong>ALL PASS</strong>:C3 dx 0.8 / dy 1.0 mm、dθ 0.0008 rad(容差 87.8 mm / 0.0737 rad,slip 0.05);步階超調 3.0%、最大加速度 1900 mm/s²;負對照位移 0、C2 紅。每步 52 ms 牆鐘(隧道約 +19 ms、Isaac 步進約 +3 ms)。馬達層加入前是 3.4 / 2.0 mm、0.0276 rad,超調 60%、加速度 91400——差在轉向段輪子瞬間到滿速時的打滑(§1.1)</td>
 </tr>
 <tr>
@@ -390,12 +466,12 @@
 </tr>
 <tr>
 <td>上位煞車距離加 v × lag(<code>lag_s</code> 0.08 = τ 50 ms + 兩筆 20 ms 量級)</td>
-<td><strong>24 mm、−0.062 rad</strong></td>
+<td><strong>24 mm、−0.062 rad</strong>(第二次 18 mm、−0.050:ROS 端的節拍是牆鐘,兩次不同)</td>
 <td>不足 0.011–0.026,散布 0.015 ≈ 一筆 odom(0.012)</td>
 </tr>
 </tbody>
 </table></div>
-<p>末端真值 (x, y, θ) = (−18.0, 16.4, 6.222)、odom (−13, 20, 6.221),odom 對真值 5 mm / 1 mrad,C1–C9 全綠。最後一列的殘差已經是一筆 odom 的量化,再往下要改的是上位的取樣率或用 odom 速度外推,不是下位。這一段的教訓是<strong>上位的煞車模型要包含下位的動態</strong>——斜坡加速度、馬達時間常數、回報週期——這些在真車上是驅動器手冊與底盤韌體的參數,上位的人拿不到就會在方形上看到 +0.03 rad/角。</p>
+<p>末端真值 (x, y, θ) = (−18.0, 16.4, 6.222)、odom (−13, 20, 6.221),odom 對真值 5 mm / 1 mrad,C1–C10 全綠。最後一列的殘差已經是一筆 odom 的量化,再往下要改的是上位的取樣率或用 odom 速度外推,不是下位。這一段的教訓是<strong>上位的煞車模型要包含下位的動態</strong>——斜坡加速度、馬達時間常數、回報週期——這些在真車上是驅動器手冊與底盤韌體的參數,上位的人拿不到就會在方形上看到 +0.03 rad/角。</p>
 <p>C2 因為這個場景改成量<strong>路徑長</strong>而不是首尾位移:方形走完位移 37 mm,路徑長 2.4 m;C3 的容差也改用路徑長(里程計誤差跟著走過的距離累積)。預設腳本下兩者只差 15 mm(轉彎過渡的弧),數字不變。</p>
 <h2 id="7-建議的分階段">7. 建議的分階段</h2>
 <p>不要一開始就接 Isaac。順序:</p>
@@ -416,7 +492,7 @@
 <tr>
 <td>韌體</td>
 <td>加 Renode 裡的韌體</td>
-<td>C1–C9 全綠;負對照轉紅</td>
+<td>C1–C10 全綠;八個負對照各自轉紅</td>
 </tr>
 <tr>
 <td>受控體換 UDP</td>
@@ -431,7 +507,7 @@
 <tr>
 <td>ROS 2 上位</td>
 <td>上位換 rclpy 節點,閉環由里程計判斷</td>
-<td>C1–C9 全綠;閉合誤差與 odom 誤差分開報;上位的煞車模型要含下位的斜坡與馬達延遲</td>
+<td>C1–C10 全綠;閉合誤差與 odom 誤差分開報;上位的煞車模型要含下位的斜坡與馬達延遲</td>
 </tr>
 <tr>
 <td>實板</td>

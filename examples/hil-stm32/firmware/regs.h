@@ -15,6 +15,9 @@
 #define RCC_AHB1ENR   REG(RCC_BASE + 0x30)
 #define RCC_APB1ENR   REG(RCC_BASE + 0x40)
 #define RCC_APB2ENR   REG(RCC_BASE + 0x44)
+#define RCC_CSR       REG(RCC_BASE + 0x74)  /* 重置來源旗標(RM0090 §7.3.21);RMVF 清全部 */
+#define RCC_CSR_RMVF       (1u << 24)
+#define RCC_CSR_IWDGRSTF   (1u << 29)
 #define RCC_AHB1ENR_GPIOA  (1u << 0)
 #define RCC_AHB1ENR_GPIOB  (1u << 1)
 #define RCC_AHB1ENR_GPIOC  (1u << 2)
@@ -30,6 +33,7 @@
 #define GPIOB_BASE    0x40020400u
 #define GPIOC_BASE    0x40020800u
 #define GPIO_MODER(b)  REG((b) + 0x00)
+#define GPIO_PUPDR(b)  REG((b) + 0x0C)  /* 01 = pull-up;輸入腳沒接東西時讀 1(RM0090 §8.4.4) */
 #define GPIO_IDR(b)    REG((b) + 0x10)
 #define GPIO_ODR(b)    REG((b) + 0x14)
 #define GPIO_BSRR(b)   REG((b) + 0x18)
@@ -43,6 +47,22 @@
 #define DIR_R_PIN      9   /* PB9 右輪方向,1 = 前進 */
 #define MOTOR_EN_PIN   10  /* PB10 馬達致能,1 = 致能 */
 #define ESTOP_PIN      13  /* PC13 急停輸入,1 = 急停觸發 */
+#define DRV_FAULT_L_PIN 14 /* PC14 左驅動器故障輸入,低有效(驅動器的 nFAULT 開集極,靠 pull-up) */
+#define DRV_FAULT_R_PIN 15 /* PC15 右驅動器故障輸入,低有效 */
+#define BUMPER_PIN     0   /* PC0 保險桿,常閉接點:斷開(低)= 撞到 */
+
+/* ---- IWDG @0x40003000(RM0090 §21):LSI 32 kHz,一旦起動不能停 ------------- */
+#define IWDG_BASE     0x40003000u
+#define IWDG_KR       REG(IWDG_BASE + 0x00)
+#define IWDG_PR       REG(IWDG_BASE + 0x04)
+#define IWDG_RLR      REG(IWDG_BASE + 0x08)
+#define IWDG_SR       REG(IWDG_BASE + 0x0C)
+#define IWDG_KEY_UNLOCK 0x5555u   /* 開放 PR / RLR 寫入 */
+#define IWDG_KEY_RELOAD 0xAAAAu   /* 餵狗:計數器從 RLR 重載 */
+#define IWDG_KEY_START  0xCCCCu   /* 起動(計數器從 0xFFF 起,先餵一次才是 RLR) */
+#define IWDG_PR_DIV32   3u        /* 32 kHz / 32 = 1 kHz → RLR 單位 1 ms */
+#define IWDG_SR_PVU     (1u << 0)
+#define IWDG_SR_RVU     (1u << 1)
 
 /* ---- TIM3 @0x40000400(APB1)------------------------------------------- */
 #define TIM3_BASE     0x40000400u

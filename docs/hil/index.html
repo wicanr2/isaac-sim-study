@@ -84,7 +84,7 @@
 <tr>
 <td><a href="../hil/38-acceptance-and-failure-modes/">38</a></td>
 <td>驗收與失敗形態</td>
-<td>九項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;<strong>斜坡在韌體、馬達層在受控體</strong>——步階超調假受控體 15% → 2%、Isaac 60% → 3%,<code>--negative no-ramp</code> 讓 C9 紅並卡住容差;兩次 CSV 逐 byte 相同;<strong>步邊界取樣的 2/305 不符</strong>與事件時刻快照;十四種失敗形態;換成 Isaac 6.0.1 的七件事各量到什麼——<strong>PhysX 介面沒有 <code>update</code>、joint state 不寫回、地面 xformOpOrder 反了讓車飛起來</strong>、滑移 3.1%;ROS 2 方形閉環的閉合誤差拆成轉角過頭與起步偏航,加斜坡後上位的煞車模型要含下位動態(63 → 24 mm)</td>
+<td>十項判準在開跑前寫死;負對照在 C2 轉紅而 C6 證明韌體擋了全部 300 個壞框包;<strong>斜坡在韌體、馬達層在受控體</strong>——步階超調假受控體 15% → 2%、Isaac 60% → 3%,<code>--negative no-ramp</code> 讓 C9 紅並卡住容差;<strong>五項安全 I/O(IWDG、驅動器故障腳、保險桿、堵轉、心跳)各一個故障注入與一個 <code>*-off</code> 負對照</strong>,韌體死掉沒看門狗時馬達轉了 4 s;兩次 CSV 逐 byte 相同;<strong>步邊界取樣的 2/305 不符</strong>與事件時刻快照;十八種失敗形態;換成 Isaac 6.0.1 的七件事各量到什麼——<strong>PhysX 介面沒有 <code>update</code>、joint state 不寫回、地面 xformOpOrder 反了讓車飛起來</strong>、滑移 3.1%;ROS 2 方形閉環的閉合誤差拆成轉角過頭與起步偏航,加斜坡後上位的煞車模型要含下位動態(63 → 24 mm)</td>
 </tr>
 <tr>
 <td><a href="../hil/39-freertos-firmware-in-the-loop/">39</a></td>
@@ -104,7 +104,7 @@
 <li>受控體換成 Isaac Sim 時,ROS 2 bridge 的機制在 <a href="../common/05-ros2-bridge/">05 篇</a>、6.0 的架構在 <a href="../6.0.1/14-ros2-bridge-6.0-architecture/">14 篇</a>;headless 下 OmniGraph 不 tick 的問題在 <a href="../fleet/31-omnigraph-and-ros2-bridge-truth/">31 篇</a> §5——這一區的 Isaac 腳本刻意不用 OmniGraph。</li>
 <li>差速車的物理(輪子碰撞體、腳輪、關節速度單位)在 <a href="../fleet/32-differential-drive-vehicle-model/">32 篇</a>;Isaac 受控體腳本的驗收清單直接引用它。</li>
 <li>時鐘漂移在 <a href="../common/29-long-run-error-budget-and-clock-drift/">29 篇</a> §2 講的是 Isaac 模擬時鐘與牆鐘;這一區多了第三個時鐘。</li>
-<li>驗收探針與預先登記:<a href="../common/30-acceptance-probes-and-preregistration/">30 篇</a>。這一區的九項判準就是照它的做法寫的。</li>
+<li>驗收探針與預先登記:<a href="../common/30-acceptance-probes-and-preregistration/">30 篇</a>。這一區的十項判準就是照它的做法寫的。</li>
 </ul>
   </main>
 </div>

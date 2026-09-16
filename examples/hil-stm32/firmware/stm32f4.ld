@@ -38,5 +38,13 @@ SECTIONS
     _ebss = .;
   } > SRAM
 
+  /* 重置後不清:暖重置計數(IWDG 驗收靠它;RCC_CSR 的旗標 Renode 不設)。
+   * NOLOAD:LoadELF 不寫、startup 不碰,SRAM 內容跨 reset 保留。 */
+  .noinit (NOLOAD) : {
+    . = ALIGN(4);
+    *(.noinit*)
+    . = ALIGN(4);
+  } > SRAM
+
   /DISCARD/ : { *(.ARM.exidx*) *(.ARM.extab*) }
 }

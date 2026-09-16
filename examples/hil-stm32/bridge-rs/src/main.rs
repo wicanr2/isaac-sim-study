@@ -43,6 +43,9 @@ struct Args {
     can: String,
     enc: String,
     cfg: String,
+    /// 故障注入:none | hang | drv-fault | bumper | stall | no-ping(在 --fault-at 秒發生)
+    fault: String,
+    fault_at: f64,
 }
 
 fn parse_args() -> Args {
@@ -65,6 +68,8 @@ fn parse_args() -> Args {
         can: "hook".into(),
         enc: "auto".into(),
         cfg: String::new(),
+        fault: "none".into(),
+        fault_at: 2.0,
     };
     let v: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -86,6 +91,8 @@ fn parse_args() -> Args {
             "--slip" => a.slip = val.parse().expect("--slip"),
             // g_dbg 第 17 字之後的韌體專屬欄位數(FreeRTOS 版 9 個),跑完印出
             "--dbg-extra" => a.dbg_extra = val.parse().expect("--dbg-extra"),
+            "--fault" => a.fault = val,
+            "--fault-at" => a.fault_at = val.parse().expect("--fault-at"),
             // lockstep(預設):橋接推進 Renode;realtime:Renode 自由跑,橋接以牆鐘 dt 取樣/注入
             "--mode" => a.mode = val,
             // 上位:script(預設,內建腳本)或 tcp-listen:ADDR(外部上位連進來講 UART 框包,例如 ROS 2 節點)
@@ -152,9 +159,37 @@ mod dbg {
     pub const FLAGS: u64 = 14;
     pub const INIT_ERR: u64 = 15;
     pub const RX_OVERFLOW: u64 = 16;
+    pub const RESETS: u64 = 17;
+    pub const BOOT_CSR: u64 = 18;
+    pub const PING_FRAMES: u64 = 19;
     pub const MAGIC_VALUE: u32 = 0x4849_4C31;
-    pub const WORDS: u32 = 17;
+    pub const WORDS: u32 = 20;
 }
+
+/// odom / CAN 狀態框 / g_dbg.flags 的位元(firmware/proto.h)
+mod flag {
+    pub const ENABLED: u32 = 1 << 0;
+    pub const ESTOP: u32 = 1 << 1;
+    pub const CMD_STALE: u32 = 1 << 2;
+    pub const DRV_FAULT: u32 = 1 << 3;
+    pub const BUMPER: u32 = 1 << 4;
+    pub const STALL: u32 = 1 << 5;
+    pub const HB_LOST: u32 = 1 << 6;
+    pub const WDT_RESET: u32 = 1 << 7;
+}
+/// g_cfg.safety_mask 的位元
+mod safety {
+    pub const IWDG: u32 = 1 << 0;
+    pub const DRV_FAULT: u32 = 1 << 1;
+    pub const BUMPER: u32 = 1 << 2;
+    pub const STALL: u32 = 1 << 3;
+    pub const HB: u32 = 1 << 4;
+}
+const DRV_FAULT_L_PIN: i32 = 14;
+const DRV_FAULT_R_PIN: i32 = 15;
+const BUMPER_PIN: i32 = 0;
+/// bumper 故障注入:受控體 x 超過這面「牆」就把 PC0 拉低(常閉接點斷開)
+const BUMPER_WALL_MM: f64 = 500.0;
 
 const TIM2_CNT: u64 = 0x4000_0000 + 0x24;
 const TIM4_CNT: u64 = 0x4000_0800 + 0x24;
@@ -214,7 +249,64 @@ fn main() {
         std::process::exit(2);
     };
 
-    // 先讓韌體開機:LoadELF 之後機器是暫停的,main 還沒跑,g_dbg 全零
+    // 故障注入與負對照的組合:--negative X-off = 注入 X 的故障 + 關掉韌體對 X 的防護(g_cfg.safety_mask)
+    let neg = a.negative.as_str();
+    let fault: String = match neg {
+        "iwdg-off" => "hang".into(), "drv-fault-off" => "drv-fault".into(), "bumper-off" => "bumper".into(),
+        "stall-off" => "stall".into(), "hb-off" => "no-ping".into(), _ => a.fault.clone(),
+    };
+    let mask_clear: u32 = match neg {
+        "iwdg-off" => safety::IWDG, "drv-fault-off" => safety::DRV_FAULT, "bumper-off" => safety::BUMPER,
+        "stall-off" => safety::STALL, "hb-off" => safety::HB, _ => 0,
+    };
+    if !["none", "hang", "drv-fault", "bumper", "stall", "no-ping"].contains(&fault.as_str()) {
+        eprintln!("--fault 只接受 none|hang|drv-fault|bumper|stall|no-ping");
+        std::process::exit(2);
+    }
+    // bumper 場景要有「撞牆後倒車」:前進撞 500 mm 的牆 → 拒絕前進 → 倒車命令要被接受
+    let script = if fault == "bumper" && a.script == "0:0,0;0.5:300,0;3.5:0,600;5:0,0" {
+        parse_script("0:0,0;0.5:300,0;3.5:-200,0;5:0,0")
+    } else { script };
+    let fault_at_ms = (a.fault_at * 1000.0).round() as u32;
+
+    // 低有效的輸入腳(PC14/PC15 驅動器故障、PC0 保險桿)在 Renode 的預設是 0 = 觸發;
+    // 真板有 pull-up,這裡由橋接在開機前拉高,等於接上 pull-up
+    let gpio_c = ec.gpio(m, "sysbus.gpioPortC").or_else(|_| ec.gpio(m, "gpioPortC")).expect("gpioPortC");
+    for pin in [DRV_FAULT_L_PIN, DRV_FAULT_R_PIN, BUMPER_PIN] { ec.gpio_set(gpio_c, pin, true).unwrap(); }
+
+    // 執行期控制參數 g_cfg { magic, kp, ki, accel, ff, alpha, iwdg_ms, hang_at_ms, hb_timeout_ms, stall_duty, stall_ms, safety_mask }
+    // 在「開機前」寫進 flash 裡 .data 的初始值(LMA = _sidata + (g_cfg − _sdata)),startup 照常複製到 SRAM——
+    // 等於燒錄前改了參數區。IWDG 這種 init 就定案、之後改不了的參數也因此改得到。
+    let cfg_base = calib::symbol_addr(&a.sym, "g_cfg").expect("符號 g_cfg");
+    let cfg_lma = calib::symbol_addr(&a.sym, "_sidata").expect("符號 _sidata") + (cfg_base - calib::symbol_addr(&a.sym, "_sdata").expect("符號 _sdata"));
+    let cfg_flash_magic = ec.read_u32_at(bus, cfg_lma).unwrap();
+    if cfg_flash_magic != 0x4849_4C43 {
+        eprintln!("flash 裡的 g_cfg 初始值 magic 不對(0x{cfg_flash_magic:08x} @0x{cfg_lma:08x})");
+        std::process::exit(1);
+    }
+    let calib_accel = ec.read_u32_at(bus, cfg_lma + 4 * 3).unwrap() as i32;
+    let calib_alpha = ec.read_u32_at(bus, cfg_lma + 4 * 5).unwrap() as i32;
+    let calib_mask = ec.read_u32_at(bus, cfg_lma + 4 * 11).unwrap();
+    let mut patches: Vec<(u64, u32)> = Vec::new();
+    if !a.cfg.is_empty() {
+        for kv in a.cfg.split(',') {
+            let (k, v) = kv.split_once('=').expect("--cfg 格式 k=v,k=v");
+            let off = match k.trim() { "kp" => 1, "ki" => 2, "accel" => 3, "ff" => 4, "alpha" => 5, "iwdg" => 6, "hang" => 7, "hb" => 8,
+                "stall_duty" => 9, "stall_ms" => 10, "mask" => 11, other => { eprintln!("--cfg 未知欄位 {other}"); std::process::exit(2); } };
+            let v: i32 = v.trim().parse().expect("--cfg 值");
+            patches.push((off, v as u32));
+        }
+    }
+    if neg == "no-ramp" {
+        // 負對照:韌體的兩個斜坡都關掉,但 C9 仍按 calib 的上限驗 → 必須紅
+        patches.push((3, 0)); patches.push((5, 0));
+    }
+    // hang 的時刻寫的是韌體的 tick:韌體在 Renode t=0 開機,橋接的 t=0 是開機 boot_ms 之後
+    if fault == "hang" { patches.push((7, fault_at_ms + a.boot_ms as u32)); }
+    if mask_clear != 0 { patches.push((11, calib_mask & !mask_clear)); }
+    for (off, v) in &patches { ec.write_u32_at(bus, cfg_lma + 4 * off, *v).unwrap(); }
+
+    // 讓韌體開機:LoadELF 之後機器是暫停的,main 還沒跑,g_dbg 全零
     ec.run_for_us(a.boot_ms * 1000).expect("boot run_for");
 
     // 生效證明:每個變數都印一行,證明它進了系統
@@ -222,11 +314,12 @@ fn main() {
     let arr = ec.read_u32_at(bus, TIM3_ARR).expect("讀 ARR");
     let t0 = ec.time_us().expect("time");
     println!("[effect] renode ec={} hook={} machine={} boot_ms={} t0_us={}", a.ec, a.hook, a.machine, a.boot_ms, t0);
-    println!("[effect] g_dbg@0x{:08x} magic=0x{:08x} ({}) init_err={}",
+    println!("[effect] g_dbg@0x{:08x} magic=0x{:08x} ({}) init_err={} resets={} boot_csr=0x{:08x}",
         dbg_base, magic, if magic == dbg::MAGIC_VALUE { "ok" } else { "MISMATCH" },
-        ec.read_u32_at(bus, dbg_base + 4 * dbg::INIT_ERR).unwrap());
-    println!("[effect] mode={} plant={} dt_ms={} steps={} report_every={} script={:?} negative={} slip={}",
-        a.mode, a.plant, c.control_period_ms, steps, report_every, a.script, a.negative, a.slip);
+        ec.read_u32_at(bus, dbg_base + 4 * dbg::INIT_ERR).unwrap(),
+        ec.read_u32_at(bus, dbg_base + 4 * dbg::RESETS).unwrap(), ec.read_u32_at(bus, dbg_base + 4 * dbg::BOOT_CSR).unwrap());
+    println!("[effect] mode={} plant={} dt_ms={} steps={} report_every={} script={:?} negative={} fault={}@{:.1}s slip={}",
+        a.mode, a.plant, c.control_period_ms, steps, report_every, a.script, a.negative, fault, a.fault_at, a.slip);
     let realtime = a.mode == "realtime";
     if !realtime && a.mode != "lockstep" {
         eprintln!("--mode 只接受 lockstep 或 realtime");
@@ -238,34 +331,20 @@ fn main() {
         eprintln!("g_dbg magic 不對:讀到的不是這支韌體,或位址錯");
         std::process::exit(1);
     }
-    // 執行期控制參數 g_cfg { magic, kp_q8, ki_q8, accel_mm_s2, ff_q8 }:開機後(.data 已從 flash 複製)寫入
-    let cfg_base = calib::symbol_addr(&a.sym, "g_cfg").expect("符號 g_cfg");
-    let cfg_magic = ec.read_u32_at(bus, cfg_base).unwrap();
-    if cfg_magic != 0x4849_4C43 {
-        eprintln!("g_cfg magic 不對(0x{cfg_magic:08x})");
+    // 開機後從 SRAM 讀回:證明 startup 複製的是改過的那份
+    let cfgv = ec.read_u32s_at(bus, cfg_base, 12).unwrap();
+    if cfgv[0] != 0x4849_4C43 {
+        eprintln!("g_cfg magic 不對(0x{:08x})", cfgv[0]);
         std::process::exit(1);
     }
-    if !a.cfg.is_empty() {
-        for kv in a.cfg.split(',') {
-            let (k, v) = kv.split_once('=').expect("--cfg 格式 k=v,k=v");
-            let off = match k.trim() { "kp" => 1, "ki" => 2, "accel" => 3, "ff" => 4, "alpha" => 5, other => { eprintln!("--cfg 未知欄位 {other}"); std::process::exit(2); } };
-            let v: i32 = v.trim().parse().expect("--cfg 值");
-            ec.write_u32_at(bus, cfg_base + 4 * off, v as u32).unwrap();
-        }
-    }
-    let calib_accel = ec.read_u32_at(bus, cfg_base + 4 * 3).unwrap() as i32;
-    let calib_alpha = ec.read_u32_at(bus, cfg_base + 4 * 5).unwrap() as i32;
-    if a.negative == "no-ramp" {
-        // 負對照:韌體的兩個斜坡都關掉,但 C9 仍按 calib 的上限驗 → 必須紅
-        ec.write_u32_at(bus, cfg_base + 4 * 3, 0).unwrap();
-        ec.write_u32_at(bus, cfg_base + 4 * 5, 0).unwrap();
-    }
-    let cfgv = ec.read_u32s_at(bus, cfg_base, 6).unwrap();
-    println!("[effect] g_cfg@0x{:08x} kp_q8={} ki_q8={} accel_mm_s2={} ff_q8={} alpha_mrad_s2={}{}",
-        cfg_base, cfgv[1] as i32, cfgv[2] as i32, cfgv[3] as i32, cfgv[4] as i32, cfgv[5] as i32,
-        if a.cfg.is_empty() { " (calib 預設)" } else { " (--cfg 覆蓋後讀回)" });
-    let cfg_accel = if a.negative == "no-ramp" { calib_accel } else { cfgv[3] as i32 };
-    let cfg_alpha = if a.negative == "no-ramp" { calib_alpha } else { cfgv[5] as i32 };
+    println!("[effect] g_cfg@0x{:08x} (flash LMA 0x{:08x}) kp_q8={} ki_q8={} accel_mm_s2={} ff_q8={} alpha_mrad_s2={}{}",
+        cfg_base, cfg_lma, cfgv[1] as i32, cfgv[2] as i32, cfgv[3] as i32, cfgv[4] as i32, cfgv[5] as i32,
+        if patches.is_empty() { " (calib 預設)" } else { " (開機前改 flash,開機後讀回)" });
+    println!("[effect] g_cfg safety: iwdg_ms={} hang_at_ms={} hb_timeout_ms={} stall_duty={} stall_ms={} mask=0x{:02x}{}",
+        cfgv[6] as i32, cfgv[7] as i32, cfgv[8] as i32, cfgv[9] as i32, cfgv[10] as i32, cfgv[11],
+        if mask_clear != 0 { format!(" (負對照關掉 0x{:02x})", mask_clear) } else { String::new() });
+    let cfg_accel = if neg == "no-ramp" { calib_accel } else { cfgv[3] as i32 };
+    let cfg_alpha = if neg == "no-ramp" { calib_alpha } else { cfgv[5] as i32 };
     let wheel_accel_limit = cfg_accel as f64 + cfg_alpha as f64 * c.track_mm / 2.0 / 1000.0;
 
     if let Some(dir) = std::path::Path::new(&a.log).parent() {
@@ -320,6 +399,26 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let mut t_hook = Duration::ZERO;
     let mut t_sleep = Duration::ZERO;
     let mut t_plant = Duration::ZERO;
+    // 安全 I/O 驗收(C10)用的觀測:第一次看到各旗標的步、韌體重啟(tick 倒退)的步、故障期間的 CCR/EN
+    let ping_every = (c.heartbeat_period_ms / c.control_period_ms).max(1) as u32;
+    let mut first_flag: [Option<u32>; 8] = [None; 8];
+    let mut prev_tick: u32 = 0;
+    let mut reset_step: Option<u32> = None;
+    let mut ccr_after_reset: Option<u32> = None;
+    let mut enabled_after_reset: Option<u32> = None;
+    let mut hang_step: Option<u32> = None;     // ctrl_steps 停止增加的第一步(韌體真的死了的時刻)
+    let mut prev_ctrl_steps: u32 = 0;
+    let mut ccr_while_hung_max: u32 = 0;
+    let mut drv_low = false;
+    let mut bumper_low = false;
+    let mut drv_violations = 0u32;     // 故障腳拉低期間 CCR ≠ 0 或 EN = 1 的步數
+    let mut drv_recovered = false;     // 放開後 EN 回到 1
+    let mut stall_violations = 0u32;   // STALL 旗標出現後、命令歸零前 CCR ≠ 0 的步數
+    let mut stop_step: Option<u32> = None;  // 故障注入後受控體兩輪 |v| < 5 的第一步
+    let mut x_max = f64::MIN;
+    let fault_step = (a.fault_at / dt_s).round() as u32;
+    let fault_end_step = ((a.fault_at + 1.5) / dt_s).round() as u32;   // drv-fault / stall 的注入持續 1.5 s
+    let mut last_flags: u32 = 0;
     if realtime {
         hk.emulation_start().expect("start");
         hk.wait_acks().expect("ack");
@@ -329,8 +428,28 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         // 腳本的時間軸:lockstep 用步數(= Renode 時間);realtime 用牆鐘。橋接落後後會不 sleep 追上,
         // 那段的步比 5 ms 密,若仍用 k·dt 決定命令時刻,命令的持續時間會被壓短(量到轉向段 1.459 s 而不是 1.5 s)
         let t_s = if realtime { wall0.elapsed().as_secs_f64() } else { k as f64 * dt_s };
+        let in_fault_window = t_s >= a.fault_at && t_s < a.fault_at + 1.5;
 
-        // 1. 上位:內建腳本每個回報週期送一次 cmd_vel;外部上位則把這一步之前收到的 byte 全部注入
+        // 0. 故障注入(腳位):驅動器故障腳在視窗內拉低;保險桿在受控體撞到牆時斷開(低)
+        if fault == "drv-fault" && in_fault_window != drv_low {
+            drv_low = in_fault_window;
+            ec.gpio_set(gpio_c, DRV_FAULT_L_PIN, !drv_low).unwrap();
+            println!("[fault] t={:.3}s PC14 驅動器故障腳 → {}", t_s, if drv_low { "低(故障)" } else { "高(解除)" });
+        }
+        if fault == "bumper" {
+            let hit = last_plant.x_mm >= BUMPER_WALL_MM;
+            if hit != bumper_low {
+                bumper_low = hit;
+                ec.gpio_set(gpio_c, BUMPER_PIN, !hit).unwrap();
+                println!("[fault] t={:.3}s x={:.1} mm {} 牆 {:.0} mm → PC0 {}", t_s, last_plant.x_mm, if hit { "撞到" } else { "離開" }, BUMPER_WALL_MM, if hit { "低(斷開)" } else { "高" });
+            }
+        }
+
+        // 1. 上位:內建腳本每個回報週期送一次 cmd_vel、每 heartbeat_period 送一次 PING;外部上位則把這一步之前收到的 byte 全部注入
+        if up.is_none() && k % ping_every == 0 && !(fault == "no-ping" && t_s >= a.fault_at) {
+            hk.uart_send(&proto::ping()).expect("uart_send");
+            hk.wait_acks().expect("ack");
+        }
         if let Some(u) = up.as_mut() {
             let bytes = u.poll_rx();
             if !bytes.is_empty() {
@@ -386,6 +505,44 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         let meas_r = d[dbg::MEAS_R as usize] as i32;
         let duty_l_dbg = d[dbg::DUTY_L as usize] as i32;
         let flags = d[dbg::FLAGS as usize];
+        let tick = d[dbg::TICK_MS as usize];
+        // 只記故障注入之後第一次出現的旗標(開機那一步 CMD_STALE/HB_LOST 本來就亮;重啟後輸入腳回 0 也會亮一步)
+        if k >= fault_step { for b in 0..8 { if flags & (1 << b) != 0 && first_flag[b].is_none() { first_flag[b] = Some(k); } } }
+        if (flags ^ last_flags) & !flag::ENABLED != 0 {
+            println!("[flags] t={:.3}s 0x{:02x} → 0x{:02x}{}{}{}{}{}{}{}", t_s, last_flags, flags,
+                if flags & flag::ESTOP != 0 { " ESTOP" } else { "" }, if flags & flag::CMD_STALE != 0 { " CMD_STALE" } else { "" },
+                if flags & flag::DRV_FAULT != 0 { " DRV_FAULT" } else { "" }, if flags & flag::BUMPER != 0 { " BUMPER" } else { "" },
+                if flags & flag::STALL != 0 { " STALL" } else { "" }, if flags & flag::HB_LOST != 0 { " HB_LOST" } else { "" },
+                if flags & flag::WDT_RESET != 0 { " WDT_RESET" } else { "" });
+        }
+        last_flags = flags;
+        if k > 0 && tick < prev_tick && reset_step.is_none() {
+            reset_step = Some(k);
+            println!("[fault] t={:.3}s 韌體 tick {} → {}:重啟了(IWDG)", t_s, prev_tick, tick);
+            // 機器重置把 GPIO 埠也重置了,輸入腳回到 0 = 低有效的三腳全部「觸發」;真板的 pull-up 在板子上,
+            // 這裡橋接就是板子——重新拉高
+            for pin in [DRV_FAULT_L_PIN, DRV_FAULT_R_PIN, BUMPER_PIN] { ec.gpio_set(gpio_c, pin, true).unwrap(); }
+        }
+        prev_tick = tick;
+        let ctrl_now = d[dbg::CTRL_STEPS as usize];
+        if fault == "hang" && k >= fault_step && hang_step.is_none() && reset_step.is_none() && ctrl_now == prev_ctrl_steps && ctrl_now > 0 {
+            hang_step = Some(k - 1);
+            println!("[fault] t={:.3}s 韌體 ctrl_steps 停在 {}:死了", (k - 1) as f64 * dt_s, ctrl_now);
+        }
+        prev_ctrl_steps = ctrl_now;
+        if fault == "hang" && t_s >= a.fault_at {
+            // 重啟那一步讀到的 CCR:週邊被重置、pwm_init 寫 0;下一步上位的 cmd_vel 又進來,車就又走了
+            if reset_step.is_none() { ccr_while_hung_max = ccr_while_hung_max.max(ccr1); }
+            else if ccr_after_reset.is_none() { ccr_after_reset = Some(ccr1); }
+            if reset_step.is_some() && enabled_after_reset.is_none() && flags & flag::ENABLED != 0 { enabled_after_reset = Some(k); }
+        }
+        if fault == "drv-fault" {
+            if drv_low && k > fault_step && (ccr1 != 0 || ccr2 != 0 || en) { drv_violations += 1; }
+            if !drv_low && k > fault_end_step + 20 && en { drv_recovered = true; }
+        }
+        if fault == "stall" {
+            if let Some(f0) = first_flag[5] { if k > f0 && t_s < 5.0 && (ccr1 != 0 || ccr2 != 0) { stall_violations += 1; } }
+        }
         let t_us = ec.time_us().unwrap();
         if realtime {
             let wall_us = wall0.elapsed().as_micros() as i64;
@@ -465,7 +622,11 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         } else {
             dt_s
         };
+        // 堵轉注入:輪子被卡住——受控體不動、編碼器不動,不管韌體給多少 duty
+        let cmd = if fault == "stall" && in_fault_window { MotorCmd { duty_l: 0.0, duty_r: 0.0, fwd_l: true, fwd_r: true, enabled: false } } else { cmd };
         let out = pl.step(k, plant_dt, cmd).expect("plant step");
+        if fault != "none" && t_s >= a.fault_at && stop_step.is_none() && out.vl_mm_s.abs() < 5.0 && out.vr_mm_s.abs() < 5.0 { stop_step = Some(k); }
+        if out.x_mm > x_max { x_max = out.x_mm; }
         if plant_dt > 0.0 {
             let acc = ((out.vl_mm_s - last_plant.vl_mm_s) / plant_dt).abs().max(((out.vr_mm_s - last_plant.vr_mm_s) / plant_dt).abs());
             if acc > max_plant_accel { max_plant_accel = acc; }
@@ -607,6 +768,61 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             u.connected_once, u.is_connected(), sent_cmds, up_parser.bad_crc);
     }
 
+    // 安全 I/O(C10):只在有故障注入時驗;每一種故障一個判準,負對照 --negative X-off 用同一條判準必須紅
+    let resets_end = ec.read_u32_at(bus, dbg_base + 4 * dbg::RESETS).unwrap();
+    let ping_frames = ec.read_u32_at(bus, dbg_base + 4 * dbg::PING_FRAMES).unwrap();
+    let step_ms = |k: Option<u32>| k.map(|k| k as f64 * dt_s * 1000.0);
+    let fault_ms = a.fault_at * 1000.0;
+    let hang_counts = fault == "hang";   // 重啟後 g_dbg 的計數歸零,cmd/odom/enc 的等式不成立
+    let (c10_name, c10_pass, c10_detail): (String, bool, String) = match fault.as_str() {
+        "hang" => {
+            let t_reset = step_ms(reset_step);
+            // 死掉的時刻以 ctrl_steps 停止增加為準(RTOS 版的 tick 與 Renode 時間差一個開機與 SysTick 首週期)
+            let t_hang = step_ms(hang_step).unwrap_or(fault_ms);
+            let within = t_reset.map(|t| t - t_hang <= c.iwdg_timeout_ms as f64 * 1.2 + 100.0).unwrap_or(false);
+            let stopped = ccr_after_reset == Some(0);
+            (format!("C10 IWDG:韌體死掉後 {} ms 內重啟且馬達停", c.iwdg_timeout_ms),
+             within && resets_end >= 1 && stopped,
+             format!("死於 {:.0} ms → 重啟 {}(resets={});死掉期間 CCR 停在 {}(馬達照轉),重啟那步 CCR {};之後上位命令又進來,ENABLED 於 {}",
+                t_hang, t_reset.map(|t| format!("@{:.0} ms(+{:.0})", t, t - t_hang)).unwrap_or("沒發生".into()), resets_end,
+                ccr_while_hung_max, ccr_after_reset.map(|v| v.to_string()).unwrap_or("—".into()),
+                step_ms(enabled_after_reset).map(|t| format!("{:.0} ms", t)).unwrap_or("—".into())))
+        }
+        "drv-fault" => {
+            let react = step_ms(first_flag[3]).map(|t| t - fault_ms);
+            (format!("C10 驅動器故障腳:拉低後 10 ms 內 DRV_FAULT、EN 低、CCR 0,放開後恢復"),
+             react.map(|r| r <= 10.0).unwrap_or(false) && drv_violations == 0 && drv_recovered,
+             format!("旗標 {} ;故障期間 CCR≠0 或 EN=1 的步數 {};放開後 EN 恢復 {}",
+                react.map(|r| format!("+{:.0} ms", r)).unwrap_or("沒出現".into()), drv_violations, drv_recovered))
+        }
+        "bumper" => {
+            let x_end = last_plant.x_mm;
+            (format!("C10 保險桿:撞牆後 {:.0} mm 內停、拒絕前進、接受倒車", 60.0),
+             first_flag[4].is_some() && x_max <= BUMPER_WALL_MM + 60.0 && x_end <= x_max - 100.0,
+             format!("牆 {:.0} mm,x 最遠 {:.1}(超出 {:.1}),旗標 {},倒車後 x 末端 {:.1}",
+                BUMPER_WALL_MM, x_max, x_max - BUMPER_WALL_MM, if first_flag[4].is_some() { "有" } else { "沒出現" }, x_end))
+        }
+        "stall" => {
+            let react = step_ms(first_flag[5]).map(|t| t - fault_ms);
+            let limit = c.stall_ms as f64 + 300.0;
+            (format!("C10 堵轉:輪子卡住後 {:.0} ms 內 STALL 且 CCR 0,命令歸零才解", limit),
+             react.map(|r| r <= limit).unwrap_or(false) && stall_violations == 0 && last_flags & flag::STALL == 0,
+             format!("旗標 {};STALL 期間 CCR≠0 的步數 {};結束時 STALL {}",
+                react.map(|r| format!("+{:.0} ms", r)).unwrap_or("沒出現".into()), stall_violations, if last_flags & flag::STALL != 0 { "仍鎖住" } else { "已解" }))
+        }
+        "no-ping" => {
+            let react = step_ms(first_flag[6]).map(|t| t - fault_ms);
+            let stop = step_ms(stop_step).map(|t| t - fault_ms);
+            let brake_ms = if c.accel_limit_mm_s2 > 0.0 { 300.0 / c.accel_limit_mm_s2 * 1000.0 } else { 0.0 };
+            let limit = c.heartbeat_timeout_ms as f64 + brake_ms + 200.0;
+            (format!("C10 心跳:PING 停後 {} ms 內 HB_LOST、{:.0} ms 內車停", c.heartbeat_timeout_ms + 20, limit),
+             react.map(|r| r <= c.heartbeat_timeout_ms as f64 + 20.0).unwrap_or(false) && stop.map(|t| t <= limit).unwrap_or(false),
+             format!("PING 停於 {:.0} ms(韌體共收 {} 筆);旗標 {};車停 {}",
+                fault_ms, ping_frames, react.map(|r| format!("+{:.0} ms", r)).unwrap_or("沒出現".into()), stop.map(|t| format!("+{:.0} ms", t)).unwrap_or("沒停".into())))
+        }
+        _ => ("C10 安全 I/O(沒有故障注入,不驗)".into(), true, format!("PING {} 筆,旗標軌跡見 [flags]", ping_frames)),
+    };
+
     let checks = vec![
         // realtime:Renode 跑多快由主機決定,不是驗收項;驗收的是「三個時鐘互相一致」——
         // Renode 時間要有在走,而且不能明顯超前牆鐘。Renode 的實時節拍是以量子為單位追牆鐘,
@@ -614,30 +830,31 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         Check { name: if realtime { "C1 (realtime) 0 < Renode 時間 ≤ 牆鐘 + 5%" } else { "C1 時間完整性 renode_t == steps*dt" },
             pass: if realtime { renode_el_us > 0 && renode_el_us as f64 <= wall.as_micros() as f64 * 1.05 + 20_000.0 } else { renode_el_us == expect_time },
             detail: format!("{} vs {}", renode_el_us, if realtime { wall.as_micros() as u64 } else { expect_time }) },
-        Check { name: "C2 車有動(有非零命令時,路徑長 > 100 mm)", pass: !expect_move || dist > 100.0,
+        Check { name: "C2 車有動(有非零命令時,路徑長 > 100 mm)", pass: !expect_move || dist > 100.0 || hang_counts,
             detail: format!("plant 路徑長 {:.1} mm", dist) },
-        Check { name: "C3 韌體 odom 對受控體真值", pass: dx <= tol_mm && dy <= tol_mm && dth <= tol_rad,
+        Check { name: if hang_counts { "C3 (hang 重啟,不驗)" } else { "C3 韌體 odom 對受控體真值" }, pass: hang_counts || (dx <= tol_mm && dy <= tol_mm && dth <= tol_rad),
             detail: format!("dx={dx:.1} dy={dy:.1} dth={dth:.4} (tol {tol_mm:.1} mm / {tol_rad:.4} rad)") },
         Check { name: if sc.is_some() { "C4 (socketcan) 沒有事件時刻快照,不驗" } else { "C4 兩條獨立管道一致:每筆 CAN 狀態 duty == 同一時刻的 CCR 快照" },
             pass: sc.is_some() || (can_cmp_total > 0 && can_cmp_mismatch == 0),
             detail: if sc.is_some() { format!("狀態框 {} 筆(經 vcan)", can_status_count) } else { format!("{} 筆比對,{} 筆不符", can_cmp_total, can_cmp_mismatch) } },
         // odom 是韌體按「它的」時間每 report_period 送一次,期望值用 Renode 時間算,不用牆鐘
-        Check { name: "C5 odom 回報數 ≥ 90% 期望(按 Renode 時間)", pass: odom_count as f64 >= 0.9 * expect_odom as f64,
+        Check { name: if hang_counts { "C5 (hang 重啟,不驗)" } else { "C5 odom 回報數 ≥ 90% 期望(按 Renode 時間)" }, pass: hang_counts || odom_count as f64 >= 0.9 * expect_odom as f64,
             detail: format!("{} / {}", odom_count, expect_odom) },
         // C9:斜坡生效 → 受控體的輪加速度不超過上限 × 1.2(斜坡限的是設定點,PI 追斜坡的瞬態量到 +7%;
         // 斜坡關掉時受控體撞到馬達層的 3000 上限,1.2 × 2100 = 2520 分得開);accel=0 時不驗
         // 輪加速度上限 = 線加速度 + 角加速度 × 輪距/2(v、w 同時起坡時兩者相加)
-        Check { name: if cfg_accel > 0 { "C9 受控體輪加速度 ≤ (accel + alpha·track/2) × 1.2" } else { "C9 (斜坡關,accel=0) 不驗" },
-            pass: cfg_accel <= 0 || max_plant_accel <= wheel_accel_limit * 1.2,
+        Check { name: if fault != "none" { "C9 (故障注入會硬切,不驗)" } else if cfg_accel > 0 { "C9 受控體輪加速度 ≤ (accel + alpha·track/2) × 1.2" } else { "C9 (斜坡關,accel=0) 不驗" },
+            pass: cfg_accel <= 0 || fault != "none" || max_plant_accel <= wheel_accel_limit * 1.2,
             detail: format!("max |dv/dt| = {:.0} mm/s² vs {:.0}(輪上限 {:.0} × 1.2)", max_plant_accel, wheel_accel_limit * 1.2, wheel_accel_limit) },
         Check { name: "C6 韌體 bad_crc == 橋接送壞的數", pass: bad_crc == corrupted,
             detail: format!("{bad_crc} vs {corrupted}") },
-        Check { name: "C7 韌體收到的 cmd == 送出且未壞的數", pass: cmd_frames == sent_cmds - corrupted,
+        Check { name: if hang_counts { "C7 (hang 重啟,不驗)" } else { "C7 韌體收到的 cmd == 送出且未壞的數" }, pass: hang_counts || cmd_frames == sent_cmds - corrupted,
             detail: format!("{cmd_frames} vs {}", sent_cmds - corrupted) },
         // 最後一步注入的訊框要下一個 run_for 才被讀到:lockstep 固有的一步延遲
         Check { name: if enc_mode != "can" { if realtime { "C8 (TIM, realtime) TIM CNT == 受控體 tick mod 2^16" } else { "C8 (TIM) TIM CNT == 受控體 tick;韌體累計 == 前一步 tick(一步延遲)" } } else if realtime { "C8 (realtime) 韌體收到的編碼器訊框 ≥ 90% steps" } else { "C8 韌體收到的編碼器訊框 == steps-1(一步延遲)" },
-            pass: if enc_mode != "can" { if realtime { cnt_l == last_plant.ticks_l as u32 & 0xFFFF && cnt_r == last_plant.ticks_r as u32 & 0xFFFF } else { tim_ok } } else if realtime { enc_frames as f64 >= 0.9 * steps as f64 } else { enc_frames == steps - 1 },
+            pass: hang_counts || if enc_mode != "can" { if realtime { cnt_l == last_plant.ticks_l as u32 & 0xFFFF && cnt_r == last_plant.ticks_r as u32 & 0xFFFF } else { tim_ok } } else if realtime { enc_frames as f64 >= 0.9 * steps as f64 } else { enc_frames == steps - 1 },
             detail: if enc_mode != "can" { format!("CNT {cnt_l}/{cnt_r} vs plant {}/{};fw {fw_enc_l}/{fw_enc_r} vs 前一步 {}/{}", last_plant.ticks_l as u32 & 0xFFFF, last_plant.ticks_r as u32 & 0xFFFF, ticks_before_last[0], ticks_before_last[1]) } else { format!("{enc_frames} vs {}", if realtime { steps } else { steps - 1 }) } },
+        Check { name: c10_name.leak(), pass: c10_pass, detail: c10_detail },
     ];
     let mut all = true;
     for ch in &checks {

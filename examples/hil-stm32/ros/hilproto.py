@@ -33,6 +33,20 @@ def cmd_vel(v_mm_s: int, w_mrad_s: int) -> bytes:
     return encode(MSG_CMD_VEL, struct.pack("<hh", int(v_mm_s), int(w_mrad_s)))
 
 
+def ping() -> bytes:
+    """心跳:韌體 heartbeat_timeout_ms 沒收到就把命令降到 0(flags HB_LOST)。"""
+    return encode(MSG_PING)
+
+
+# odom / CAN 0x201 的 flags 位元(firmware/proto.h)
+FLAG_NAMES = {1 << 0: "ENABLED", 1 << 1: "ESTOP", 1 << 2: "CMD_STALE", 1 << 3: "DRV_FAULT",
+              1 << 4: "BUMPER", 1 << 5: "STALL", 1 << 6: "HB_LOST", 1 << 7: "WDT_RESET"}
+
+
+def flag_names(flags: int) -> str:
+    return "|".join(n for b, n in FLAG_NAMES.items() if flags & b) or "-"
+
+
 def parse_odom(payload: bytes):
     """回 dict 或 None。"""
     if len(payload) != ODOM_LEN:

@@ -43,7 +43,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 
 | | 裸機 | FreeRTOS |
 |---|---|---|
-| C1–C9 | ALL PASS | ALL PASS |
+| C1–C10 | ALL PASS | ALL PASS |
 | 末端位姿 plant / odom | 900.8, 0.4, 0.8627 / 900, 0, 0.8620 | **相同** |
 | 每步牆鐘 | 10.5 ms(load 7–8) | 9.7 ms |
 | 兩次跑 CSV | 逐 byte 相同 | 逐 byte 相同 |
@@ -87,7 +87,7 @@ ARMv7-M(B3.3.3)規定 `ENABLE` 由 0 變 1 時計數器從 `SYST_RVR` 載入。R
 
 ## 5. 什麼沒變
 
-- 橋接、hook、External Control、受控體、九項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。
+- 橋接、hook、External Control、受控體、十項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。
 - `g_dbg` 前 17 字的版面。橋接靠 `magic` 確認讀對東西,靠符號表找位址;FreeRTOS 版的 `g_dbg` 在 `0x200000d8`(裸機 `0x200000f8`),`--sym` 換一份就好。
 - 三條規則(35 篇 §6):沒有模擬模式、橋接不做安全、生效證明。`[effect]` 那幾行多印了 `g_dbg` 位址與 magic。
 

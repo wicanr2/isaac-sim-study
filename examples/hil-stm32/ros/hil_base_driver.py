@@ -18,6 +18,7 @@ import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from std_msgs.msg import UInt8
 from tf2_msgs.msg import TFMessage
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -30,6 +31,7 @@ class HilBaseDriver(Node):
         self.declare_parameter("bridge", "127.0.0.1:3800")
         self.declare_parameter("calib", str(pathlib.Path(__file__).resolve().parent.parent / "calib.json"))
         self.declare_parameter("cmd_rate_hz", 50.0)
+        self.declare_parameter("heartbeat_hz", 10.0)   # PING;韌體 300 ms 沒收到就降速到 0
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
         calib = json.loads(pathlib.Path(self.get_parameter("calib").value).read_text(encoding="utf-8"))
@@ -43,12 +45,17 @@ class HilBaseDriver(Node):
         self.n_cmd_msgs = 0
         self.n_odom = 0
         self.n_sent = 0
+        self.n_ping = 0
+        self.last_flags = None
 
         self.pub_odom = self.create_publisher(Odometry, "odom", 10)
         self.pub_tf = self.create_publisher(TFMessage, "/tf", 10)
+        # 韌體的安全旗標原樣往上送(ENABLED/ESTOP/CMD_STALE/DRV_FAULT/BUMPER/STALL/HB_LOST/WDT_RESET),上位看得到為什麼停
+        self.pub_flags = self.create_publisher(UInt8, "hil/safety_flags", 10)
         self.create_subscription(Twist, "cmd_vel", self.on_cmd_vel, 10)
         rate = float(self.get_parameter("cmd_rate_hz").value)
         self.create_timer(1.0 / rate, self.tick_tx)
+        self.create_timer(1.0 / float(self.get_parameter("heartbeat_hz").value), self.tick_ping)
         self.create_timer(0.005, self.tick_rx)
         self.create_timer(5.0, self.report)
         self.get_logger().info("bridge=%s track=%.3f m cmd %.0f Hz" % (self.get_parameter("bridge").value, self.track_m, rate))
@@ -91,6 +98,15 @@ class HilBaseDriver(Node):
         except OSError:
             self.drop()
 
+    def tick_ping(self):
+        if self.sock is None:
+            return
+        try:
+            self.sock.sendall(hilproto.ping())
+            self.n_ping += 1
+        except OSError:
+            self.drop()
+
     # --- 框包 → /odom + /tf ---
     def tick_rx(self):
         if self.sock is None:
@@ -110,6 +126,10 @@ class HilBaseDriver(Node):
                 o = hilproto.parse_odom(payload)
                 if o is not None:
                     self.publish_odom(o)
+                    self.pub_flags.publish(UInt8(data=o["flags"]))
+                    if o["flags"] != self.last_flags:
+                        self.get_logger().info("flags 0x%02x %s" % (o["flags"], hilproto.flag_names(o["flags"])))
+                        self.last_flags = o["flags"]
 
     def publish_odom(self, o):
         now = self.get_clock().now().to_msg()
@@ -142,8 +162,8 @@ class HilBaseDriver(Node):
         self.last = o
 
     def report(self):
-        self.get_logger().info("cmd_vel msgs=%d frames sent=%d odom frames=%d bad_crc=%d connected=%s" % (
-            self.n_cmd_msgs, self.n_sent, self.n_odom, self.parser.bad_crc, self.sock is not None))
+        self.get_logger().info("cmd_vel msgs=%d frames sent=%d ping=%d odom frames=%d bad_crc=%d connected=%s" % (
+            self.n_cmd_msgs, self.n_sent, self.n_ping, self.n_odom, self.parser.bad_crc, self.sock is not None))
 
 
 def main():
