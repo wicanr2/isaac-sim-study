@@ -13,7 +13,7 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#你是誰在哪">你是誰、在哪</a></li><li class="l2"><a href="#目標一句話">目標(一句話)</a></li><li class="l2"><a href="#四條線a-等閒時b-先做c-要場域主機d-不擋">四條線(A 等閒時;B 先做;C 要場域主機;D 不擋)</a></li><li class="l3"><a href="#a-閒時量測與上游收尾1-的開放項">A. 閒時量測與上游收尾(#1 的開放項)</a></li><li class="l3"><a href="#b-兩版韌體去重新goal-4-每一線都改兩份的代價">B. 兩版韌體去重(新,GOAL 4 每一線都改兩份的代價)</a></li><li class="l3"><a href="#c-isaac-受控體補齊345-的isaac-沒做">C. Isaac 受控體補齊(#3、#4、#5 的「Isaac 沒做」)</a></li><li class="l3"><a href="#d-上位對安全旗標的反應4-留的政策項">D. 上位對安全旗標的反應(#4 留的政策項)</a></li><li class="l2"><a href="#工作順序">工作順序</a></li><li class="l2"><a href="#硬規則">硬規則</a></li><li class="l2"><a href="#完成的定義">完成的定義</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#你是誰在哪">你是誰、在哪</a></li><li class="l2"><a href="#目標一句話">目標(一句話)</a></li><li class="l2"><a href="#五條線a-等閒時b-先做c-要場域主機d-不擋e-是-2026-09-16-晚追加">五條線(A 等閒時;B 先做;C 要場域主機;D 不擋;E 是 2026-09-16 晚追加)</a></li><li class="l3"><a href="#a-閒時量測與上游收尾1-的開放項">A. 閒時量測與上游收尾(#1 的開放項)</a></li><li class="l3"><a href="#b-兩版韌體去重新goal-4-每一線都改兩份的代價">B. 兩版韌體去重(新,GOAL 4 每一線都改兩份的代價)</a></li><li class="l3"><a href="#c-isaac-受控體補齊345-的isaac-沒做">C. Isaac 受控體補齊(#3、#4、#5 的「Isaac 沒做」)</a></li><li class="l3"><a href="#d-上位對安全旗標的反應4-留的政策項">D. 上位對安全旗標的反應(#4 留的政策項)</a></li><li class="l3"><a href="#e-俯視圖錄影追加issue-6">E. 俯視圖錄影(追加,issue #6)</a></li><li class="l2"><a href="#工作順序">工作順序</a></li><li class="l2"><a href="#硬規則">硬規則</a></li><li class="l2"><a href="#完成的定義">完成的定義</a></li></ul></aside>
   <main class="doc">
 <h1 id="goal-5收-goal-4-留下的尾巴閒時量測兩版韌體去重isaac-側補齊上位對安全旗標的反應">GOAL 5:收 GOAL 4 留下的尾巴——閒時量測、兩版韌體去重、Isaac 側補齊、上位對安全旗標的反應</h1>
 <p>產生時間:2026-09-16 18:46。接續 <a href="../hil/GOAL-2026-09-16-1547.html">GOAL 4</a>(四線完成、已 push <code>85228e4..4e63e1f</code>;結果在 <a href="https://github.com/wicanr2/isaac-sim-study/issues/1">issue #1</a> 最後三則與 #2–#5)。這一輪沒有新機制,全是 GOAL 4 各線「沒做到的寫明為什麼」那幾條;每一條都已經有量測方法與判準,缺的是主機閒時、一份共用碼、或場域主機。</p>
@@ -27,7 +27,7 @@
 </ul>
 <h2 id="目標一句話">目標(一句話)</h2>
 <p>把 GOAL 4 的四個「沒做到」各自收掉:realtime 的數字在閒時重量、兩版韌體的控制律只留一份、Isaac 受控體補到與假受控體同等(馬達層、安全 I/O、雷射)、上位對 <code>WDT_RESET</code> / <code>STALL</code> 這些旗標有反應——每一條仍然是先紅再綠、有數字、有負對照。</p>
-<h2 id="四條線a-等閒時b-先做c-要場域主機d-不擋">四條線(A 等閒時;B 先做;C 要場域主機;D 不擋)</h2>
+<h2 id="五條線a-等閒時b-先做c-要場域主機d-不擋e-是-2026-09-16-晚追加">五條線(A 等閒時;B 先做;C 要場域主機;D 不擋;E 是 2026-09-16 晚追加)</h2>
 <h3 id="a-閒時量測與上游收尾1-的開放項">A. 閒時量測與上游收尾(#1 的開放項)</h3>
 <ol>
 <li><strong>現行韌體的 realtime 表</strong>:35 篇 §5.1 的表還是第一版韌體(無斜坡)的數字。load &lt; 6 時重量:1 kHz 載波五次(末端、<code>[clocks]</code>、<code>wall_ms</code> 步距統計)、10 kHz 一次;<strong>驗 §5.1 第 4 點的推論</strong>——均勻的慢(比值 0.4 但沒有 50 ms 停頓)C9 到底紅不紅;紅就把「節拍停頓 vs 比值」那句改成量到的。</li>
@@ -51,8 +51,10 @@
 1. driver 訂自己發的 <code>/hil/safety_flags</code>,<code>WDT_RESET</code> 或 <code>STALL</code> 亮起時<strong>取消當前 Nav2 goal 並停送 cmd_vel</strong>,直到操作者(nav_client 的參數)確認;<code>DRV_FAULT</code> 解除後才重新接受目標
 2. 判準 C12:<code>UPPER=nav2 --fault hang</code>——重啟後車<strong>不得</strong>自己再走,Nav2 goal 狀態 <code>canceled</code>;負對照:driver 的旗標處理關掉 → 車又走、紅
 3. 方形閉合殘差(24 mm / 0.062 rad,一筆 odom 的量化)要不要收:先量 odom 40 Hz 或速度外推能不能少一半,能就做,不能就在 38 篇 §6.1 寫死「到此為止的理由」</p>
+<h3 id="e-俯視圖錄影追加issue-6">E. 俯視圖錄影(追加,<a href="https://github.com/wicanr2/isaac-sim-study/issues/6">issue #6</a>)</h3>
+<p>每個實驗要有俯視圖錄影。先做 CSV 版:<code>tools/topview.py</code> 從閉環 CSV + 雷射(橋接加 <code>--scan-log</code>)+ <code>world.json</code> 產 mp4/gif,畫真值車體、odom 幽靈車、雷射、碰撞、旗標條;<code>RECORD=1 ./run_loop.sh</code> 自動產;三個受控體共用、docker 裡跑。Isaac 真實俯視相機版等場域主機閒時。判準:末幀 = CSV 末列;相機版與 CSV 版疊圖差 &lt; 0.2 m、CSV 逐 byte 不變。</p>
 <h2 id="工作順序">工作順序</h2>
-<p>起點驗證 → B → D → A(等閒時,中間可穿插)→ C(場域主機可用時)。每條線結束:<code>build_site.py</code> + <code>check_docs.py</code> 全綠、對應 issue 回填、commit;<strong>push 前問</strong>。</p>
+<p>起點驗證 → B → D → A(等閒時,中間可穿插)→ C(場域主機可用時)→ E(A 跑完就做;Isaac 相機版排在最後)。每條線結束:<code>build_site.py</code> + <code>check_docs.py</code> 全綠、對應 issue 回填、commit;<strong>push 前問</strong>。</p>
 <h2 id="硬規則">硬規則</h2>
 <ul>
 <li>GOAL 1–4 全部硬規則照舊(docker、匿名化、缺口修 Renode 不改韌體、韌體照 RM0090、每個新判準先紅再綠、三個受控體同一份公式、圖與正文同一份數字、長跑與拉映像前報數字、PR 英文且送前給看)。</li>
@@ -66,6 +68,7 @@
 <li>B:共用 <code>control.c</code>,兩版末端逐字不變、九個負對照仍紅、<code>io_check</code> 不變;39 篇改寫</li>
 <li>C:Isaac 版有雷射與碰撞、五個 <code>--fault</code> 跑過、Nav2 在 Isaac 上有到達與碰撞數字</li>
 <li>D:C12 綠、負對照紅;方形殘差有結論(做了或寫明為什麼不做)</li>
+<li>E:<code>RECORD=1</code> 能產 mp4/gif,issue #6 列的現有實驗各有一支;docs 收錄挑選版;Isaac 相機版做了或寫明為什麼還沒</li>
 <li>每個 issue 回填、issue #1 總結;<code>check_docs.py</code> 全綠;沒做到的寫明為什麼</li>
 </ul>
   </main>

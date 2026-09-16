@@ -13,7 +13,8 @@ PLANT=udp ./run_loop.sh          # 受控體改走 UDP(plant/fake_plant.py,另�
 PLANT=remote ./run_loop.sh       # 受控體在場域 GPU 主機(先 tools/isaac_plant_ctl.sh sync + start),自動開 ssh -L
 WORLD=1 PLANT=remote ./run_loop.sh   # Isaac 版含牆與方塊(碰撞體)+ PhysX 射線雷射:那端要 WORLD=1 tools/isaac_plant_ctl.sh start;UPPER=nav2 / --fault 同樣可接
 FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正版 STM32_Timer(renode/upstream/)
-./run_loop.sh --mode realtime    # Renode 自由跑,橋接每 5 ms 牆鐘取樣;QUANTUM=0.001 改同步量子(預設 0.0001);tools/rt_stats.py 算節拍統計
+./run_loop.sh --mode realtime    # Renode 自由跑,橋接每 5 ms 牆鐘取樣;Renode 容器自動 4 核(2 核會被 CFS 每 100 ms 凍 50 ms);QUANTUM=0.001 改同步量子;tools/rt_stats.py 算節拍統計
+RECORD=1 ./run_loop.sh --fault bumper   # 跑完多產俯視圖錄影 out/run.mp4 + _topview.svg/png(RECORD_GIF=1 多 gif);既有 CSV 用 tools/topview.sh 補
 ./run_loop.sh --skew uniform:0.5 # lockstep 的時鐘偏斜實驗(決定性):每步 Renode 只推進 0.5×dt;stall:100:10 = 每 100 步一次 50 ms 停頓(35 篇 §5.1 第 4 點)
 UPPER=ros ./run_loop.sh --seconds 45   # 上位換 ROS 2 Jazzy(ros:jazzy-ros-base 容器):base driver + 里程計閉環的方形
 UPPER=nav2 ./run_loop.sh --seconds 90  # 上位換 Nav2(hil-nav2:jazzy,先 docker build -t hil-nav2:jazzy -f ros/Dockerfile.nav2 ros/):假雷射 + NavigateToPose 到 world.json 的 goal;C11
@@ -33,6 +34,7 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 | `calib.json`(`encoder_source`) | `tim`:韌體從 TIM2/TIM4 encoder mode 讀 CNT(預設);`can`:第一版的 CAN 0x181 訊框。`ENC=hook\|gpio\|cnt` 選注入法 | 三種 lockstep 末端逐字相同 |
 | `calib.json` | 韌體、橋接、受控體共用的唯一參數來源;`tools/gen_calib.py` 產 `firmware/calib.h`。`pwm_prescaler` 0 = 10 kHz 載波(Renode 自由跑 0.46×)、9 = 1 kHz(1.0×);不影響 lockstep 結果。`accel_limit_mm_s2` / `alpha_limit_mrad_s2`(韌體斜坡)、`ff_gain_q8`、`pi_kp_q8` / `pi_ki_q8`、`motor_tau_s` / `motor_accel_max_mm_s2` / `motor_deadband_duty`(三個受控體共用的馬達層) | 步階與 C9,[38 篇 §1.1](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
 | `tools/io_check.sh` | 在 Renode 容器裡跑 `renode/io_check.resc`:monitor 扮演板子(pull-up、PING、CNT、PC 腳),A–J 十項含 IWDG 重啟 | 實測 |
+| `tools/topview.py`、`tools/topview.sh` | 閉環 CSV(+ `--scan-log` 的雷射 + world.json)→ 俯視圖錄影 mp4/gif + 靜態軌跡圖:真值車、odom 幽靈車、雷射、碰撞、旗標條、輪速、CCR;末幀 = CSV 末列 | 實測,[38 篇 §6.5](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
 | `tools/rt_stats.py` | realtime CSV 的節拍統計:步距平均/最大、停頓次數、分段 Renode/牆鐘比、CCR 跳動 | 實測 |
 | `tools/step_response.py`、`tools/tune_sweep.sh` | 從 CSV 算步階響應(上升、超調、±2% 帶、最大加速度);kp × ki 網格掃描,每格用橋接 `--cfg` 經 External Control 改 `g_cfg`,不重編韌體 | 實測 |
 | `firmware/` | 裸機 STM32F4 韌體(C,無 HAL / libc)。`control.c`/`control.h` 是兩版共用的:USART1 框包 + CRC16、GPIO/TIM2-TIM4 encoder mode/TIM3 PWM/bxCAN/IWDG 的暫存器序列、5 ms 斜坡 + PI + 前饋、安全閘門(PC13 急停、PC14/15 驅動器故障、PC0 保險桿、堵轉、PING 心跳)、里程計、20 ms 回報、`g_dbg`/`g_cfg` 版面;`main.c` 只有 SysTick、USART1 ISR + ring buffer、主迴圈排程、餵狗 | Renode 1.16.1 實測;重構前後 lockstep CSV 逐 byte 相同 |
@@ -79,4 +81,4 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 - 上位對安全旗標的反應(C12):路上 8.0 s 死機、9.0 s 重啟 → driver 看到 WDT_RESET 鎖住(cmd_vel=0、cancel goal),重啟後最遠再走 16 mm;`no-latch` 負對照 Nav2 重送 goal 從歸零的 odom 開走(1170 步在動)紅
 - Nav2 in the loop(NavFn + DWB,map→odom 靜態):到達 goal 46 mm、碰撞 0、路徑 3.85 m;`blind-scan` 負對照撞方塊(第一次 @5.5 s)C11 紅;`default_server_timeout` 20 → 1000 ms 才過(load 15);上位 byte 按 115200 bps 分批注入(否則 ring buffer 溢位 114 B、4 個壞 CRC)
 - ROS 2 方形閉環(0.6 m 邊、里程計判段):無斜坡版 lockstep 閉合 35 mm / 0.075 rad、realtime 70 mm / 0.141 rad;斜坡版 + 上位煞車模型含延遲 24 mm / −0.062 rad(lockstep);odom 對真值 5 mm / 1 mrad;ALL PASS
-- `--mode realtime`(主機閒時,第一版韌體):每步 5.0 ms 牆鐘;`pwm_prescaler` 0 → Renode 0.46× 實時、車只走 1/3(C1–C8 PASS + `[warn]`);9 → 1.01×,末端對 lockstep 差 17–31 mm / 0.03–0.06 rad,兩次跑不同。斜坡版在 load 9–11 下兩種載波都只到 0.33–0.43×,C9 紅(50 ms 停頓讓 PI 打到馬達上限;[35 篇 §5.1](../../docs/hil/35-hil-what-and-why/README.md) 第 4 點)
+- `--mode realtime`(主機閒時,第一版韌體):每步 5.0 ms 牆鐘;`pwm_prescaler` 0 → Renode 0.46× 實時、車只走 1/3(C1–C8 PASS + `[warn]`);9 → 1.01×,末端對 lockstep 差 17–31 mm / 0.03–0.06 rad,兩次跑不同。斜坡版:C9 紅——真因不是負載或停頓,是 Renode 每 5 ms 牆鐘推進的虛擬時間抖 2–7 ms,韌體一個控制週期吃到 0 或 2 筆注入(`--skew` 拆開量,[35 篇 §5.1](../../docs/hil/35-hil-what-and-why/README.md) 第 4 點);「每 100 ms 停 50 ms」是 `--cpus 2` 的 CFS 配額,不是主機

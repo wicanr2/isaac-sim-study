@@ -8,6 +8,8 @@
 #   PLANT=udp ./run_loop.sh             # 受控體改走 UDP:另起一個容器跑 plant/fake_plant.py
 #   PLANT=tcp ./run_loop.sh             # 同上但走 TCP(ssh -L 隧道用的那條路)
 #   FW=freertos ./run_loop.sh           # 韌體換成 FreeRTOS 版(firmware-freertos/)
+#   RECORD=1 ./run_loop.sh --fault bumper  # 跑完多產一支俯視圖錄影 out/run.mp4(+ _topview.svg/png;RECORD_GIF=1 多 gif);issue #6
+#   ./run_loop.sh --mode realtime       # Renode 自由跑、橋接每 5 ms 牆鐘取樣;Renode 容器自動給 4 核(CPUS= 覆蓋;2 核會被 CFS 每 100 ms 凍 50 ms)
 #   TIMERFIX=1 ./run_loop.sh            # TIM3 換成 renode/upstream/STM32_Timer_Fixed.cs(執行期載入的修正版)
 #   PLANT=remote ./run_loop.sh          # 受控體在場域 GPU 主機:自動開 ssh -L 隧道,受控體那端要先起好(埠 3700,TCP;
 #                                       # tools/isaac_plant_ctl.sh start;WORLD=1 / UPPER=nav2 時那端也要 WORLD=1 start)
@@ -50,7 +52,11 @@ case "$FW" in
   freertos)  ELF=/w/firmware-freertos/build/hilctl-rtos.elf; SYM=firmware-freertos/build/hilctl-rtos.sym; EXTRA=(--boot-ms 402 --dbg-extra 9) ;;
   *) echo "FW 只接受 baremetal 或 freertos"; exit 2 ;;
 esac
-CPUS="${CPUS:-2}"
+# Renode 容器的 CPU 配額。lockstep 2 核夠(慢只是慢);realtime 要 4:Renode 行程在 realtime 下是模擬執行緒 + hook 執行緒
+# + External Control 執行緒 + GC 一起跑,超過 2 核的配額就被 CFS 每 100 ms 凍住約 50 ms——量到的「50 ms 停頓」
+# 是這個,不是主機負載(2026-09-16:同一負載下 cpus 2 → 4,停頓 70 次 × 50 ms → 9–24 次 × ≤ 28 ms)
+DEFAULT_CPUS=2; case " $* " in *" realtime "*) DEFAULT_CPUS=4;; esac
+CPUS="${CPUS:-$DEFAULT_CPUS}"
 NAME="hil-renode-$$"
 PNAME="hil-plant-$$"
 RNAME="hil-ros-$$"
@@ -157,19 +163,33 @@ elif [ "$UPPER" != script ]; then
   echo "UPPER 只接受 script、ros 或 nav2"; exit 2
 fi
 
-echo "[bridge] 開跑:${PLANT_ARG[*]} ${UPPER_ARG[*]} $*"
+# 這一輪的 CSV 路徑(--log 可被 "$@" 覆蓋;後者贏);有世界時雷射也存檔(給 tools/topview.py)
+LOG=out/run.csv; prev=""; for x in "$@"; do [ "$prev" = "--log" ] && LOG=$x; prev=$x; done
+SCAN_ARG=(); [ ${#WORLD_ARG[@]} -gt 0 ] && SCAN_ARG=(--scan-log "${LOG%.csv}.scan")
+LOAD_AT_START=$(cut -d' ' -f1 /proc/loadavg)
+echo "[bridge] 開跑:${PLANT_ARG[*]} ${UPPER_ARG[*]} $*  (load $LOAD_AT_START)"
 set +e
 docker run --rm --network "container:$NAME" --cpus "$CPUS" --memory 1g --pids-limit 128 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w -w /w "$RUST_IMAGE" \
-  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "${UPPER_ARG[@]}" "${CAN_ARG[@]}" "${ENC_ARG[@]}" "${WORLD_ARG[@]}" "$@"
+  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "${UPPER_ARG[@]}" "${CAN_ARG[@]}" "${ENC_ARG[@]}" "${WORLD_ARG[@]}" "${SCAN_ARG[@]}" "$@"
 rc=$?
 set -e
+# RECORD=1:俯視圖錄影(issue #6):tools/topview.sh → uv 容器裡的 tools/topview.py。產出 ${LOG%.csv}.mp4 / _topview.svg / _topview.png;
+# RECORD_GIF=1 多一支 gif。--fault bumper 時把 500 mm 的虛擬牆畫進去。
+if [ "${RECORD:-0}" = 1 ]; then
+  TV_ARGS=(--title "$(basename "${LOG%.csv}")" --meta "commit=$(git rev-parse --short HEAD 2>/dev/null);fw=$FW;plant=$PLANT;upper=$UPPER;args=$*;load=$LOAD_AT_START")
+  [ ${#WORLD_ARG[@]} -gt 0 ] && TV_ARGS+=(--world world.json --scan "${LOG%.csv}.scan")
+  [ "${RECORD_GIF:-0}" = 1 ] && TV_ARGS+=(--gif)
+  case " $* " in *" bumper "*) TV_ARGS+=(--vline "0.5:bumper 牆");; esac
+  echo "[record] tools/topview.sh $LOG"
+  tools/topview.sh "$LOG" "${TV_ARGS[@]}"
+fi
 docker logs "$NAME" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > out/renode.log || true
 if [ "$UPPER" = ros ] || [ "$UPPER" = nav2 ]; then
   docker logs "$RNAME" > out/ros.log 2>&1 || true
   grep "^\[square\]\|^\[scan_check\]\|^\[nav\]" out/ros.log || echo "[ros] 沒有結果行(看 out/ros.log)"
 fi
 [ "$PLANT" = "udp" ] && docker logs "$PNAME" > out/plant.log 2>&1 || true
-echo "[done] rc=$rc  CSV: out/run.csv  Renode log: out/renode.log  USART2: renode/out/usart2.txt"
+echo "[done] rc=$rc  CSV: $LOG  Renode log: out/renode.log  USART2: renode/out/usart2.txt"
 exit $rc

@@ -163,7 +163,8 @@ step 376: 前一步 CCR=297,這一步 CCR=298,下一步 CCR=306;CAN 框說 305
 | IWDG 重啟後 DRV_FAULT、BUMPER 亮一步 | 機器重置把 GPIO 埠也重置,低有效的輸入腳回到 0;真板的 pull-up 在板子上 | 橋接偵測到 tick 倒退就重新拉高(§1.2) |
 | 韌體死掉了,車還在走 | 這不是 bug,是沒有看門狗時的必然:CPU 停了,TIM3 的 PWM 沒停 | `--negative iwdg-off`:CCR 停在 345、車跑 1.6 m;正對照 IWDG 1 s 後整顆重置 |
 | 只搬不改的重構讓 CSV 有 429 個欄位不同;原版加 200 圈 NOP 更差(8639 個、C9 紅) | 橋接的步邊界(`boot_ms` 100 + 5k)與韌體的控制 tick(5k)重合,暫停切在控制步中間;哪些存取在邊界前後由指令數決定 | `ccr1 ≠ duty_l` 的那一步就是被切的證據;邊界錯開 2 ms(`boot_ms` 102)後三個版本逐 byte 相同([37 篇](../37-bus-signal-bridging/README.md) §5) |
-| realtime 下 C9 紅(受控體加速度撞到馬達層 3000;load 9–11 時六次全紅) | 不是比值也不只是停頓:編碼器 tick 是橋接每步一口氣注入的,韌體一個 5 ms 控制週期吃到的注入筆數不固定(n 或 n+1;停頓時 0),kp = 1 把量測速度的跳動原樣變成 duty 跳動 | lockstep `--skew uniform:R` / `stall:N:M` 把比值與停頓拆開量:0.5、0.25 綠,0.9/0.8/0.6/0.3 紅,10 ms 停頓就紅([35 篇](../35-hil-what-and-why/README.md) §5.1 第 4 點的表)。真板沒有這個問題(邊緣連續);要在 realtime 消掉得改成連續注入或帶時間戳,未做 |
+| realtime 下 C9 紅(受控體加速度撞到馬達層 3000),配額放寬、比值 1.017 時也紅 | 不是比值也不只是停頓:編碼器 tick 是橋接每步一口氣注入的,韌體一個 5 ms 控制週期吃到的注入筆數不固定(n 或 n+1;停頓時 0),kp = 1 把量測速度的跳動原樣變成 duty 跳動 | lockstep `--skew uniform:R` / `stall:N:M` 把比值與停頓拆開量:0.5、0.25 綠,0.9/0.8/0.6/0.3 紅,10 ms 停頓就紅([35 篇](../35-hil-what-and-why/README.md) §5.1 第 4 點的表)。真板沒有這個問題(邊緣連續);要在 realtime 消掉得改成連續注入或帶時間戳,未做 |
+| realtime 每 100 ms 停 50 ms,相位鎖在牆鐘,不隨主機負載變 | Renode 容器 `--cpus 2` 的 CFS 配額:realtime 下模擬執行緒 + hook + External Control + GC 超過 2 核,整個行程被凍到 100 ms 週期結束;lockstep 不受影響(慢只是慢) | 停頓步的 `wall_ms mod 100` 全落在同一相位;同一負載下 `--cpus 4` 停頓 70 → 9–24 次。第一眼像「主機忙」 |
 
 共同點:**每一個的第一眼症狀都指向別的地方**——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯、彈飛像腳輪或質量。每一個都是先讀原始碼或加一個更近的觀測點才看到真因;彈飛那一個,近一點的觀測點是「靜止後停在哪個高度」。
 
@@ -228,7 +229,7 @@ Nav2 用最小組合(`ros/Dockerfile.nav2`:map_server、NavFn、DWB、bt_navigat
 
 | | 正對照 | 負對照 `--negative blind-scan`(掃描全設 5 m) |
 |---|---|---|
-| Nav2 結果 | `succeeded`(36.6 s 牆鐘),odom 末端對 goal 47 mm | 沒到(頂在方塊上,recovery 來回) |
+| Nav2 結果 | `succeeded`(36.6 s 牆鐘),odom 末端對 goal 47 mm | 沒到:GOAL 4 時頂在方塊上 recovery 來回(碰撞 475 步);§6.3 的鎖加上之後,頂住 = 輪子凍結、duty 高 → 韌體 **STALL** → driver 取消 goal,碰撞 41 步、`canceled`(§6.5 的影片) |
 | C11:真值到達 goal 0.1 m 內、沒撞 | **46 mm、碰撞 0 步** | 碰撞 475 步(第一次 @5.5 s)、末端差 2235 mm,**紅** |
 | 路徑長 / 離方塊最近 | 3.85 m / 297 mm(車半徑 200) | 1.96 m / 0 |
 | C1–C10 | 全綠(C3 dx 1.2 / dy 0.9 mm、0.6 mrad;C9 2510 vs 2520——DWB 的加速度設成與韌體斜坡同值,瞬態剛好貼線) | C9 也紅(頂住時 PI 積分堆滿、鬆開那步撞到馬達層 3000);其餘綠 |
@@ -277,6 +278,21 @@ Nav2 用最小組合(`ros/Dockerfile.nav2`:map_server、NavFn、DWB、bt_navigat
 第 4 列是這一節的重點,也是假受控體做不出來的失敗形態:**撞上去之後車不動、編碼器照數,上位以為到了。** 假受控體撞到就凍結編碼器,odom 跟著停,Nav2 看得出來沒到;Isaac 的球輪對方塊打滑(drive 的 `maxForce` 20 N·m 換到輪緣是 400 N,9 kg 的車摩擦力上限只有幾十 N),韌體的堵轉判斷(§1.2:|duty| ≥ 60% 且輪速 < 20 mm/s)**永遠不會觸發**——輪速是編碼器量的,輪子在轉。真車撞牆是哪一種(馬達堵轉、還是輪子打滑)看馬達扭矩對摩擦,兩種都會發生;純軟體 HIL 到這裡才第一次能把「打滑」這一支做出來,而它的後果是上位的自述(`succeeded`、`dist_to_goal 0.042`)與真值(差 2.2 m)完全脫鉤。要抓它得靠外部真值(場域的定位系統、或這裡的受控體真值——C11 看的是真值不是 odom),不是靠底盤回報。
 
 另外兩個 Isaac 特有的數字:保險桿的超出量 44.8 mm 比假受控體多 7.6——馬達層之後車的減速由 PhysX 接觸與 drive damping 決定,不是公式;堵轉旗標晚 35 ms,同一個原因。
+
+### 6.5 每個實驗一支俯視圖錄影
+
+數字表說「末端差 2162 mm、碰撞 16718 步」,看不出車是怎麼卡在方塊上的;§6.4 那一列要用看的。每一輪閉環現在都能多產一支俯視圖錄影([issue #6](https://github.com/wicanr2/isaac-sim-study/issues/6)):`RECORD=1 ./run_loop.sh …` 跑完叫 [`tools/topview.py`](../../../examples/hil-stm32/tools/topview.py)(uv 容器裡的 matplotlib + imageio-ffmpeg),從**同一份 CSV** 畫:真值車體與軌跡、odom 幽靈車(虛線)、雷射打到的點、碰撞步的紅叉、右欄的命令 / 輪速、CCR duty、旗標條(七個 bit 各一列 + 碰撞),底下一列狀態文字。雷射畫的是上位看到的那份——橋接多了 `--scan-log`,把送去 3801 的 `SCAN` 行原樣存檔(`blind-scan` 負對照存的就是全 5 m);沒有紀錄時才從 `world.json` 重算,畫面上會標「重算」。兩個不變量:**動畫末幀的位姿就是 CSV 末列**(工具印出來對照,不另外算);開了錄影的 CSV 與沒開的逐 byte 相同(錄影是跑完才做的,不碰迴圈)。產物在 `out/`(`.mp4` 全部、`.gif` 挑選版進 `docs/img/`,每支 ≤ 2 MB)。
+
+四支挑選版(每支左邊是俯視圖:真值車體、odom 幽靈車、雷射點、碰撞叉;右邊是輪速、CCR、旗標條):
+
+| | |
+|---|---|
+| <img src="../../img/hil-topview-fault-stall.gif" width="420" alt="堵轉故障注入:duty 灌到 1000‰、輪速 0,STALL 亮起 CCR 歸零,5 s 命令歸零才解"> | <img src="../../img/hil-topview-c12-nolatch.gif" width="420" alt="C12 負對照 no-latch:8 s 韌體死掉、9 s 看門狗重啟,odom 跳回原點,Nav2 重送 goal 從錯的起點開走"> |
+| `--fault stall`:2.0 s 輪子卡住,duty 灌到 1000‰、輪速 0,**+390 ms STALL**、CCR 歸零;5.0 s 命令歸零才解鎖 | `UPPER=nav2 --fault hang --fault-at 8 --negative no-latch`:重啟後 odom 幽靈車跳回原點,Nav2 從那裡重規劃,真值車又走了 333 mm(§6.3) |
+| <img src="../../img/hil-topview-nav2-blind-fake.gif" width="420" alt="blind-scan 負對照,假受控體:撞方塊後凍結,韌體 STALL,driver 鎖住取消 goal"> | <img src="../../img/hil-topview-nav2-blind-isaac.gif" width="420" alt="blind-scan 負對照,Isaac:撞方塊後輪子打滑,odom 幽靈車一路走到 goal,真值車停在方塊上"> |
+| `blind-scan`,假受控體:5.7 s 撞方塊、輪子凍結 → **STALL** → driver 鎖住、goal `canceled`(§6.3 的鎖在這裡順便起了作用) | `blind-scan`,Isaac:同一個方塊,輪子打滑、沒有 STALL,**odom 幽靈車一路走到 goal、真值車停在方塊上**(§6.4) |
+
+Isaac 版的**真實俯視相機**(在場景裡掛一台正交相機、每 N 步 `app.update()` 抓一幀)還沒做:要量每幀多少 ms、以及渲染有沒有碰到物理(判準是開相機的 CSV 逐 byte 不變),等場域主機閒時。
 
 ## 7. 建議的分階段
 

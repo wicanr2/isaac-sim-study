@@ -57,6 +57,8 @@ struct Args {
     /// 「均勻的慢」,比值 R 但沒有停頓)| stall:N:M(每 N 步一次把 Renode 一口氣推進 M·dt、期間編碼器不更新,
     /// 受控體那一步走 M·dt——「停頓」,比值 ≈ 1)。兩個都是決定性的,不靠主機負載。
     skew: String,
+    /// 假雷射存檔(給 tools/topview.py):每筆一行 `SCAN <step> <n> r...`,與送上位的內容相同(blind-scan 也照改過的存);空 = 不存
+    scan_log: String,
 }
 
 fn parse_args() -> Args {
@@ -89,6 +91,7 @@ fn parse_args() -> Args {
         scan_listen: String::new(),
         expect_goal: false,
         skew: "none".into(),
+        scan_log: String::new(),
     };
     let v: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -116,6 +119,7 @@ fn parse_args() -> Args {
             "--scan-listen" => a.scan_listen = val,
             "--expect-goal" => a.expect_goal = val == "1",
             "--skew" => a.skew = val,
+            "--scan-log" => a.scan_log = val,
             // lockstep(預設):橋接推進 Renode;realtime:Renode 自由跑,橋接以牆鐘 dt 取樣/注入
             "--mode" => a.mode = val,
             // 上位:script(預設,內建腳本)或 tcp-listen:ADDR(外部上位連進來講 UART 框包,例如 ROS 2 節點)
@@ -392,6 +396,7 @@ fn main() {
         let _ = std::fs::create_dir_all(dir);
     }
     let mut log = std::fs::File::create(&a.log).expect("log");
+    let mut scan_log = if a.scan_log.is_empty() { None } else { Some(std::fs::File::create(&a.scan_log).expect("--scan-log")) };
     // realtime 多一欄 wall_ms(每次都不同,lockstep 不放:那邊的 CSV 要能逐 byte 比)
     let wall_col = if realtime { "wall_ms," } else { "" };
     writeln!(log, "step,t_us,{wall_col}cmd_v,cmd_w,sp_l,sp_r,meas_l,meas_r,duty_l_dbg,ccr1,ccr2,dir_l,dir_r,en,flags,\
@@ -443,6 +448,8 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     // 每步各段的牆鐘累計(realtime 模式下步長由這些決定,不是由 dt)
     let mut t_ec = Duration::ZERO;
     let mut t_hook = Duration::ZERO;
+    let mut t_upper = Duration::ZERO;           // 第 1 段:上位框包注入(realtime 下的停頓常在這裡,所以另計)
+    let (mut m_upper, mut m_ec, mut m_hook, mut m_plant) = (Duration::ZERO, Duration::ZERO, Duration::ZERO, Duration::ZERO);   // 單步最大
     let mut t_sleep = Duration::ZERO;
     let mut t_plant = Duration::ZERO;
     // 安全 I/O 驗收(C10)用的觀測:第一次看到各旗標的步、韌體重啟(tick 倒退)的步、故障期間的 CCR/EN
@@ -498,6 +505,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         }
 
         // 1. 上位:內建腳本每個回報週期送一次 cmd_vel、每 heartbeat_period 送一次 PING;外部上位則把這一步之前收到的 byte 全部注入
+        let ph = Instant::now();
         if up.is_none() && k % ping_every == 0 && !(fault == "no-ping" && t_s >= a.fault_at) {
             hk.uart_send(&proto::ping()).expect("uart_send");
             hk.wait_acks().expect("ack");
@@ -534,6 +542,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             sent_cmds += 1;
             hk.wait_acks().expect("ack");
         }
+        { let d = ph.elapsed(); t_upper += d; if d > m_upper { m_upper = d; } }
 
         // 2. 推進 Renode(lockstep)/ 等到下一個牆鐘刻度(realtime)
         let ph = Instant::now();
@@ -613,7 +622,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             if lag > max_lag_us { max_lag_us = lag; }
         }
 
-        t_ec += ph.elapsed();
+        { let d = ph.elapsed(); t_ec += d; if d > m_ec { m_ec = d; } }
 
         // 4. 收 MCU 的輸出
         let ph = Instant::now();
@@ -665,7 +674,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             }
         }
 
-        t_hook += ph.elapsed();
+        { let d = ph.elapsed(); t_hook += d; if d > m_hook { m_hook = d; } }
 
         // 5. 受控體
         let ph = Instant::now();
@@ -704,11 +713,12 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         }
         // 假雷射:受控體給一筆就原樣轉給上位(語意在上位解;橋接只加行首與 seq)。負對照 blind-scan:全部改成 range_max
         if let Some(mut sc) = pl.take_scan() {
+            if neg == "blind-scan" { if let Some(w) = &world { for r in sc.iter_mut() { *r = w.range_max as f32; } } }
+            let mut line = format!("SCAN {} {}", k, sc.len());
+            for r in &sc { line.push_str(&format!(" {:.3}", r)); }
+            line.push('\n');
+            if let Some(f) = scan_log.as_mut() { use std::io::Write; f.write_all(line.as_bytes()).unwrap(); }
             if let Some(su) = scan_up.as_mut() {
-                if neg == "blind-scan" { if let Some(w) = &world { for r in sc.iter_mut() { *r = w.range_max as f32; } } }
-                let mut line = format!("SCAN {} {}", k, sc.len());
-                for r in &sc { line.push_str(&format!(" {:.3}", r)); }
-                line.push('\n');
                 su.poll_rx();
                 su.tx(line.as_bytes());
                 scans_sent += 1;
@@ -721,7 +731,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         }
         path_len_mm += ((out.x_mm - last_plant.x_mm).powi(2) + (out.y_mm - last_plant.y_mm).powi(2)).sqrt();
         last_plant = out;
-        t_plant += ph.elapsed();
+        { let d = ph.elapsed(); t_plant += d; if d > m_plant { m_plant = d; } }
         let ph = Instant::now();
         let mut dl = out.ticks_l.wrapping_sub(enc_prev_ticks[0]);
         let mut dr = out.ticks_r.wrapping_sub(enc_prev_ticks[1]);
@@ -767,7 +777,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                 }
             }
         }
-        t_hook += ph.elapsed();
+        { let d = ph.elapsed(); t_hook += d; if d > m_hook { m_hook = d; } }
 
         // 6. 紀錄
         let (cv, cw) = if up.is_some() { up_last_cmd } else { cmd_at(&script, t_s) };
@@ -805,10 +815,12 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     println!("[run] steps={} renode_t_us={} wall={:.2}s ({:.1} ms/step, x{:.2} realtime)",
         steps, t_end, wall.as_secs_f64(), wall.as_secs_f64() * 1000.0 / steps as f64,
         (t_end as f64 / 1e6) / wall.as_secs_f64());
-    println!("[run] per-step wall: ec_read={:.1} ms hook={:.1} ms plant={:.1} ms {}={:.1} ms",
+    println!("[run] per-step wall: upper={:.1} ms ec_read={:.1} ms hook={:.1} ms plant={:.1} ms {}={:.1} ms;單步最大 upper={:.1} ec={:.1} hook={:.1} plant={:.1} ms",
+        t_upper.as_secs_f64() * 1000.0 / steps as f64,
         t_ec.as_secs_f64() * 1000.0 / steps as f64, t_hook.as_secs_f64() * 1000.0 / steps as f64,
         t_plant.as_secs_f64() * 1000.0 / steps as f64,
-        if realtime { "sleep" } else { "run_for" }, t_sleep.as_secs_f64() * 1000.0 / steps as f64);
+        if realtime { "sleep" } else { "run_for" }, t_sleep.as_secs_f64() * 1000.0 / steps as f64,
+        m_upper.as_secs_f64() * 1000.0, m_ec.as_secs_f64() * 1000.0, m_hook.as_secs_f64() * 1000.0, m_plant.as_secs_f64() * 1000.0);
     if realtime {
         // 三個時鐘:牆鐘(橋接)、Renode 虛擬時間(韌體)、受控體時間(plant_t_s)
         let renode_el = (t_end - renode_t_start) as f64 / 1e6;
