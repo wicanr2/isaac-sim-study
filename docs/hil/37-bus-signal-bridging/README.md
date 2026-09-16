@@ -90,6 +90,8 @@ Renode 1.16.1 把 CAN 訊框送到模擬器外面的**官方**管道只有 `Crea
 
 **② 踩到的第四個 Renode 缺口:`CANHub` 暫停時丟訊框。** `emulation RunFor` 是 `StartAll → RunFor → PauseAll`,hub 的 `Pause()` 把 `started` 清掉,之後 `Transmit()` 直接 return。`SocketCANBridge` 的讀執行緒不管暫停照樣 read socket,所以 lockstep 下兩次 `run_for` 之間注入的訊框全部靜默消失(Debug log 一行「Received from」,沒有 warning),只有剛好落在 `run_for` 期間的 14 筆進得去;realtime 模式下 599/600。修法:暫停時把主機來的訊框排隊,`Resume()` 時送——機器暫停時不可能有機器來的訊框,佇列裡只會有主機的。NUnit 三條(跑中轉發、暫停排隊 Resume 送且只送一次、不回送給發送者):原版 1/3、修正版 3/3;閉環 `CAN=socketcan CANHUBFIX=1 ./run_loop.sh` ALL PASS、末端位姿與 hook 路逐字相同(902.0, −0.9, 0.9019)、每步 10 ms(hook 路 11 ms,同一時段量)。fork 第三個 commit(`b89bc9d`),`renode/upstream/CANHub.patch`。`UARTHub` 有同一個樣式,沒動。
 
+哪條路適合哪個階段:**lockstep 與 CI 用 ①**——要 ack、要事件時刻快照、不要權限;**realtime 與接實體 CAN 卡的階段用 ②③**——`SocketCANBridge` 換成實體介面時橋接一行不改,原版 hub 在自由跑下也收得齊(599/600),lockstep 下要修過的 hub 才行。
+
 另一個要在 ② 上放棄的東西:**C4 的事件時刻快照**。hook 掛在 `FrameSent` 上才拿得到「同一個模擬時刻的 CCR」;走 vcan 時 hook 不碰 CAN,C4 印成「不驗」而不是綠——這條路拿不到那個量,不能假裝驗過。
 
 <p align="center"><img src="../../img/hil-can-three-paths.svg" width="860" alt="CAN 訊框離開 Renode 的三條路各碰到 Renode 行程、使用者空間、核心的哪一層"></p>
