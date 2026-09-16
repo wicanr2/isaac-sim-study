@@ -107,6 +107,11 @@ fi
 # 不用 bash 的 /dev/tcp 探埠:`echo >/dev/tcp/...` 會送一個換行,External Control server
 # 把它當成握手的第一個 byte,狀態機從此錯位(2026-09-15 踩到)。改由橋接自己重試連線。
 
+# WORLD=1:受控體載入 world.json(矩形房間 + 方塊):假雷射每 100 ms 一筆經橋接 3801 送上位、撞到就停;UPPER=nav2 自動開
+WORLD_ARG=(); PLANT_WORLD=()
+if [ "${WORLD:-0}" = 1 ] || [ "$UPPER" = nav2 ]; then
+  WORLD_ARG=(--world /w/world.json --scan-listen 0.0.0.0:3801); PLANT_WORLD=(--world ../world.json)
+fi
 PLANT_ARG=(--plant fake)
 case "$PLANT" in
   udp|tcp)
@@ -114,7 +119,7 @@ case "$PLANT" in
     echo "[plant] 啟動 $PNAME(plant/fake_plant.py,$PLANT 3700,與 Renode 同 netns)"
     docker run -d --name "$PNAME" --network "container:$NAME" --cpus 1 --memory 512m --pids-limit 64 \
       --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
-      -v "$PWD":/w -w /w/plant "$PY_IMAGE" python3 fake_plant.py --bind 0.0.0.0:3700 --calib ../calib.json "${TCPFLAG[@]}" >/dev/null
+      -v "$PWD":/w -w /w/plant "$PY_IMAGE" python3 fake_plant.py --bind 0.0.0.0:3700 --calib ../calib.json "${TCPFLAG[@]}" "${PLANT_WORLD[@]}" >/dev/null
     PLANT_ARG=(--plant "$PLANT:127.0.0.1:3700")
     ;;
   remote)
@@ -134,11 +139,13 @@ esac
 
 UPPER_ARG=()
 if [ "$UPPER" = ros ]; then
-  echo "[ros] 啟動 $RNAME($ROS_IMAGE,ros/run_square.sh,與 Renode 同 netns;log → out/ros.log)"
+  # ROS_SCRIPT:run_square.sh(預設,方形閉環)/ run_scan_check.sh(只驗 /scan)
+  ROS_SCRIPT="${ROS_SCRIPT:-run_square.sh}"
+  echo "[ros] 啟動 $RNAME($ROS_IMAGE,ros/$ROS_SCRIPT,與 Renode 同 netns;log → out/ros.log)"
   docker run -d --name "$RNAME" --network "container:$NAME" --cpus 1 --memory 1g --pids-limit 128 \
     --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    -e "SIDE_M=${SIDE_M:-0.6}" -e "TIMEOUT_S=${TIMEOUT_S:-120.0}" \
-    -v "$PWD":/w -w /w/ros "$ROS_IMAGE" bash ./run_square.sh >/dev/null
+    -e "SIDE_M=${SIDE_M:-0.6}" -e "TIMEOUT_S=${TIMEOUT_S:-120.0}" -e "SECONDS_CHECK=${SECONDS_CHECK:-8.0}" \
+    -v "$PWD":/w -w /w/ros "$ROS_IMAGE" bash "./$ROS_SCRIPT" >/dev/null
   UPPER_ARG=(--upper tcp-listen:0.0.0.0:3800)
 elif [ "$UPPER" != script ]; then
   echo "UPPER 只接受 script 或 ros"; exit 2
@@ -149,13 +156,13 @@ set +e
 docker run --rm --network "container:$NAME" --cpus "$CPUS" --memory 1g --pids-limit 128 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w -w /w "$RUST_IMAGE" \
-  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "${UPPER_ARG[@]}" "${CAN_ARG[@]}" "${ENC_ARG[@]}" "$@"
+  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "${UPPER_ARG[@]}" "${CAN_ARG[@]}" "${ENC_ARG[@]}" "${WORLD_ARG[@]}" "$@"
 rc=$?
 set -e
 docker logs "$NAME" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > out/renode.log || true
 if [ "$UPPER" = ros ]; then
   docker logs "$RNAME" > out/ros.log 2>&1 || true
-  grep "^\[square\]" out/ros.log || echo "[square] 沒有結果行(方形沒跑完?看 out/ros.log)"
+  grep "^\[square\]\|^\[scan_check\]" out/ros.log || echo "[ros] 沒有結果行(看 out/ros.log)"
 fi
 [ "$PLANT" = "udp" ] && docker logs "$PNAME" > out/plant.log 2>&1 || true
 echo "[done] rc=$rc  CSV: out/run.csv  Renode log: out/renode.log  USART2: renode/out/usart2.txt"

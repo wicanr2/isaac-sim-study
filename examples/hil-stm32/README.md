@@ -53,7 +53,7 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 
 ## 產物
 
-- `out/run.csv`:每步一行,31 欄(realtime 多 `wall_ms`;設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)
+- `out/run.csv`:每步一行,32 欄(realtime 多 `wall_ms`;末欄 `collided` 只在有 world.json 時非零;設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)
 - `out/renode.log`、`renode/out/usart2.txt`(韌體 printer)
 - 橋接 stdout:`[effect]` 生效證明六行、`[run]` 摘要(含每步四段牆鐘)、realtime 模式的 `[clocks]`、`[PASS]/[FAIL]` 十項、`[result]`
 

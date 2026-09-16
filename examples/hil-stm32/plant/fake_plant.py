@@ -7,12 +7,14 @@
 
 協定(一行一筆,ASCII,空白分隔;橋接等到同 seq 的回覆才推進下一步):
   橋接 → 受控體:CMD <seq> <dt_ms> <duty_l 0..1000> <duty_r> <fwd_l 0/1> <fwd_r> <en 0/1>
-  受控體 → 橋接:ENC <seq> <ticks_l> <ticks_r> <x_mm> <y_mm> <th_rad> <vl_mm_s> <vr_mm_s>
+  受控體 → 橋接:ENC <seq> <ticks_l> <ticks_r> <x_mm> <y_mm> <th_rad> <vl_mm_s> <vr_mm_s> [collided 0/1]
+  受控體 → 橋接(有 --world 時每 period_ms 一筆,在 ENC 之前):SCAN <seq> <n> <r0 m> ... <r(n-1)>
 
 用法:python3 fake_plant.py --bind 0.0.0.0:3700 --calib ../calib.json [--tcp]
 --tcp:同一份協定改走 TCP(一行一筆),給 ssh -L 隧道用。
 """
 import argparse
+import pathlib
 import json
 import math
 import socket
@@ -39,7 +41,9 @@ def motor_advance(v: float, target: float, dt: float, tau: float, accel_max: flo
 class FakePlant:
     """一階馬達(時間常數 tau)+ 精確差速運動學。編碼器 tick 由各輪累計行程取整。"""
 
-    def __init__(self, calib: dict, tau_s: float = None):
+    def __init__(self, calib: dict, tau_s: float = None, world=None):
+        self.world = world
+        self.collided = False
         self.circ_mm = 2 * math.pi * calib["wheel_radius_mm"]
         self.track = calib["track_mm"]
         self.tpr = calib["encoder_ticks_per_rev"]
@@ -58,6 +62,14 @@ class FakePlant:
         self.vl = motor_advance(self.vl, tl, dt, self.tau, self.accel_max)
         self.vr = motor_advance(self.vr, tr, dt, self.tau, self.accel_max)
         dl, dr = self.vl * dt, self.vr * dt
+        # 碰撞(有世界才有):撞到牆或方塊就停在原地,編碼器不動(同 Rust Fake)
+        self.collided = False
+        if self.world is not None:
+            ds_m = (dl + dr) * 0.5 / 1000.0
+            if self.world.collides(self.x / 1000.0 + ds_m * math.cos(self.th), self.y / 1000.0 + ds_m * math.sin(self.th)):
+                self.collided = True
+                self.vl = self.vr = 0.0
+                return
         self.sl += dl
         self.sr += dr
         ds = (dl + dr) * 0.5
@@ -79,10 +91,16 @@ def main() -> int:
     ap.add_argument("--calib", default="../calib.json")
     ap.add_argument("--tau", type=float, default=None, help="覆蓋 calib 的 motor_tau_s")
     ap.add_argument("--tcp", action="store_true")
+    ap.add_argument("--world", default=None, help="world.json:有給就算假雷射與碰撞")
     a = ap.parse_args()
 
     calib = json.load(open(a.calib, encoding="utf-8"))
-    plant = FakePlant(calib, a.tau)
+    world = None
+    if a.world:
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+        from world import World
+        world = World(a.world)
+    plant = FakePlant(calib, a.tau, world)
     host, port = a.bind.rsplit(":", 1)
     print(f"[fake_plant] listening {a.bind} {'tcp' if a.tcp else 'udp'} circ={plant.circ_mm:.3f}mm track={plant.track} tpr={plant.tpr} tau={a.tau}", flush=True)
     serve(plant, host, int(port), a.tcp)
@@ -97,7 +115,12 @@ def handle(plant: FakePlant, line: str, n: int) -> str | None:
     plant.step(dt, int(f[3]) / 1000.0, int(f[4]) / 1000.0, f[5] == "1", f[6] == "1", f[7] == "1")
     if n % 1000 == 0:
         print(f"[fake_plant] {n} steps x={plant.x:.1f} y={plant.y:.1f} th={plant.th:.4f}", flush=True)
-    return f"ENC {seq} {plant.ticks(plant.sl)} {plant.ticks(plant.sr)} {plant.x:.6f} {plant.y:.6f} {plant.th:.9f} {plant.vl:.6f} {plant.vr:.6f}\n"
+    out = ""
+    if plant.world is not None and int(f[2]) > 0 and (seq * int(f[2])) % plant.world.period_ms == 0:
+        rs = plant.world.scan(plant.x / 1000.0, plant.y / 1000.0, plant.th)
+        out += f"SCAN {seq} {len(rs)} " + " ".join(f"{r:.3f}" for r in rs) + "\n"
+    out += f"ENC {seq} {plant.ticks(plant.sl)} {plant.ticks(plant.sr)} {plant.x:.6f} {plant.y:.6f} {plant.th:.9f} {plant.vl:.6f} {plant.vr:.6f} {int(plant.collided)}\n"
+    return out
 
 
 def serve(plant: FakePlant, host: str, port: int, tcp: bool) -> None:
@@ -110,7 +133,8 @@ def serve(plant: FakePlant, host: str, port: int, tcp: bool) -> None:
             n += 1
             reply = handle(plant, data.decode("ascii", "replace"), n)
             if reply:
-                sock.sendto(reply.encode("ascii"), addr)
+                for ln in reply.splitlines(keepends=True):   # SCAN 與 ENC 各一個 datagram
+                    sock.sendto(ln.encode("ascii"), addr)
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((host, port))

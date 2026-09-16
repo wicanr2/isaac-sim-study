@@ -12,6 +12,7 @@ use std::net::{TcpStream, UdpSocket};
 use std::time::Duration;
 
 use crate::calib::Calib;
+use crate::world::World;
 
 /// MCU 這一步送出的馬達命令(已從匯流排讀回)
 #[derive(Debug, Clone, Copy, Default)]
@@ -32,10 +33,14 @@ pub struct PlantOut {
     pub th_rad: f64,
     pub vl_mm_s: f64,
     pub vr_mm_s: f64,
+    /// 這一步受控體與牆或方塊相交(world.json 的世界;沒有世界的受控體永遠 false)
+    pub collided: bool,
 }
 
 pub trait Plant {
     fn step(&mut self, seq: u32, dt_s: f64, cmd: MotorCmd) -> io::Result<PlantOut>;
+    /// 這一步有雷射掃描就拿走(假雷射每 period_ms 一筆;Isaac 版沒有)。橋接只轉給上位,不解語意。
+    fn take_scan(&mut self) -> Option<Vec<f32>> { None }
 }
 
 /// 馬達層,三個受控體實作(這裡、plant/fake_plant.py、plant/isaac_plant.py)同一份公式:
@@ -63,6 +68,8 @@ pub fn motor_advance(v: f64, target: f64, dt: f64, tau: f64, accel_max: f64) -> 
 /// 純軟體差速車。馬達:上面的 motor_target / motor_advance;運動學:精確弧線積分。
 pub struct Fake {
     c: Calib,
+    world: Option<World>,
+    scan: Option<Vec<f32>>,
     tau_s: f64,
     vl: f64,
     vr: f64,
@@ -75,7 +82,12 @@ pub struct Fake {
 
 impl Fake {
     pub fn new(c: Calib) -> Fake {
-        Fake { c, tau_s: c.motor_tau_s, vl: 0.0, vr: 0.0, sl_mm: 0.0, sr_mm: 0.0, x: 0.0, y: 0.0, th: 0.0 }
+        Fake { c, world: None, scan: None, tau_s: c.motor_tau_s, vl: 0.0, vr: 0.0, sl_mm: 0.0, sr_mm: 0.0, x: 0.0, y: 0.0, th: 0.0 }
+    }
+
+    pub fn with_world(mut self, w: World) -> Fake {
+        self.world = Some(w);
+        self
     }
 
     fn ticks(&self, s_mm: f64) -> i32 {
@@ -85,7 +97,9 @@ impl Fake {
 }
 
 impl Plant for Fake {
-    fn step(&mut self, _seq: u32, dt: f64, cmd: MotorCmd) -> io::Result<PlantOut> {
+    fn take_scan(&mut self) -> Option<Vec<f32>> { self.scan.take() }
+
+    fn step(&mut self, seq: u32, dt: f64, cmd: MotorCmd) -> io::Result<PlantOut> {
         let full = self.c.wheel_speed_full_mm_s;
         let db = self.c.motor_deadband_duty;
         let tl = motor_target(cmd.duty_l, cmd.fwd_l, cmd.enabled, db, full);
@@ -94,6 +108,21 @@ impl Plant for Fake {
         self.vr = motor_advance(self.vr, tr, dt, self.tau_s, self.c.motor_accel_max_mm_s2);
         let dl = self.vl * dt;
         let dr = self.vr * dt;
+        // 碰撞與假雷射(有世界才有):碰到就停在原地(牆與方塊不讓車穿過),雷射每 period_ms 一筆
+        let (mut collided, mut do_scan) = (false, false);
+        if let Some(w) = &self.world {
+            let step_ms = (dt * 1000.0).round() as u64;
+            do_scan = step_ms > 0 && (seq as u64 * step_ms) % w.period_ms == 0;
+            let ds = (dl + dr) * 0.5 / 1000.0;
+            let nx = self.x / 1000.0 + ds * self.th.cos();
+            let ny = self.y / 1000.0 + ds * self.th.sin();
+            collided = w.collides(nx, ny);
+        }
+        if collided {
+            self.vl = 0.0; self.vr = 0.0;
+            if do_scan { let w = self.world.as_ref().unwrap(); self.scan = Some(w.scan(self.x / 1000.0, self.y / 1000.0, self.th)); }
+            return Ok(PlantOut { ticks_l: self.ticks(self.sl_mm), ticks_r: self.ticks(self.sr_mm), x_mm: self.x, y_mm: self.y, th_rad: self.th, vl_mm_s: 0.0, vr_mm_s: 0.0, collided: true });
+        }
         self.sl_mm += dl;
         self.sr_mm += dr;
         let ds = (dl + dr) * 0.5;
@@ -102,6 +131,7 @@ impl Plant for Fake {
         self.x += ds * th_mid.cos();
         self.y += ds * th_mid.sin();
         self.th += dth;
+        if do_scan { if let Some(w) = &self.world { self.scan = Some(w.scan(self.x / 1000.0, self.y / 1000.0, self.th)); } }
         Ok(PlantOut {
             ticks_l: self.ticks(self.sl_mm),
             ticks_r: self.ticks(self.sr_mm),
@@ -110,16 +140,19 @@ impl Plant for Fake {
             th_rad: self.th,
             vl_mm_s: self.vl,
             vr_mm_s: self.vr,
+            collided,
         })
     }
 }
 
 /// 文字協定(一行一筆,ASCII,空白分隔;UDP 與 TCP 同一份):
 ///   橋接 → 受控體:`CMD <seq> <dt_ms> <duty_l 0..1000> <duty_r> <fwd_l 0/1> <fwd_r> <en 0/1>\n`
-///   受控體 → 橋接:`ENC <seq> <ticks_l> <ticks_r> <x_mm> <y_mm> <th_rad> <vl_mm_s> <vr_mm_s>\n`
-/// 受控體必須以相同 seq 回覆;橋接等到回覆才推進下一步(lockstep)。
+///   受控體 → 橋接:`ENC <seq> <ticks_l> <ticks_r> <x_mm> <y_mm> <th_rad> <vl_mm_s> <vr_mm_s> [collided 0/1]\n`
+///   受控體 → 橋接(可選,ENC 之前):`SCAN <seq> <n> <r0 m> ... <r(n-1)>\n`(假雷射,每 period_ms 一筆)
+/// 受控體必須以相同 seq 回覆;橋接等到 ENC 才推進下一步(lockstep)。
 pub struct Udp {
     sock: UdpSocket,
+    scan: Option<Vec<f32>>,
 }
 
 impl Udp {
@@ -127,17 +160,21 @@ impl Udp {
         let sock = UdpSocket::bind("0.0.0.0:0")?;
         sock.connect(addr)?;
         sock.set_read_timeout(Some(Duration::from_secs(10)))?;
-        Ok(Udp { sock })
+        Ok(Udp { sock, scan: None })
     }
 }
 
 impl Plant for Udp {
+    fn take_scan(&mut self) -> Option<Vec<f32>> { self.scan.take() }
+
     fn step(&mut self, seq: u32, dt: f64, cmd: MotorCmd) -> io::Result<PlantOut> {
         self.sock.send(cmd_line(seq, dt, cmd).as_bytes())?;
-        let mut buf = [0u8; 256];
+        let mut buf = [0u8; 4096];
         loop {
             let n = self.sock.recv(&mut buf)?;
-            if let Some(out) = parse_enc(&String::from_utf8_lossy(&buf[..n]), seq) {
+            let line = String::from_utf8_lossy(&buf[..n]);
+            if let Some(sc) = parse_scan(&line, seq) { self.scan = Some(sc); continue; }
+            if let Some(out) = parse_enc(&line, seq) {
                 return Ok(out);
             }
             // 舊的或格式不對的回覆:丟掉,繼續等對的 seq
@@ -150,6 +187,7 @@ impl Plant for Udp {
 pub struct Tcp {
     w: TcpStream,
     r: BufReader<TcpStream>,
+    scan: Option<Vec<f32>>,
 }
 
 impl Tcp {
@@ -158,11 +196,13 @@ impl Tcp {
         s.set_nodelay(true)?;
         s.set_read_timeout(Some(Duration::from_secs(30)))?;
         let r = BufReader::new(s.try_clone()?);
-        Ok(Tcp { w: s, r })
+        Ok(Tcp { w: s, r, scan: None })
     }
 }
 
 impl Plant for Tcp {
+    fn take_scan(&mut self) -> Option<Vec<f32>> { self.scan.take() }
+
     fn step(&mut self, seq: u32, dt: f64, cmd: MotorCmd) -> io::Result<PlantOut> {
         self.w.write_all(cmd_line(seq, dt, cmd).as_bytes())?;
         let mut line = String::new();
@@ -171,6 +211,7 @@ impl Plant for Tcp {
             if self.r.read_line(&mut line)? == 0 {
                 return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "受控體關閉連線"));
             }
+            if let Some(sc) = parse_scan(&line, seq) { self.scan = Some(sc); continue; }
             if let Some(out) = parse_enc(&line, seq) {
                 return Ok(out);
             }
@@ -203,7 +244,16 @@ fn parse_enc(s: &str, seq: u32) -> Option<PlantOut> {
             th_rad: p(6),
             vl_mm_s: p(7),
             vr_mm_s: p(8),
+            collided: f.len() >= 10 && f[9] == "1",
         });
     }
     None
+}
+
+fn parse_scan(s: &str, seq: u32) -> Option<Vec<f32>> {
+    let mut it = s.split_whitespace();
+    if it.next()? != "SCAN" || it.next()?.parse::<u32>().ok()? != seq { return None; }
+    let n: usize = it.next()?.parse().ok()?;
+    let v: Vec<f32> = it.take(n).filter_map(|x| x.parse().ok()).collect();
+    if v.len() == n { Some(v) } else { None }
 }

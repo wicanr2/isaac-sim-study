@@ -109,7 +109,7 @@ C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌
 
 ## 3. 決定性:逐 byte 比,而且是每個實作各自成立
 
-同一腳本跑兩次,1201 行 CSV(每步 31 個欄位;realtime 多一欄 `wall_ms`:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)**逐 byte 相同**。靠的是 [37 篇](../37-bus-signal-bridging/README.md) §3 的 ack:每筆注入確認進了週邊才推進時間。
+同一腳本跑兩次,1201 行 CSV(每步 32 個欄位;realtime 多一欄 `wall_ms`:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)**逐 byte 相同**。靠的是 [37 篇](../37-bus-signal-bridging/README.md) §3 的 ack:每筆注入確認進了週邊才推進時間。
 
 但換一個「同一個模型」的實作就不一樣了。`plant/fake_plant.py`(Python,走 UDP)與橋接內建的 Rust `Fake` 是同一組公式、同一份 calib:
 

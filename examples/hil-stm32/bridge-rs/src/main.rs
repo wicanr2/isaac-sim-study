@@ -18,6 +18,7 @@ mod plant;
 mod proto;
 mod socketcan;
 mod upper;
+mod world;
 
 use std::io::Write;
 use std::time::{Duration, Instant};
@@ -46,6 +47,12 @@ struct Args {
     /// 故障注入:none | hang | drv-fault | bumper | stall | no-ping(在 --fault-at 秒發生)
     fault: String,
     fault_at: f64,
+    /// world.json:假雷射與碰撞的世界(空 = 沒有,受控體不掃描、不碰撞)
+    world: String,
+    /// 假雷射的出口:TCP 監聽,每筆掃描一行 `SCAN <seq> <n> r...`,上位(ROS driver)連進來
+    scan_listen: String,
+    /// C11:上位(Nav2)應該把車開到 world.goal——只有這個旗標才驗
+    expect_goal: bool,
 }
 
 fn parse_args() -> Args {
@@ -70,6 +77,9 @@ fn parse_args() -> Args {
         cfg: String::new(),
         fault: "none".into(),
         fault_at: 2.0,
+        world: String::new(),
+        scan_listen: String::new(),
+        expect_goal: false,
     };
     let v: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -93,6 +103,9 @@ fn parse_args() -> Args {
             "--dbg-extra" => a.dbg_extra = val.parse().expect("--dbg-extra"),
             "--fault" => a.fault = val,
             "--fault-at" => a.fault_at = val.parse().expect("--fault-at"),
+            "--world" => a.world = val,
+            "--scan-listen" => a.scan_listen = val,
+            "--expect-goal" => a.expect_goal = val == "1",
             // lockstep(預設):橋接推進 Renode;realtime:Renode 自由跑,橋接以牆鐘 dt 取樣/注入
             "--mode" => a.mode = val,
             // 上位:script(預設,內建腳本)或 tcp-listen:ADDR(外部上位連進來講 UART 框包,例如 ROS 2 節點)
@@ -238,8 +251,14 @@ fn main() {
     let mut ticks_before_last = [0i32; 2];
     println!("[effect] encoder: calib={} inject={}", if c.encoder_tim { "tim" } else { "can" }, enc_mode);
 
+    let world = if a.world.is_empty() { None } else { Some(world::World::load(&a.world).expect("world.json")) };
+    if let Some(w) = &world {
+        println!("[effect] world={} room=[{},{}]x[{},{}] boxes={} robot_r={} laser={}x{}m@{}ms goal=({},{},{})",
+            a.world, w.x_min, w.x_max, w.y_min, w.y_max, w.boxes.len(), w.robot_radius, w.beams, w.range_max, w.period_ms, w.goal.0, w.goal.1, w.goal.2);
+    }
+    let mut scan_up = if a.scan_listen.is_empty() { None } else { Some(upper::Upper::listen(&a.scan_listen).expect("--scan-listen")) };
     let mut pl: Box<dyn Plant> = if a.plant == "fake" {
-        Box::new(plant::Fake::new(c))
+        match &world { Some(w) => Box::new(plant::Fake::new(c).with_world(w.clone())), None => Box::new(plant::Fake::new(c)) }
     } else if let Some(addr) = a.plant.strip_prefix("udp:") {
         Box::new(plant::Udp::connect(addr).expect("UDP plant"))
     } else if let Some(addr) = a.plant.strip_prefix("tcp:") {
@@ -354,7 +373,7 @@ fn main() {
     // realtime 多一欄 wall_ms(每次都不同,lockstep 不放:那邊的 CSV 要能逐 byte 比)
     let wall_col = if realtime { "wall_ms," } else { "" };
     writeln!(log, "step,t_us,{wall_col}cmd_v,cmd_w,sp_l,sp_r,meas_l,meas_r,duty_l_dbg,ccr1,ccr2,dir_l,dir_r,en,flags,\
-plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_y,odom_th,odom_vl,odom_vr,odom_flags,can_duty_l,can_duty_r").unwrap();
+plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_y,odom_th,odom_vl,odom_vr,odom_flags,can_duty_l,can_duty_r,collided").unwrap();
 
     let mut parser = proto::Parser::default();
     let mut last_odom = proto::Odom::default();
@@ -419,6 +438,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let fault_step = (a.fault_at / dt_s).round() as u32;
     let fault_end_step = ((a.fault_at + 1.5) / dt_s).round() as u32;   // drv-fault / stall 的注入持續 1.5 s
     let mut last_flags: u32 = 0;
+    let mut collisions = 0u32;
+    let mut first_collision: Option<u32> = None;
+    let mut scans_sent = 0u32;
     if realtime {
         hk.emulation_start().expect("start");
         hk.wait_acks().expect("ack");
@@ -627,6 +649,22 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         let out = pl.step(k, plant_dt, cmd).expect("plant step");
         if fault != "none" && t_s >= a.fault_at && stop_step.is_none() && out.vl_mm_s.abs() < 5.0 && out.vr_mm_s.abs() < 5.0 { stop_step = Some(k); }
         if out.x_mm > x_max { x_max = out.x_mm; }
+        if out.collided {
+            collisions += 1;
+            if first_collision.is_none() { first_collision = Some(k); println!("[world] t={:.3}s 受控體撞到牆或方塊 @({:.0}, {:.0}) mm", t_s, out.x_mm, out.y_mm); }
+        }
+        // 假雷射:受控體給一筆就原樣轉給上位(語意在上位解;橋接只加行首與 seq)。負對照 blind-scan:全部改成 range_max
+        if let Some(mut sc) = pl.take_scan() {
+            if let Some(su) = scan_up.as_mut() {
+                if neg == "blind-scan" { if let Some(w) = &world { for r in sc.iter_mut() { *r = w.range_max as f32; } } }
+                let mut line = format!("SCAN {} {}", k, sc.len());
+                for r in &sc { line.push_str(&format!(" {:.3}", r)); }
+                line.push('\n');
+                su.poll_rx();
+                su.tx(line.as_bytes());
+                scans_sent += 1;
+            }
+        }
         if plant_dt > 0.0 {
             let acc = ((out.vl_mm_s - last_plant.vl_mm_s) / plant_dt).abs().max(((out.vr_mm_s - last_plant.vr_mm_s) / plant_dt).abs());
             if acc > max_plant_accel { max_plant_accel = acc; }
@@ -686,11 +724,11 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         let cs = can_status.unwrap_or((0, 0, 0, 0));
         let wall_ms = if realtime { format!("{:.1},", wall0.elapsed().as_secs_f64() * 1000.0) } else { String::new() };
         writeln!(log, "{k},{t_us},{wall_ms}{cv},{cw},{sp_l},{sp_r},{meas_l},{meas_r},{duty_l_dbg},{ccr1},{ccr2},{},{},{},{flags},\
-{:.1},{:.1},{:.4},{:.1},{:.1},{},{},{},{},{},{},{},{},{},{},{}",
+{:.1},{:.1},{:.4},{:.1},{:.1},{},{},{},{},{},{},{},{},{},{},{},{}",
             dir_l as u8, dir_r as u8, en as u8,
             out.x_mm, out.y_mm, out.th_rad, out.vl_mm_s, out.vr_mm_s, out.ticks_l, out.ticks_r,
             last_odom.seq, last_odom.x_mm, last_odom.y_mm, last_odom.th_mrad, last_odom.vl_mm_s, last_odom.vr_mm_s,
-            last_odom.flags, cs.0, cs.1).unwrap();
+            last_odom.flags, cs.0, cs.1, out.collided as u8).unwrap();
     }
 
     if realtime {
@@ -738,6 +776,12 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         tick_ms, ctrl_steps, cmd_frames, enc_frames, bad_crc, rx_overflow);
     println!("[run] odom_frames={} can_status_frames={} sent_cmds={} corrupted={}",
         odom_count, can_status_count, sent_cmds, corrupted);
+    if world.is_some() {
+        println!("[run] world: collisions={} steps{} scans_sent={} end=({:.0}, {:.0}) mm goal=({:.0}, {:.0}) mm dist={:.0} mm",
+            collisions, first_collision.map(|k| format!(" (第一次 @{:.3}s)", k as f64 * dt_s)).unwrap_or_default(), scans_sent,
+            last_plant.x_mm, last_plant.y_mm, world.as_ref().unwrap().goal.0 * 1000.0, world.as_ref().unwrap().goal.1 * 1000.0,
+            ((last_plant.x_mm - world.as_ref().unwrap().goal.0 * 1000.0).powi(2) + (last_plant.y_mm - world.as_ref().unwrap().goal.1 * 1000.0).powi(2)).sqrt());
+    }
     if a.dbg_extra > 0 {
         let extra = ec.read_u32s_at(bus, dbg_base + 4 * dbg::WORDS as u64, a.dbg_extra).unwrap();
         println!("[run] fw extra {:?}", extra);
@@ -855,6 +899,16 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             pass: hang_counts || if enc_mode != "can" { if realtime { cnt_l == last_plant.ticks_l as u32 & 0xFFFF && cnt_r == last_plant.ticks_r as u32 & 0xFFFF } else { tim_ok } } else if realtime { enc_frames as f64 >= 0.9 * steps as f64 } else { enc_frames == steps - 1 },
             detail: if enc_mode != "can" { format!("CNT {cnt_l}/{cnt_r} vs plant {}/{};fw {fw_enc_l}/{fw_enc_r} vs 前一步 {}/{}", last_plant.ticks_l as u32 & 0xFFFF, last_plant.ticks_r as u32 & 0xFFFF, ticks_before_last[0], ticks_before_last[1]) } else { format!("{enc_frames} vs {}", if realtime { steps } else { steps - 1 }) } },
         Check { name: c10_name.leak(), pass: c10_pass, detail: c10_detail },
+        // C11:有世界且上位是外部的(Nav2)→ 到達 goal 0.1 m 內、途中沒撞;沒世界不驗
+        Check { name: if world.is_some() && a.expect_goal { "C11 Nav2:受控體到達 world.goal 0.1 m 內,途中沒撞牆或方塊" } else { "C11 (沒有 --expect-goal,不驗)" },
+            pass: match (&world, a.expect_goal) {
+                (Some(w), true) => collisions == 0 && ((last_plant.x_mm - w.goal.0 * 1000.0).powi(2) + (last_plant.y_mm - w.goal.1 * 1000.0).powi(2)).sqrt() <= 100.0,
+                _ => true },
+            detail: match &world {
+                Some(w) => format!("末端 ({:.0}, {:.0}) 對 goal ({:.0}, {:.0}) 差 {:.0} mm;碰撞 {} 步{}", last_plant.x_mm, last_plant.y_mm, w.goal.0 * 1000.0, w.goal.1 * 1000.0,
+                    ((last_plant.x_mm - w.goal.0 * 1000.0).powi(2) + (last_plant.y_mm - w.goal.1 * 1000.0).powi(2)).sqrt(), collisions,
+                    first_collision.map(|k| format!("(第一次 @{:.3}s)", k as f64 * dt_s)).unwrap_or_default()),
+                None => String::new() } },
     ];
     let mut all = true;
     for ch in &checks {

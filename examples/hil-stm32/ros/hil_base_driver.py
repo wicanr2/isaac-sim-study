@@ -18,6 +18,7 @@ import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import UInt8
 from tf2_msgs.msg import TFMessage
 
@@ -32,6 +33,11 @@ class HilBaseDriver(Node):
         self.declare_parameter("calib", str(pathlib.Path(__file__).resolve().parent.parent / "calib.json"))
         self.declare_parameter("cmd_rate_hz", 50.0)
         self.declare_parameter("heartbeat_hz", 10.0)   # PING;韌體 300 ms 沒收到就降速到 0
+        # 假雷射:橋接 3801 每筆一行 `SCAN <seq> <n> r...`(受控體算的,不經 MCU——真車的雷射也是接上位不是接底盤板);
+        # 空字串 = 不接。world.json 給射程與束數之外的參數(range_max);laser_frame 掛在 base_link 原點
+        self.declare_parameter("scan", "127.0.0.1:3801")
+        self.declare_parameter("world", str(pathlib.Path(__file__).resolve().parent.parent / "world.json"))
+        self.declare_parameter("laser_frame", "laser")
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
         calib = json.loads(pathlib.Path(self.get_parameter("calib").value).read_text(encoding="utf-8"))
@@ -52,11 +58,24 @@ class HilBaseDriver(Node):
         self.pub_tf = self.create_publisher(TFMessage, "/tf", 10)
         # 韌體的安全旗標原樣往上送(ENABLED/ESTOP/CMD_STALE/DRV_FAULT/BUMPER/STALL/HB_LOST/WDT_RESET),上位看得到為什麼停
         self.pub_flags = self.create_publisher(UInt8, "hil/safety_flags", 10)
+        self.scan_sock = None
+        self.scan_buf = b""
+        self.n_scan = 0
+        self.laser_frame = self.get_parameter("laser_frame").value
+        self.range_max = 5.0
+        try:
+            self.range_max = float(json.loads(pathlib.Path(self.get_parameter("world").value).read_text(encoding="utf-8"))["laser"]["range_max_m"])
+        except (OSError, KeyError, ValueError):
+            pass
+        self.pub_scan = self.create_publisher(LaserScan, "scan", 10)
+        self.pub_tf_static = self.create_publisher(TFMessage, "/tf_static", rclpy.qos.QoSProfile(depth=1, durability=rclpy.qos.DurabilityPolicy.TRANSIENT_LOCAL))
+        self.publish_static_tf()
         self.create_subscription(Twist, "cmd_vel", self.on_cmd_vel, 10)
         rate = float(self.get_parameter("cmd_rate_hz").value)
         self.create_timer(1.0 / rate, self.tick_tx)
         self.create_timer(1.0 / float(self.get_parameter("heartbeat_hz").value), self.tick_ping)
         self.create_timer(0.005, self.tick_rx)
+        self.create_timer(0.010, self.tick_scan)
         self.create_timer(5.0, self.report)
         self.get_logger().info("bridge=%s track=%.3f m cmd %.0f Hz" % (self.get_parameter("bridge").value, self.track_m, rate))
 
@@ -97,6 +116,61 @@ class HilBaseDriver(Node):
             self.n_sent += 1
         except OSError:
             self.drop()
+
+    # --- 假雷射:3801 的文字行 → /scan ---
+    def publish_static_tf(self):
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = self.base_frame
+        t.child_frame_id = self.laser_frame
+        t.transform.rotation.w = 1.0
+        self.pub_tf_static.publish(TFMessage(transforms=[t]))
+
+    def tick_scan(self):
+        addr = self.get_parameter("scan").value
+        if not addr:
+            return
+        if self.scan_sock is None:
+            host, port = addr.rsplit(":", 1)
+            try:
+                s = socket.create_connection((host, int(port)), timeout=0.5)
+                s.setblocking(False)
+                self.scan_sock = s
+            except OSError:
+                return
+        try:
+            data = self.scan_sock.recv(65536)
+        except BlockingIOError:
+            return
+        except OSError:
+            self.scan_sock = None
+            return
+        if not data:
+            self.scan_sock = None
+            return
+        self.scan_buf += data
+        while b"\n" in self.scan_buf:
+            line, self.scan_buf = self.scan_buf.split(b"\n", 1)
+            f = line.split()
+            if len(f) < 3 or f[0] != b"SCAN":
+                continue
+            n = int(f[2])
+            ranges = [float(x) for x in f[3:3 + n]]
+            if len(ranges) != n:
+                continue
+            m = LaserScan()
+            m.header.stamp = self.get_clock().now().to_msg()
+            m.header.frame_id = self.laser_frame
+            m.angle_min = -math.pi
+            m.angle_max = math.pi - 2 * math.pi / n
+            m.angle_increment = 2 * math.pi / n
+            m.time_increment = 0.0
+            m.scan_time = 0.1
+            m.range_min = 0.05
+            m.range_max = self.range_max
+            m.ranges = ranges
+            self.pub_scan.publish(m)
+            self.n_scan += 1
 
     def tick_ping(self):
         if self.sock is None:
@@ -162,8 +236,8 @@ class HilBaseDriver(Node):
         self.last = o
 
     def report(self):
-        self.get_logger().info("cmd_vel msgs=%d frames sent=%d ping=%d odom frames=%d bad_crc=%d connected=%s" % (
-            self.n_cmd_msgs, self.n_sent, self.n_ping, self.n_odom, self.parser.bad_crc, self.sock is not None))
+        self.get_logger().info("cmd_vel msgs=%d frames sent=%d ping=%d odom frames=%d scans=%d bad_crc=%d connected=%s" % (
+            self.n_cmd_msgs, self.n_sent, self.n_ping, self.n_odom, self.n_scan, self.parser.bad_crc, self.sock is not None))
 
 
 def main():

@@ -1,0 +1,11 @@
+{
+  "_comment": "假雷射與碰撞用的世界(公尺):矩形房間 + 方塊;受控體(Rust Fake、fake_plant.py)與 Nav2 的地圖(tools/gen_map.py)共用同一份",
+  "room": { "x_min": -0.5, "x_max": 3.5, "y_min": -0.5, "y_max": 2.5 },
+  "boxes": [
+    { "cx": 1.5, "cy": 1.0, "w": 0.4, "h": 0.4 },
+    { "cx": 2.4, "cy": 0.3, "w": 0.4, "h": 0.4 }
+  ],
+  "robot_radius_m": 0.2,
+  "laser": { "beams": 360, "range_min_m": 0.05, "range_max_m": 5.0, "period_ms": 100 },
+  "goal": { "x": 3.0, "y": 2.0, "yaw": 0.0 }
+}
