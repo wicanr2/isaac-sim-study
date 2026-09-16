@@ -4,7 +4,7 @@
 
 HIL(hardware-in-the-loop)就是把那顆 MCU 放回迴路裡:它跑真的韌體、講真的匯流排協定;Isaac Sim 只負責「馬達轉了會怎樣」。這一篇講它是什麼、跟 NVIDIA 課程裡的 HIL 差在哪、以及一旦迴路裡有三個時鐘,什麼事會變得不一樣。
 
-> **驗證狀態**:本篇的拓撲、時鐘與規則來自 [36](../36-stm32-firmware-on-renode/README.md)–[38](../38-acceptance-and-failure-modes/README.md) 篇實測的那套系統(Renode 1.16.1 上的 STM32F4 韌體 + Rust 橋接 + 假受控體,docker,2026-09-15)。§5 的數字是實跑值。Isaac Sim 6.0.1 受控體在場域 GPU 主機實測(同日),數字在 [38 篇](../38-acceptance-and-failure-modes/README.md) §6。
+> **驗證狀態**:本篇的拓撲、時鐘與規則來自 [36](../36-stm32-firmware-on-renode/README.md)–[39](../39-freertos-firmware-in-the-loop/README.md) 篇實測的那套系統(Renode 1.16.1 上的 STM32F4 韌體 + Rust 橋接 + 假受控體,docker,2026-09-15/16)。§5 的數字是實跑值。Isaac Sim 6.0.1 受控體在場域 GPU 主機實測,數字在 [38 篇](../38-acceptance-and-failure-modes/README.md) §6;ROS 2 Jazzy 上位在 38 篇 §6.1。
 
 ## 1. 三個詞:MIL、SIL、HIL
 
@@ -46,18 +46,7 @@ NVIDIA 的 [Leveraging ROS 2 and HIL in Isaac Sim](https://docs.nvidia.com/learn
 
 ## 4. 拓撲:每個行程只認一種語言
 
-```
-上位(腳本 / Nav2 / ROS 2 Jazzy 節點)
-   ↓ cmd_vel        ↑ odom
-橋接程式(Rust)
-   ↓ UART 框包     ↑ UART 框包          ── 上位側:序列協定
-   ↓ CAN 編碼器    ↑ CAN 狀態、PWM、GPIO ── 受控體側:匯流排訊號
-STM32F4 韌體(Renode;之後是實板)
-   ═══ 匯流排 ═══
-橋接程式(同一支)
-   ↓ 關節速度目標  ↑ 關節角度、位姿
-受控體:假差速車(Python / Rust)| Isaac Sim 6.0.1
-```
+<p align="center"><img src="../../img/hil-topology-two-languages.svg" width="860" alt="四個行程、兩種語言:上位、橋接、韌體、受控體與它們之間的埠"></p>
 
 | 行程 | 認什麼 | 不認什麼 |
 |---|---|---|
@@ -82,12 +71,12 @@ STM32F4 韌體(Renode;之後是實板)
 
 | 模式 | 做法 | 用在 |
 |---|---|---|
-| `realtime` | 三個時鐘各自跑,橋接只做轉譯;Isaac 每步 sleep 到牆鐘對齊 | 實板 HIL、Nav2 在迴路裡 |
+| `realtime` | 三個時鐘各自跑,橋接只做轉譯:每 5 ms 牆鐘取樣一次、注入一次(§5.1) | 實板 HIL、Nav2 在迴路裡 |
 | `lockstep` | 橋接當節拍器:推進 Renode Δt → 交換匯流排訊號 → 受控體走 Δt → 回填感測器 → 重複 | CI:同一份輸入跑兩次要一模一樣 |
 
-`lockstep` 這一區實測做到了,數字如下(Renode 1.16.1,`PerformanceInMips=100` + 韌體 WFI,假受控體,docker 2 核,主機另有負載 load ≈ 4/14):
+`lockstep` 這一區實測做到了,數字如下(Renode 1.16.1,`PerformanceInMips=100` + 韌體 WFI,假受控體,docker 2 核):
 
-- 6 s 腳本 = 1200 步 × 5 ms,牆鐘 35.5 s,**每步 29.6 ms,0.17× 實時**
+- 6 s 腳本 = 1200 步 × 5 ms:主機另有負載(load ≈ 4/14)時牆鐘 35.5 s,**每步 29.6 ms,0.17× 實時**;主機閒時每步 8–13 ms
 - Renode 虛擬時間結束於 6,000,000 µs 整,與 1200 × 5000 分毫不差
 - 同一腳本跑兩次,1201 行 CSV **逐 byte 相同**
 - 受控體換成 Isaac Sim 6.0.1(在另一台 GPU 主機,經 `ssh -L`):每步 52 ms,0.10× 實時;odom 對真值 3.4 mm / 0.028 rad;兩次 CSV 同樣逐 byte 相同(CPU 求解)
@@ -103,6 +92,9 @@ STM32F4 韌體(Renode;之後是實板)
 ```
 [clocks] wall=6.005s renode=6.081s plant=6.003s  renode/wall=1.013  max_lag(wall-renode)=4.0 ms
 ```
+
+<p align="center"><img src="../../img/hil-three-clocks-realtime.svg" width="860" alt="realtime 模式下三個時鐘各走多遠、末端位姿差多少、拖慢 Renode 的是 PWM 事件率"></p>
+
 
 **Renode 能不能跟上牆鐘,取決於週邊事件率,不是指令數。** 這支韌體 CPU 幾乎都睡在 WFI,拖慢模擬的是 TIM3 的 PWM:平台描述給 TIM3 10 MHz、ARR 999 → 10 kHz 載波,三個 `LimitTimer`(計數器 + 兩個比較通道)每秒 3 萬個 C# 事件。用 [`renode/perf_freerun.resc`](../../../examples/hil-stm32/renode/perf_freerun.resc)(`start` → 主機睡 3 s → 讀虛擬時間)量,沒有橋接:
 
@@ -120,9 +112,9 @@ STM32F4 韌體(Renode;之後是實板)
 | 1 kHz(`pwm_prescaler` 9) | 100 µs | 1.013 | 884.7, −1.8, 0.8730 | 17 mm、0.029 rad |
 | 1 kHz,第二次 | 100 µs | 1.012 | 871.1, −0.8, 0.8426 | 31 mm、0.059 rad |
 
-三件事值得記:
+三個結論:
 
-1. **模擬器跟不上時,閉環速度會低到 ratio 倍,而八項判準全部綠。** 0.46× 那一列 `ALL PASS`:odom 與 plant 一致(位置是 tick 積分出來的,跟時間無關)、CAN 與 CCR 一致、CRC 全對。壞掉的是速度:韌體每「5 ms」看到的是 11 ms 牆鐘的編碼器增量,量測速度膨脹 2.2 倍,PI 把 duty 壓下去,車就以 46% 的速度走。判準驗的是一致性,抓不到這件事,所以橋接在 ratio < 0.9 時另外印 `[warn]`。這是 §7 講的「時序只有實板算數」的反面:純軟體 HIL 的時序不只不可信,還會**安靜地錯**。
+1. **模擬器跟不上時,閉環速度會低到 ratio 倍,而八項判準全部綠。** 0.46× 那一列 `ALL PASS`:odom 與 plant 一致(位置是 tick 積分出來的,跟時間無關)、CAN 與 CCR 一致、CRC 全對。壞掉的是速度:韌體每「5 ms」看到的是 11 ms 牆鐘的編碼器增量,量測速度膨脹 2.2 倍,PI 把 duty 壓下去,車就以 46% 的速度走。判準驗的是一致性,抓不到這件事,所以橋接在 ratio < 0.9 時另外印 `[warn]`。§7 說時序只有實板算數;這一列補上另一半:純軟體 HIL 的時序錯的時候,**沒有任何訊號**。
 2. **Renode 的實時節拍不是硬的。** 它以量子為單位追牆鐘,虛擬時間可以領先:量到 +1.3%(量子 100 µs)到 +1.8%(1 ms)。C1 在 realtime 模式下改驗「0 < Renode 時間 ≤ 牆鐘 + 5%」,放的就是這個量。
 3. **決定性沒了。** 同一腳本跑兩次,末端差 14 mm / 0.03 rad,CSV 的 `ccr1` 在 995/1200 步不同——命令邊界落在哪個韌體 tick、編碼器訊框落在哪個 5 ms 窗,都由排程決定。要決定性就回 `lockstep`;要牆鐘就接受這個抖動,並且把它量出來。
 

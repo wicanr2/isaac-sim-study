@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="520" viewBox="0 0 860 520" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="860" height="520" fill="#ffffff"/>
+  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">四個行程、兩種語言:橋接是唯一同時懂「序列協定」與「匯流排訊號」的行程</text>
+
+  <defs>
+    <marker id="aBlue" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#5b7fa6"/></marker>
+    <marker id="aOrg" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#b35c1e"/></marker>
+    <marker id="aGrn" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#2e7d4f"/></marker>
+  </defs>
+
+  <!-- 上位 -->
+  <rect x="250" y="50" width="360" height="56" rx="10" fill="#f4f7fb" stroke="#5b7fa6" stroke-width="2"/>
+  <text x="430" y="73" text-anchor="middle" font-size="13" font-weight="bold" fill="#33506b">上位:內建腳本 / ROS 2 Jazzy 節點(hil_base_driver.py)</text>
+  <text x="430" y="93" text-anchor="middle" font-size="11" fill="#5b7fa6">只認 cmd_vel 與 odom;講的是韌體那份 UART 框包 A5 5A len type payload CRC16</text>
+
+  <!-- 序列協定箭頭 -->
+  <line x1="400" y1="106" x2="400" y2="160" stroke="#5b7fa6" stroke-width="2" marker-end="url(#aBlue)"/>
+  <line x1="460" y1="160" x2="460" y2="106" stroke="#5b7fa6" stroke-width="2" marker-end="url(#aBlue)"/>
+  <text x="392" y="138" text-anchor="end" font-size="11" fill="#5b7fa6">cmd_vel 框包(20 ms 一筆)</text>
+  <text x="468" y="138" font-size="11" fill="#5b7fa6">odom 框包(20 ms 一筆)</text>
+  <text x="640" y="138" font-size="10.5" fill="#888" font-family="monospace">tcp 3800(--upper)</text>
+
+  <!-- 橋接 -->
+  <rect x="150" y="160" width="560" height="78" rx="10" fill="#fff3e6" stroke="#b35c1e" stroke-width="2"/>
+  <text x="430" y="184" text-anchor="middle" font-size="13" font-weight="bold" fill="#7a3d0f">橋接(Rust,零 crate):轉譯與紀錄,不做安全、不解上位語意</text>
+  <text x="430" y="204" text-anchor="middle" font-size="11" fill="#7a3d0f">上位側當一條序列線;韌體側讀寫匯流排;受控體側送關節命令、收位姿;每步寫一行 CSV、跑完驗八項</text>
+  <text x="430" y="224" text-anchor="middle" font-size="11" fill="#7a3d0f">lockstep:橋接推進 Renode 5 ms 一步 | realtime:Renode 自由跑,橋接以牆鐘 5 ms 取樣</text>
+
+  <!-- 匯流排訊號箭頭(三條管道) -->
+  <line x1="300" y1="238" x2="300" y2="300" stroke="#b35c1e" stroke-width="2" marker-end="url(#aOrg)"/>
+  <line x1="430" y1="300" x2="430" y2="238" stroke="#b35c1e" stroke-width="2" marker-end="url(#aOrg)"/>
+  <line x1="655" y1="238" x2="655" y2="300" stroke="#b35c1e" stroke-width="2" marker-end="url(#aOrg)"/>
+  <line x1="665" y1="300" x2="665" y2="238" stroke="#b35c1e" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#aOrg)"/>
+  <text x="292" y="262" text-anchor="end" font-size="11" fill="#b35c1e">UART byte、CAN 0x181 編碼器</text>
+  <text x="292" y="277" text-anchor="end" font-size="10.5" fill="#888" font-family="monospace">hook tcp 3600(IronPython)</text>
+  <text x="438" y="262" font-size="11" fill="#b35c1e">UART byte、CAN 0x201、CCR 快照</text>
+  <text x="438" y="277" font-size="10.5" fill="#888" font-family="monospace">hook tcp 3600</text>
+  <text x="673" y="262" font-size="11" fill="#b35c1e">run_for、CCR、GPIO、g_dbg</text>
+  <text x="673" y="277" font-size="10.5" fill="#888" font-family="monospace">External Control 3500</text>
+
+  <!-- 韌體 -->
+  <rect x="150" y="300" width="560" height="66" rx="10" fill="#fbe3e0" stroke="#b03a2e" stroke-width="2"/>
+  <text x="430" y="322" text-anchor="middle" font-size="13" font-weight="bold" fill="#7a1f16">STM32F4 韌體(Renode 1.16.1;之後是實板)</text>
+  <text x="430" y="341" text-anchor="middle" font-size="11" fill="#7a1f16">認 RM0090 的暫存器與序列協定;5 ms PI → PWM;20 ms odom;沒有任何辦法知道自己在模擬裡</text>
+  <text x="430" y="357" text-anchor="middle" font-size="11" fill="#7a1f16">裸機 superloop + WFI(36 篇)或 FreeRTOS 三個 task(39 篇)——匯流排上看不出差別</text>
+
+  <!-- 橋接→受控體 -->
+  <path d="M150,199 L118,199 L118,420 L146,420" fill="none" stroke="#2e7d4f" stroke-width="2" marker-end="url(#aGrn)"/>
+  <path d="M710,420 L742,420 L742,199 L714,199" fill="none" stroke="#2e7d4f" stroke-width="2" marker-end="url(#aGrn)"/>
+  <text x="110" y="296" text-anchor="end" font-size="11" fill="#2e7d4f">duty、方向、</text>
+  <text x="110" y="311" text-anchor="end" font-size="11" fill="#2e7d4f">致能</text>
+  <text x="110" y="330" text-anchor="end" font-size="10.5" fill="#888" font-family="monospace">udp/tcp 3700</text>
+  <text x="750" y="296" font-size="11" fill="#2e7d4f">tick、位姿、</text>
+  <text x="750" y="311" font-size="11" fill="#2e7d4f">輪速</text>
+
+  <!-- 受控體 -->
+  <rect x="150" y="390" width="560" height="60" rx="10" fill="#e8f3ec" stroke="#2e7d4f" stroke-width="2"/>
+  <text x="430" y="412" text-anchor="middle" font-size="13" font-weight="bold" fill="#1f5236">受控體:假差速車(Rust 內建 / Python UDP·TCP)| Isaac Sim 6.0.1(場域 GPU 主機,ssh -L)</text>
+  <text x="430" y="432" text-anchor="middle" font-size="11" fill="#2e7d4f">認關節目標與位姿;文字協定 CMD seq dt duty_l duty_r … / ENC seq ticks_l ticks_r x y th …;不認 CAN、不認電壓</text>
+
+  <!-- 底註 -->
+  <text x="430" y="478" text-anchor="middle" font-size="11.5" fill="#333">同一份 byte 從腳本或 ROS 節點送到韌體,韌體分不出來;受控體從假車換成 Isaac,韌體與橋接一個 byte 都不改。</text>
+  <text x="430" y="498" text-anchor="middle" font-size="11" fill="#888">每個行程只認一種語言,所以每一層可以單獨換掉、單獨驗收(38 篇 §7 的分階段)。</text>
+</svg>
