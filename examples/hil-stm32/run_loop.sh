@@ -9,7 +9,8 @@
 #   PLANT=tcp ./run_loop.sh             # 同上但走 TCP(ssh -L 隧道用的那條路)
 #   FW=freertos ./run_loop.sh           # 韌體換成 FreeRTOS 版(firmware-freertos/)
 #   TIMERFIX=1 ./run_loop.sh            # TIM3 換成 renode/upstream/STM32_Timer_Fixed.cs(執行期載入的修正版)
-#   PLANT=remote ./run_loop.sh          # 受控體在場域 GPU 主機:自動開 ssh -L 隧道,受控體那端要先起好(埠 3700,TCP)
+#   PLANT=remote ./run_loop.sh          # 受控體在場域 GPU 主機:自動開 ssh -L 隧道,受控體那端要先起好(埠 3700,TCP;
+#                                       # tools/isaac_plant_ctl.sh start;WORLD=1 / UPPER=nav2 時那端也要 WORLD=1 start)
 #   CAN=socketcan ./run_loop.sh         # CAN 改走 Renode SocketCANBridge → 容器 netns 裡的 vcan0(37 篇 §4 的路 ②):
 #                                       # 需要一個 --cap-add NET_ADMIN 且容器內 root 的 helper 建 vcan;橋接走 PF_CAN,沒有 ack
 #   UPPER=ros ./run_loop.sh --seconds 40  # 上位換成 ROS 2 Jazzy:另起 ros:jazzy-ros-base 容器跑 ros/run_square.sh
@@ -129,8 +130,9 @@ case "$PLANT" in
     TUNNEL_PID=$!
     for i in $(seq 1 40); do ss -ltn 2>/dev/null | grep -q "$GW:3700" && break; sleep 0.25; done
     ss -ltn | grep -q "$GW:3700" || { echo "隧道沒起來"; exit 1; }
-    # Isaac 6.0.1 實測滑移:轉向 3.1%、直行 0.5%(2026-09-15);容差用 5%
-    PLANT_ARG=(--plant "tcp:$GW:3700" --slip 0.05)
+    # Isaac 6.0.1 實測滑移:DriveAPI 直接吃 duty 時轉向 3.1%、直行 0.5%(2026-09-15 --probe 等速);
+    # 馬達層 + 韌體斜坡之後 6 s 腳本量到直行 −0.1%、轉向 0.1%(2026-09-16,38 篇 §6.4);容差留 1%
+    PLANT_ARG=(--plant "tcp:$GW:3700" --slip 0.01)
     ;;
   tcp:*|udp:*)
     PLANT_ARG=(--plant "$PLANT")

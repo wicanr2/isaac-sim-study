@@ -163,6 +163,7 @@ step 376: 前一步 CCR=297,這一步 CCR=298,下一步 CCR=306;CAN 框說 305
 | IWDG 重啟後 DRV_FAULT、BUMPER 亮一步 | 機器重置把 GPIO 埠也重置,低有效的輸入腳回到 0;真板的 pull-up 在板子上 | 橋接偵測到 tick 倒退就重新拉高(§1.2) |
 | 韌體死掉了,車還在走 | 這不是 bug,是沒有看門狗時的必然:CPU 停了,TIM3 的 PWM 沒停 | `--negative iwdg-off`:CCR 停在 345、車跑 1.6 m;正對照 IWDG 1 s 後整顆重置 |
 | 只搬不改的重構讓 CSV 有 429 個欄位不同;原版加 200 圈 NOP 更差(8639 個、C9 紅) | 橋接的步邊界(`boot_ms` 100 + 5k)與韌體的控制 tick(5k)重合,暫停切在控制步中間;哪些存取在邊界前後由指令數決定 | `ccr1 ≠ duty_l` 的那一步就是被切的證據;邊界錯開 2 ms(`boot_ms` 102)後三個版本逐 byte 相同([37 篇](../37-bus-signal-bridging/README.md) §5) |
+| realtime 下 C9 紅(受控體加速度撞到馬達層 3000;load 9–11 時六次全紅) | 不是比值也不只是停頓:編碼器 tick 是橋接每步一口氣注入的,韌體一個 5 ms 控制週期吃到的注入筆數不固定(n 或 n+1;停頓時 0),kp = 1 把量測速度的跳動原樣變成 duty 跳動 | lockstep `--skew uniform:R` / `stall:N:M` 把比值與停頓拆開量:0.5、0.25 綠,0.9/0.8/0.6/0.3 紅,10 ms 停頓就紅([35 篇](../35-hil-what-and-why/README.md) §5.1 第 4 點的表)。真板沒有這個問題(邊緣連續);要在 realtime 消掉得改成連續注入或帶時間戳,未做 |
 
 共同點:**每一個的第一眼症狀都指向別的地方**——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯、彈飛像腳輪或質量。每一個都是先讀原始碼或加一個更近的觀測點才看到真因;彈飛那一個,近一點的觀測點是「靜止後停在哪個高度」。
 
@@ -219,7 +220,7 @@ C2 因為這個場景改成量**路徑長**而不是首尾位移:方形走完位
 
 ### 6.2 上位換成 Nav2:規劃器、costmap、假雷射
 
-方形閉環的上位是自己寫的 client;換成 Nav2 才是拓撲那張表的真正考驗——上位有規劃器、costmap、行為樹,韌體與橋接一個 byte 不改。純軟體的前提下少了一樣東西:雷射。它由**受控體**產生(不經 MCU——真車的雷射也是接上位,不是接底盤板):[`world.json`](../../../examples/hil-stm32/world.json) 一個 4 × 3 m 的房間、兩個 0.4 m 方塊、車半徑 0.2 m、goal (3, 2);Rust `Fake` 與 `fake_plant.py` 用同一份射線投射(360 束、5 m、10 Hz)與碰撞判斷(撞到就停在原地、編碼器不動),橋接把 `SCAN` 行**原樣**轉到 3801,driver 發 `/scan` 與 `base_link → laser` 靜態 TF。地圖([`tools/gen_map.py`](../../../examples/hil-stm32/tools/gen_map.py) 從同一份 JSON 產)**只畫牆**:方塊是地圖上沒有、雷射才看得到的東西,Nav2 得靠 costmap 的 obstacle layer 避開——負對照才有東西可關。
+方形閉環的上位是自己寫的 client;換成 Nav2 才是拓撲那張表的真正考驗——上位有規劃器、costmap、行為樹,韌體與橋接一個 byte 不改。純軟體的前提下少了一樣東西:雷射。它由**受控體**產生(不經 MCU——真車的雷射也是接上位,不是接底盤板):[`world.json`](../../../examples/hil-stm32/world.json) 一個 4 × 3 m 的房間、兩個 0.4 m 方塊、車半徑 0.2 m、goal (3, 2);Rust `Fake` 與 `fake_plant.py` 用同一份射線投射(360 束、5 m、10 Hz)與碰撞判斷(撞到就停在原地、編碼器不動;Isaac 版的牆是真的碰撞體,§6.4),橋接把 `SCAN` 行**原樣**轉到 3801,driver 發 `/scan` 與 `base_link → laser` 靜態 TF。地圖([`tools/gen_map.py`](../../../examples/hil-stm32/tools/gen_map.py) 從同一份 JSON 產)**只畫牆**:方塊是地圖上沒有、雷射才看得到的東西,Nav2 得靠 costmap 的 obstacle layer 避開——負對照才有東西可關。
 
 Nav2 用最小組合(`ros/Dockerfile.nav2`:map_server、NavFn、DWB、bt_navigator、behaviors、lifecycle_manager、simple_commander;從 `ros:jazzy-ros-base` 建,+520 MB,不裝 nav2_bringup / rviz),沒有 AMCL——里程計對真值在 mm 級,`map → odom` 是靜態 identity。[`ros/run_nav.sh`](../../../examples/hil-stm32/ros/run_nav.sh) 起 driver + 六個節點,[`ros/nav_client.py`](../../../examples/hil-stm32/ros/nav_client.py) 用 `BasicNavigator.goToPose` 到 goal。`UPPER=nav2 ./run_loop.sh --seconds 90`:
 
@@ -253,6 +254,29 @@ Nav2 用最小組合(`ros/Dockerfile.nav2`:map_server、NavFn、DWB、bt_navigat
 | C10 IWDG | +1000 ms 重啟 | 同 |
 
 沒鎖住的那一欄,車沒有直直撞出去是 Nav2 的 progress checker 先把第一次 goal 判失敗——這是運氣不是設計,第二次 goal 就開走了。C12 的判準只看受控體真值(重啟 0.5 s 後 `|v| ≥ 5 mm/s` 的步數),不看 Nav2 的回覆:「上位該停」要用車的行為驗,不用上位的自述。
+
+### 6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2
+
+§6 的七件事之後,Isaac 版與兩個假受控體差三樣:沒有雷射、沒有牆、五個故障注入沒在它上面跑過。補齊的原則是**同一份 `world.json`、同一份判準**;做法上只有一處必須不同——假受控體的牆是公式(撞到就凍結),Isaac 的牆是 PhysX 碰撞體,車真的會被頂住。
+
+- **牆與方塊**:`--world` 把房間四面牆(內側面對齊房間邊線、厚 0.1 m、高 0.5 m)與方塊建成靜態碰撞體(只掛 `CollisionAPI`,沒有 `RigidBodyAPI`)。
+- **雷射**:`omni.physx` 的 scene query。介面名稱不猜,`--probe` 把 `get_physx_scene_query_interface()` 的 `dir()` 印出來:`raycast_closest / raycast_any / raycast_all`、`overlap_*`、`sweep_*`;`raycast_closest(origin, dir, distance)` 回 dict,鍵 `hit, position, normal, distance, faceIndex, collision, rigidBody, material, protoIndex`。雷射高 0.15 m(輪頂 0.10、底盤頂 0.08,射線打不到自己)。**360 束 1.2 ms;對 `plant/world.py` 解析解逐束 max|Δ| = 0.0 mm**(手動步進下 `fetch_results()` 之後 scene query 就是最新的,不用另外 update)。
+- **`collided` 旗標**用與另外兩個受控體同一份公式(0.2 m 圓碰到牆線),物理接觸在那之後——`--probe` 第 9 項:滿速往 +x,旗標在 x = 2028 mm 亮(公式算的圓碰方塊 2 的角 2027),底盤接著被方塊角頂歪、末端 θ ≈ ±90°;**頂住之後左輪角從 43.0 轉到 104.3 rad**——球輪對方塊打滑,編碼器繼續數。
+
+六件事各量到什麼(2026-09-16;本機 load 11–15,lockstep 所以只影響牆鐘;每輪重啟受控體):
+
+| # | 場景 | 假受控體(§6.2 / §1.2) | Isaac 6.0.1 |
+|---|---|---|---|
+| 1 | 預設 6 s 腳本,`WORLD=1 PLANT=remote` | 900.8, 0.4, 0.8627 | **901.1, −1.0, 0.8603**;C1–C12 全綠,C3 dx 0.1 / dy 1.0 mm、0.7 mrad;C9 2347;60 筆掃描;36.5 ms/步(受控體 + 隧道 22.4 ms) |
+| 2 | 滑移(馬達層 + 斜坡之後,從閉環 CSV 算:真值對輪行程) | 0 / 0 | 直行段 0.5–3.6 s **−0.08%**(890.9 vs 890.2 mm)、轉向段 3.6–5.2 s **+0.12%**(Δθ 0.8422 vs 0.8432 rad),轉向段真值側移 10.4 mm(假受控體 6.5);`--probe` 等速一步到滿速時是 3.1% / 0.5%——滑移是加速度的函數,斜坡把它拿掉了。`run_loop.sh` 的 `--slip` 從 0.05 改 0.01 |
+| 3 | `UPPER=nav2 --seconds 90` | `succeeded`,真值到 goal 46 mm、碰撞 0 | `succeeded`(1 次),**真值 47 mm、碰撞 0 步**;C3 0.6 / 0.6 mm;C9 2450;整趟 523 s 牆鐘(0.17×,load 13) |
+| 4 | `--negative blind-scan` | 碰撞 475 步、末端差 2235 mm,C11 紅;Nav2 沒到 | 5.25 s 在 (1165, 655) 亮旗標,之後**沿方塊再走 175 mm** 被角頂住(1336, 620),碰撞 16718 步、末端差 2162 mm,C11 紅;**但 Nav2 回 `succeeded`、odom 末端離 goal 42 mm**——輪子頂著方塊打滑,韌體 odom 一路走到 goal(C3 紅:odom 對真值差 1631 / 1353 mm、0.75 rad) |
+| 5 | 五個 `--fault` | 表在 §1.2 | 全部綠:hang 1.995 → 2.995 s 重啟(+1000,死掉期間 CCR 停 330);drv-fault 旗標 +0 ms、300 步 CCR/EN 全 0、放開恢復;bumper 500.4 撞、最遠 **544.8**(假受控體 537.2)、倒車到 239.2;stall 旗標 **+390 ms**(假 +355:輪子是被 drive 的 damping 煞住,不是凍結);no-ping +200 / +495 ms(同) |
+| 6 | 決定性 | 逐 byte | 沒重驗(§6 第 7 項的條件沒變:CPU 求解) |
+
+第 4 列是這一節的重點,也是假受控體做不出來的失敗形態:**撞上去之後車不動、編碼器照數,上位以為到了。** 假受控體撞到就凍結編碼器,odom 跟著停,Nav2 看得出來沒到;Isaac 的球輪對方塊打滑(drive 的 `maxForce` 20 N·m 換到輪緣是 400 N,9 kg 的車摩擦力上限只有幾十 N),韌體的堵轉判斷(§1.2:|duty| ≥ 60% 且輪速 < 20 mm/s)**永遠不會觸發**——輪速是編碼器量的,輪子在轉。真車撞牆是哪一種(馬達堵轉、還是輪子打滑)看馬達扭矩對摩擦,兩種都會發生;純軟體 HIL 到這裡才第一次能把「打滑」這一支做出來,而它的後果是上位的自述(`succeeded`、`dist_to_goal 0.042`)與真值(差 2.2 m)完全脫鉤。要抓它得靠外部真值(場域的定位系統、或這裡的受控體真值——C11 看的是真值不是 odom),不是靠底盤回報。
+
+另外兩個 Isaac 特有的數字:保險桿的超出量 44.8 mm 比假受控體多 7.6——馬達層之後車的減速由 PhysX 接觸與 drive damping 決定,不是公式;堵轉旗標晚 35 ms,同一個原因。
 
 ## 7. 建議的分階段
 

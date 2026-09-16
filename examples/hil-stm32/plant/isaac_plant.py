@@ -12,7 +12,14 @@
 
 協定(與 fake_plant.py 相同):
     橋接 → 受控體:CMD <seq> <dt_ms> <duty_l 0..1000> <duty_r> <fwd_l 0/1> <fwd_r> <en 0/1>
-    受控體 → 橋接:ENC <seq> <ticks_l> <ticks_r> <x_mm> <y_mm> <th_rad> <vl_mm_s> <vr_mm_s>
+    受控體 → 橋接:ENC <seq> <ticks_l> <ticks_r> <x_mm> <y_mm> <th_rad> <vl_mm_s> <vr_mm_s> [collided 0/1]
+    受控體 → 橋接(有 --world 時每 period_ms 一筆,在 ENC 之前):SCAN <seq> <n> <r0 m> ... <r(n-1)>
+--world world.json:牆與方塊進場景當靜態碰撞體(車真的會被擋住),雷射用 PhysX 的射線查詢
+(omni.physx 的 scene query;--probe 會把介面 dir() 列出來,並和 plant/world.py 的解析解逐束對照),
+collided 旗標用與另外兩個受控體同一份公式(plant/world.py 的 collides:半徑 robot_radius_m 的圓碰到牆線)
+——那個圓包住整台車(輪外緣 0.2 m),旗標先亮,底盤之後還能沿著障礙再走(Nav2 blind-scan 負對照量到 175 mm,
+斜向頂到方塊角);頂住之後輪子照轉(球輪對方塊打滑),編碼器繼續數、韌體 odom 繼續走,這是 Isaac 版與
+另外兩個(撞到就凍結編碼器)最大的差別,見 docs/hil/38 §6.4。
 
 每收到一筆 CMD 就把兩個輪關節的速度目標設好、物理走一步(dt_ms),再從關節位置算編碼器 tick、
 從車體 prim 讀真值位姿回覆。物理步長綁在 calib 的 control_period_ms(5 ms),不是 Isaac 預設的 1/60 s。
@@ -29,8 +36,16 @@ ap.add_argument("--calib", default="../calib.json")
 ap.add_argument("--headless", type=int, default=1)
 ap.add_argument("--tcp", action="store_true")
 ap.add_argument("--probe", action="store_true", help="不開 socket:跑固定命令量驗收清單 1/2/3/5/7 後離開")
+ap.add_argument("--world", default=None, help="world.json:牆與方塊當靜態碰撞體、PhysX 射線當雷射、collided 旗標")
+ap.add_argument("--laser-z", type=float, default=0.15, help="雷射高度 m(要高過車身:輪頂 0.10、底盤頂 0.08)")
 args = ap.parse_args()
 calib = json.load(open(args.calib, encoding="utf-8"))
+world = None
+if args.world:
+    import pathlib
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    from world import World
+    world = World(args.world)
 
 # ---- SimulationApp 必須在所有 omni.* / isaacsim.* / pxr import 之前(31 篇 §1:間接 import 也算) ----
 from isaacsim import SimulationApp  # noqa: E402
@@ -42,6 +57,7 @@ from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics  # noqa: E402
 import omni.usd  # noqa: E402
 import omni.timeline  # noqa: E402
 from omni.physx import get_physx_interface, get_physx_simulation_interface  # noqa: E402
+from omni.physx import get_physx_scene_query_interface  # noqa: E402
 
 # 6.0 起 isaacsim.core.api 搬到 isaacsim.core.experimental(01 篇 §3)。這支腳本刻意不依賴
 # 任何一邊:場景用 pxr/UsdPhysics 直接建,步進用 omni.physx 的介面。
@@ -97,6 +113,27 @@ ground.CreateSizeAttr(1.0)
 ground.AddTranslateOp().Set(Gf.Vec3d(0, 0, -0.05))
 ground.AddScaleOp().Set(Gf.Vec3f(50, 50, 0.1))
 UsdPhysics.CollisionAPI.Apply(ground.GetPrim())
+
+# ---- 世界(--world):牆與方塊是靜態碰撞體(只有 CollisionAPI、沒有 RigidBodyAPI)----
+# 牆的內側面對齊 world.json 的房間邊線,厚 0.1 m 往外長;高 0.5 m,雷射(z=0.15)一定打得到。
+WALL_H, WALL_T = 0.5, 0.1
+
+def static_box(path, cx, cy, sx, sy):
+    b = UsdGeom.Cube.Define(stage, Sdf.Path(path))
+    b.CreateSizeAttr(1.0)
+    b.AddTranslateOp().Set(Gf.Vec3d(cx, cy, WALL_H / 2))   # 先 translate 再 scale(同地面的 xformOpOrder 註記)
+    b.AddScaleOp().Set(Gf.Vec3f(sx, sy, WALL_H))
+    UsdPhysics.CollisionAPI.Apply(b.GetPrim())
+    return b
+
+if world is not None:
+    xm, xM, ym, yM = world.x_min, world.x_max, world.y_min, world.y_max
+    static_box("/World/walls/x_min", xm - WALL_T / 2, (ym + yM) / 2, WALL_T, yM - ym + 2 * WALL_T)
+    static_box("/World/walls/x_max", xM + WALL_T / 2, (ym + yM) / 2, WALL_T, yM - ym + 2 * WALL_T)
+    static_box("/World/walls/y_min", (xm + xM) / 2, ym - WALL_T / 2, xM - xm, WALL_T)
+    static_box("/World/walls/y_max", (xm + xM) / 2, yM + WALL_T / 2, xM - xm, WALL_T)
+    for i, (cx, cy, bw, bh) in enumerate(world.boxes):
+        static_box(f"/World/boxes/b{i}", cx, cy, bw, bh)
 
 # ---- 差速車:底盤 + 兩個驅動輪(revolute + angular drive)+ 一顆腳輪球 ----
 r = R_MM / 1000.0
@@ -219,6 +256,32 @@ def pose():
     yaw = math.atan2(rot[0][1], rot[0][0])
     return t[0] * 1000.0, t[1] * 1000.0, yaw
 
+# ---- 雷射:PhysX 射線查詢;介面名稱不猜,啟動時列出 dir() 裡帶 raycast 的名字,沒有就退回解析解 ----
+sq = get_physx_scene_query_interface()
+_raycast_names = [n for n in dir(sq) if "raycast" in n.lower()]
+_raycast = getattr(sq, "raycast_closest", None)
+scan_impl = "physx.raycast_closest" if callable(_raycast) else "analytic(world.py)"
+if world is not None:
+    print(f"[isaac_plant] scene_query={type(sq).__name__} raycast 名字={_raycast_names} 雷射用={scan_impl} z={args.laser_z}", flush=True)
+
+
+def scan_raycast(x_m, y_m, th):
+    """第 0 束朝 th − π,逆時針,與 plant/world.py 的 scan() 同一個束序;沒打到 = range_max。"""
+    n = world.beams
+    origin = (x_m, y_m, args.laser_z)
+    out = []
+    for i in range(n):
+        a = th - math.pi + 2 * math.pi * i / n
+        h = _raycast(origin, (math.cos(a), math.sin(a), 0.0), world.range_max)
+        d = h["distance"] if h and h.get("hit") else world.range_max
+        out.append(max(min(d, world.range_max), world.range_min))
+    return out
+
+
+def scan_now(x_m, y_m, th):
+    return scan_raycast(x_m, y_m, th) if _raycast else world.scan(x_m, y_m, th)
+
+
 def probe():
     """驗收清單 1/2/3/5/7:每一項印一行「量到什麼」。"""
     from isaacsim.core.simulation_manager import SimulationManager as SM
@@ -260,6 +323,40 @@ def probe():
     tz = world_pos(chassis.GetPrim())[2]
     print(f"[probe] 4 靜止 1 s 後底盤 z={tz:.1f} mm(建模時 {r * 1000:.1f});|z 偏差| > 20 mm 視為異常;"
           f" wl={world_pos(wl.GetPrim())} caster={world_pos(caster.GetPrim())}", flush=True)
+    if world is None:
+        return
+    import time
+    print(f"[probe] 8 scene query dir(): {[n for n in dir(sq) if not n.startswith('_')]}", flush=True)
+    x, y, th = pose()
+    xm_, ym_ = x / 1000.0, y / 1000.0
+    if _raycast:
+        one = _raycast((xm_, ym_, args.laser_z), (1.0, 0.0, 0.0), world.range_max)
+        print(f"[probe] 8 raycast_closest 回傳型別={type(one).__name__} keys={list(one.keys()) if hasattr(one, 'keys') else one}", flush=True)
+    t0 = time.perf_counter()
+    rc = scan_now(xm_, ym_, th)
+    t1 = time.perf_counter()
+    an = world.scan(xm_, ym_, th)
+    diffs = [abs(a - b) for a, b in zip(rc, an)]
+    worst = max(range(len(diffs)), key=lambda i: diffs[i])
+    print(f"[probe] 8 雷射 {len(rc)} 束用 {scan_impl} 花 {(t1 - t0) * 1000:.1f} ms;對解析解 max|Δ|={diffs[worst] * 1000:.1f} mm(束 {worst},"
+          f" {rc[worst]:.3f} vs {an[worst]:.3f});>5 mm 的束數={sum(d > 0.005 for d in diffs)};"
+          f" 束 0/90/180/270 = {rc[0]:.3f}/{rc[90]:.3f}/{rc[180]:.3f}/{rc[270]:.3f}(解析 {an[0]:.3f}/{an[90]:.3f}/{an[180]:.3f}/{an[270]:.3f})", flush=True)
+    # 9:往 +x 滿速 1 m/s 跑 5 s(world.json 預設世界會先撞到方塊 2 的角、被頂歪):看真值停在哪、
+    #    collided 旗標何時亮(解析公式:0.2 m 圓)、頂住後輪子有沒有繼續轉(編碼器 vs 真值)
+    drv_l.GetTargetVelocityAttr().Set(math.degrees(V_FULL / R_MM))
+    drv_r.GetTargetVelocityAttr().Set(math.degrees(V_FULL / R_MM))
+    first_flag = None
+    for i in range(5 * n):
+        step_once()
+        wheel_angle_from_xform(wl.GetPrim(), "l"); wheel_angle_from_xform(wr.GetPrim(), "r")
+        x, y, th = pose()
+        if first_flag is None and world.collides(x / 1000.0, y / 1000.0):
+            first_flag = (i + 1, x, _unwrap["l"])
+    x, y, th = pose()
+    front = x / 1000.0 + CH_L / 2 * math.cos(th)
+    print(f"[probe] 9 往 +x 滿速 {5 * n} 步:真值 x={x:.1f} mm y={y:.1f} θ={th:.3f} 底盤前緣 x={front * 1000:.1f} mm(x_max 牆內側 {world.x_max * 1000:.0f});"
+          f" collided 旗標第一次亮在步 {first_flag[0] if first_flag else '沒亮'} x={first_flag[1] if first_flag else 0:.1f} mm;"
+          f" 左輪角 撞前 {first_flag[2] if first_flag else 0:.1f} → 末 {_unwrap['l']:.1f} rad(還在轉 = 抵牆打滑,編碼器會繼續數)", flush=True)
 
 
 if args.probe:
@@ -312,10 +409,21 @@ def handle(line: str):
     ticks_r = int(math.floor(ar / (2 * math.pi) * TPR))
     x, y, th = pose()
     n_cmd += 1
+    out = ""
+    collided = 0
+    if world is not None:
+        xm_, ym_, thr = (x - x0) / 1000.0, (y - y0) / 1000.0, th - th0
+        collided = int(world.collides(xm_, ym_))
+        dt_ms = int(f[2])
+        if dt_ms > 0 and (seq * dt_ms) % world.period_ms == 0:
+            rs = scan_now(xm_, ym_, thr)
+            out += f"SCAN {seq} {len(rs)} " + " ".join(f"{r_:.3f}" for r_ in rs) + "\n"
     if n_cmd % 200 == 0:
         print(f"[isaac_plant] {n_cmd} cmds x={x - x0:.1f} y={y - y0:.1f} th={th - th0:.4f} "
-              f"ticks=({ticks_l},{ticks_r}) joint_state_fallback={fallback_used}", flush=True)
-    return f"ENC {seq} {ticks_l} {ticks_r} {x - x0:.6f} {y - y0:.6f} {th - th0:.9f} {vl:.6f} {vr:.6f}\n"
+              f"ticks=({ticks_l},{ticks_r}) joint_state_fallback={fallback_used}"
+              + (f" collided={collided}" if world is not None else ""), flush=True)
+    out += f"ENC {seq} {ticks_l} {ticks_r} {x - x0:.6f} {y - y0:.6f} {th - th0:.9f} {vl:.6f} {vr:.6f} {collided}\n"
+    return out
 
 
 while app.is_running():

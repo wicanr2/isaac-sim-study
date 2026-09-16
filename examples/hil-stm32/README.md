@@ -10,9 +10,11 @@ BUILD=1 ./run_loop.sh            # 第一次:建韌體與橋接,然後跑 6 s �
 ./run_loop.sh --negative iwdg-off  # 同一個故障 + 關掉那一項防護(g_cfg.safety_mask):iwdg-off / drv-fault-off / bumper-off / stall-off / hb-off,C10 必須紅
 tools/io_check.sh                # 不經橋接的韌體層驗收(renode/io_check.resc,A–J 十項)
 PLANT=udp ./run_loop.sh          # 受控體改走 UDP(plant/fake_plant.py,另一容器);PLANT=tcp 同理走 TCP
-PLANT=remote ./run_loop.sh       # 受控體在場域 GPU 主機(先 tools/isaac_plant_ctl.sh start),自動開 ssh -L
+PLANT=remote ./run_loop.sh       # 受控體在場域 GPU 主機(先 tools/isaac_plant_ctl.sh sync + start),自動開 ssh -L
+WORLD=1 PLANT=remote ./run_loop.sh   # Isaac 版含牆與方塊(碰撞體)+ PhysX 射線雷射:那端要 WORLD=1 tools/isaac_plant_ctl.sh start;UPPER=nav2 / --fault 同樣可接
 FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正版 STM32_Timer(renode/upstream/)
-./run_loop.sh --mode realtime    # Renode 自由跑,橋接每 5 ms 牆鐘取樣;QUANTUM=0.001 改同步量子(預設 0.0001)
+./run_loop.sh --mode realtime    # Renode 自由跑,橋接每 5 ms 牆鐘取樣;QUANTUM=0.001 改同步量子(預設 0.0001);tools/rt_stats.py 算節拍統計
+./run_loop.sh --skew uniform:0.5 # lockstep 的時鐘偏斜實驗(決定性):每步 Renode 只推進 0.5×dt;stall:100:10 = 每 100 步一次 50 ms 停頓(35 篇 §5.1 第 4 點)
 UPPER=ros ./run_loop.sh --seconds 45   # 上位換 ROS 2 Jazzy(ros:jazzy-ros-base 容器):base driver + 里程計閉環的方形
 UPPER=nav2 ./run_loop.sh --seconds 90  # 上位換 Nav2(hil-nav2:jazzy,先 docker build -t hil-nav2:jazzy -f ros/Dockerfile.nav2 ros/):假雷射 + NavigateToPose 到 world.json 的 goal;C11
 UPPER=nav2 ./run_loop.sh --seconds 60 --negative blind-scan   # 掃描全設最大距離 → 撞方塊 → C11 紅
@@ -31,6 +33,7 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 | `calib.json`(`encoder_source`) | `tim`:韌體從 TIM2/TIM4 encoder mode 讀 CNT(預設);`can`:第一版的 CAN 0x181 訊框。`ENC=hook\|gpio\|cnt` 選注入法 | 三種 lockstep 末端逐字相同 |
 | `calib.json` | 韌體、橋接、受控體共用的唯一參數來源;`tools/gen_calib.py` 產 `firmware/calib.h`。`pwm_prescaler` 0 = 10 kHz 載波(Renode 自由跑 0.46×)、9 = 1 kHz(1.0×);不影響 lockstep 結果。`accel_limit_mm_s2` / `alpha_limit_mrad_s2`(韌體斜坡)、`ff_gain_q8`、`pi_kp_q8` / `pi_ki_q8`、`motor_tau_s` / `motor_accel_max_mm_s2` / `motor_deadband_duty`(三個受控體共用的馬達層) | 步階與 C9,[38 篇 §1.1](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
 | `tools/io_check.sh` | 在 Renode 容器裡跑 `renode/io_check.resc`:monitor 扮演板子(pull-up、PING、CNT、PC 腳),A–J 十項含 IWDG 重啟 | 實測 |
+| `tools/rt_stats.py` | realtime CSV 的節拍統計:步距平均/最大、停頓次數、分段 Renode/牆鐘比、CCR 跳動 | 實測 |
 | `tools/step_response.py`、`tools/tune_sweep.sh` | 從 CSV 算步階響應(上升、超調、±2% 帶、最大加速度);kp × ki 網格掃描,每格用橋接 `--cfg` 經 External Control 改 `g_cfg`,不重編韌體 | 實測 |
 | `firmware/` | 裸機 STM32F4 韌體(C,無 HAL / libc)。`control.c`/`control.h` 是兩版共用的:USART1 框包 + CRC16、GPIO/TIM2-TIM4 encoder mode/TIM3 PWM/bxCAN/IWDG 的暫存器序列、5 ms 斜坡 + PI + 前饋、安全閘門(PC13 急停、PC14/15 驅動器故障、PC0 保險桿、堵轉、PING 心跳)、里程計、20 ms 回報、`g_dbg`/`g_cfg` 版面;`main.c` 只有 SysTick、USART1 ISR + ring buffer、主迴圈排程、餵狗 | Renode 1.16.1 實測;重構前後 lockstep CSV 逐 byte 相同 |
 | `firmware-freertos/` | 同一台車的 FreeRTOS V11.3.1 版:`main-rtos.c` 只有三個 task + USART1 ISR + hooks,其餘連 `../firmware/control.c`(kernel 最小子集 vendor 在 `kernel/`,MIT);`FW=freertos ./run_loop.sh` | Renode 實測 ALL PASS;重構前後 CSV 逐 byte 相同 |
@@ -41,8 +44,8 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 | `ros/` | ROS 2 Jazzy 上位:`hil_base_driver.py`(/cmd_vel → 框包,odom → /odom + /tf,PING 10 Hz,flags → /hil/safety_flags,3801 → /scan + base_link→laser)、`square_client.py`(里程計閉環方形)、`hilproto.py`、`run_square.sh`;Nav2:`Dockerfile.nav2`(最小組合)、`nav2_params.yaml`、`run_nav.sh`、`nav_client.py`;`scan_check.py` | `ros:jazzy-ros-base` / `hil-nav2:jazzy` 實測 ALL PASS |
 | `world.json`、`plant/world.py`、`tools/gen_map.py` | 假雷射與碰撞的世界(房間 + 方塊 + goal);Rust `world.rs` 同一份公式;地圖從同一份 JSON 產(預設只畫牆,方塊靠雷射) | 實測 |
 | `plant/fake_plant.py` | UDP 版假受控體(Python),與 Rust 內建 `Fake` 同模型 | 實測 ALL PASS |
-| `plant/isaac_plant.py` | Isaac Sim 6.0.1 版受控體(UDP / TCP;`--probe` 量驗收清單) | 場域 GPU 主機實測 ALL PASS;結論在檔尾與 [38 篇 §6](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
-| `tools/remote.sh`、`tools/isaac_plant_ctl.sh` | 場域 GPU 主機的連線包裝(主機資訊從機密入口腳本推出)與受控體 start/stop/log/load | 實測 |
+| `plant/isaac_plant.py` | Isaac Sim 6.0.1 版受控體(UDP / TCP;`--probe` 量驗收清單;`--world` 牆與方塊當碰撞體、`omni.physx` 射線當雷射、`collided` 旗標) | 場域 GPU 主機實測 ALL PASS(含 Nav2、五個 `--fault`);結論在檔尾與 [38 篇 §6、§6.4](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
+| `tools/remote.sh`、`tools/isaac_plant_ctl.sh` | 場域 GPU 主機的連線包裝(主機資訊從機密入口腳本推出)與受控體 sync/start/stop/log/load/probe(`WORLD=1` 帶世界) | 實測 |
 | `run_loop.sh` | 起 Renode 容器 → 橋接共用 netns → 跑 → 收 log → 停容器 | 實測 |
 
 ## 埠與訊號

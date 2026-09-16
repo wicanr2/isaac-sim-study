@@ -13,7 +13,7 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十二項判準在開跑前寫死">1. 十二項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l3"><a href="#62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</a></li><li class="l3"><a href="#63-上位對安全旗標的反應c12">6.3 上位對安全旗標的反應:C12</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十二項判準在開跑前寫死">1. 十二項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l3"><a href="#62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</a></li><li class="l3"><a href="#63-上位對安全旗標的反應c12">6.3 上位對安全旗標的反應:C12</a></li><li class="l3"><a href="#64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="38-驗收與失敗形態先閉環再換-isaac">38 · 驗收與失敗形態:先閉環,再換 Isaac</h1>
 <p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後是把受控體換成 Isaac Sim 6.0.1 時七件事各量到什麼。</p>
@@ -344,7 +344,8 @@
 | 堵轉旗標晚了 525 ms 才亮 | 速度門檻 5 mm/s 低於感測器量子(一個 tick / 5 ms = 15 mm/s),輪子慢慢滑時偶爾一個 tick 就把計時清零 | 門檻 ≥ 量子(§1.2) |
 | IWDG 重啟後 DRV_FAULT、BUMPER 亮一步 | 機器重置把 GPIO 埠也重置,低有效的輸入腳回到 0;真板的 pull-up 在板子上 | 橋接偵測到 tick 倒退就重新拉高(§1.2) |
 | 韌體死掉了,車還在走 | 這不是 bug,是沒有看門狗時的必然:CPU 停了,TIM3 的 PWM 沒停 | <code>--negative iwdg-off</code>:CCR 停在 345、車跑 1.6 m;正對照 IWDG 1 s 後整顆重置 |
-| 只搬不改的重構讓 CSV 有 429 個欄位不同;原版加 200 圈 NOP 更差(8639 個、C9 紅) | 橋接的步邊界(<code>boot_ms</code> 100 + 5k)與韌體的控制 tick(5k)重合,暫停切在控制步中間;哪些存取在邊界前後由指令數決定 | <code>ccr1 ≠ duty_l</code> 的那一步就是被切的證據;邊界錯開 2 ms(<code>boot_ms</code> 102)後三個版本逐 byte 相同(<a href="../../hil/37-bus-signal-bridging/">37 篇</a> §5) |</p>
+| 只搬不改的重構讓 CSV 有 429 個欄位不同;原版加 200 圈 NOP 更差(8639 個、C9 紅) | 橋接的步邊界(<code>boot_ms</code> 100 + 5k)與韌體的控制 tick(5k)重合,暫停切在控制步中間;哪些存取在邊界前後由指令數決定 | <code>ccr1 ≠ duty_l</code> 的那一步就是被切的證據;邊界錯開 2 ms(<code>boot_ms</code> 102)後三個版本逐 byte 相同(<a href="../../hil/37-bus-signal-bridging/">37 篇</a> §5) |
+| realtime 下 C9 紅(受控體加速度撞到馬達層 3000;load 9–11 時六次全紅) | 不是比值也不只是停頓:編碼器 tick 是橋接每步一口氣注入的,韌體一個 5 ms 控制週期吃到的注入筆數不固定(n 或 n+1;停頓時 0),kp = 1 把量測速度的跳動原樣變成 duty 跳動 | lockstep <code>--skew uniform:R</code> / <code>stall:N:M</code> 把比值與停頓拆開量:0.5、0.25 綠,0.9/0.8/0.6/0.3 紅,10 ms 停頓就紅(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1 第 4 點的表)。真板沒有這個問題(邊緣連續);要在 realtime 消掉得改成連續注入或帶時間戳,未做 |</p>
 <p>共同點:<strong>每一個的第一眼症狀都指向別的地方</strong>——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯、彈飛像腳輪或質量。每一個都是先讀原始碼或加一個更近的觀測點才看到真因;彈飛那一個,近一點的觀測點是「靜止後停在哪個高度」。</p>
 <h2 id="6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/isaac_plant.py"><code>plant/isaac_plant.py</code></a> 實作同一個受控體協定(TCP 版,因為 <code>ssh -L</code> 只轉 TCP):用 <code>pxr</code> / <code>UsdPhysics</code> 直接建一台差速車(Mesh 盒底盤 + 兩個球形輪 + 球關節腳輪),<code>DriveAPI</code> 的 angular 速度目標當馬達,<code>omni.physx</code> 手動步進,物理步長綁 calib 的 5 ms。它刻意不用 OmniGraph(<a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/">31 篇</a> §5:headless 下 <code>world.step(render=False)</code> 不 tick action graph)、也不依賴 <code>isaacsim.core.api</code> 或 <code>isaacsim.core.experimental</code> 任一邊(<a href="../../common/01-install-and-run-modes/">01 篇</a> §3 的命名空間搬家)。</p>
@@ -487,7 +488,7 @@
 <p>末端真值 (x, y, θ) = (−18.0, 16.4, 6.222)、odom (−13, 20, 6.221),odom 對真值 5 mm / 1 mrad,C1–C10 全綠。最後一列的殘差<strong>到此為止</strong>:同一天再跑四次是 9.5 / 18 / 24 / 28 mm、−0.035 ~ −0.062 rad;把 odom 週期從 20 ms 改成 10 ms 再跑兩次是 17 / 32 mm、−0.047 / −0.076 rad——沒有變好,散布跟 20 ms 一樣。殘差的來源是 ROS 端用牆鐘送命令(50 Hz)、Renode 只跑 0.4–0.5×,命令落到韌體的時刻在 Renode 時間上抖動 20–25 ms,不是 odom 的量化;要收它得把上位也鎖進 lockstep(用模擬時間驅動 ROS 的 timer),那是另一個架構。這一段的教訓是<strong>上位的煞車模型要包含下位的動態</strong>——斜坡加速度、馬達時間常數、回報週期——這些在真車上是驅動器手冊與底盤韌體的參數,上位的人拿不到就會在方形上看到 +0.03 rad/角。</p>
 <p>C2 因為這個場景改成量<strong>路徑長</strong>而不是首尾位移:方形走完位移 37 mm,路徑長 2.4 m;C3 的容差也改用路徑長(里程計誤差跟著走過的距離累積)。預設腳本下兩者只差 15 mm(轉彎過渡的弧),數字不變。</p>
 <h3 id="62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</h3>
-<p>方形閉環的上位是自己寫的 client;換成 Nav2 才是拓撲那張表的真正考驗——上位有規劃器、costmap、行為樹,韌體與橋接一個 byte 不改。純軟體的前提下少了一樣東西:雷射。它由<strong>受控體</strong>產生(不經 MCU——真車的雷射也是接上位,不是接底盤板):<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/world.json"><code>world.json</code></a> 一個 4 × 3 m 的房間、兩個 0.4 m 方塊、車半徑 0.2 m、goal (3, 2);Rust <code>Fake</code> 與 <code>fake_plant.py</code> 用同一份射線投射(360 束、5 m、10 Hz)與碰撞判斷(撞到就停在原地、編碼器不動),橋接把 <code>SCAN</code> 行<strong>原樣</strong>轉到 3801,driver 發 <code>/scan</code> 與 <code>base_link → laser</code> 靜態 TF。地圖(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/tools/gen_map.py"><code>tools/gen_map.py</code></a> 從同一份 JSON 產)<strong>只畫牆</strong>:方塊是地圖上沒有、雷射才看得到的東西,Nav2 得靠 costmap 的 obstacle layer 避開——負對照才有東西可關。</p>
+<p>方形閉環的上位是自己寫的 client;換成 Nav2 才是拓撲那張表的真正考驗——上位有規劃器、costmap、行為樹,韌體與橋接一個 byte 不改。純軟體的前提下少了一樣東西:雷射。它由<strong>受控體</strong>產生(不經 MCU——真車的雷射也是接上位,不是接底盤板):<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/world.json"><code>world.json</code></a> 一個 4 × 3 m 的房間、兩個 0.4 m 方塊、車半徑 0.2 m、goal (3, 2);Rust <code>Fake</code> 與 <code>fake_plant.py</code> 用同一份射線投射(360 束、5 m、10 Hz)與碰撞判斷(撞到就停在原地、編碼器不動;Isaac 版的牆是真的碰撞體,§6.4),橋接把 <code>SCAN</code> 行<strong>原樣</strong>轉到 3801,driver 發 <code>/scan</code> 與 <code>base_link → laser</code> 靜態 TF。地圖(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/tools/gen_map.py"><code>tools/gen_map.py</code></a> 從同一份 JSON 產)<strong>只畫牆</strong>:方塊是地圖上沒有、雷射才看得到的東西,Nav2 得靠 costmap 的 obstacle layer 避開——負對照才有東西可關。</p>
 <p>Nav2 用最小組合(<code>ros/Dockerfile.nav2</code>:map_server、NavFn、DWB、bt_navigator、behaviors、lifecycle_manager、simple_commander;從 <code>ros:jazzy-ros-base</code> 建,+520 MB,不裝 nav2_bringup / rviz),沒有 AMCL——里程計對真值在 mm 級,<code>map → odom</code> 是靜態 identity。<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/run_nav.sh"><code>ros/run_nav.sh</code></a> 起 driver + 六個節點,<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/nav_client.py"><code>ros/nav_client.py</code></a> 用 <code>BasicNavigator.goToPose</code> 到 goal。<code>UPPER=nav2 ./run_loop.sh --seconds 90</code>:</p>
 <p align="center"><img src="../../img/hil-nav2-in-the-loop.svg" width="860" alt="Nav2 in the loop:房間、雷射才看得到的方塊、受控體真值軌跡;正對照繞過方塊到達,負對照穿過方塊撞上"></p>
 
@@ -568,6 +569,64 @@
 </tbody>
 </table></div>
 <p>沒鎖住的那一欄,車沒有直直撞出去是 Nav2 的 progress checker 先把第一次 goal 判失敗——這是運氣不是設計,第二次 goal 就開走了。C12 的判準只看受控體真值(重啟 0.5 s 後 <code>|v| ≥ 5 mm/s</code> 的步數),不看 Nav2 的回覆:「上位該停」要用車的行為驗,不用上位的自述。</p>
+<h3 id="64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</h3>
+<p>§6 的七件事之後,Isaac 版與兩個假受控體差三樣:沒有雷射、沒有牆、五個故障注入沒在它上面跑過。補齊的原則是<strong>同一份 <code>world.json</code>、同一份判準</strong>;做法上只有一處必須不同——假受控體的牆是公式(撞到就凍結),Isaac 的牆是 PhysX 碰撞體,車真的會被頂住。</p>
+<ul>
+<li><strong>牆與方塊</strong>:<code>--world</code> 把房間四面牆(內側面對齊房間邊線、厚 0.1 m、高 0.5 m)與方塊建成靜態碰撞體(只掛 <code>CollisionAPI</code>,沒有 <code>RigidBodyAPI</code>)。</li>
+<li><strong>雷射</strong>:<code>omni.physx</code> 的 scene query。介面名稱不猜,<code>--probe</code> 把 <code>get_physx_scene_query_interface()</code> 的 <code>dir()</code> 印出來:<code>raycast_closest / raycast_any / raycast_all</code>、<code>overlap_*</code>、<code>sweep_*</code>;<code>raycast_closest(origin, dir, distance)</code> 回 dict,鍵 <code>hit, position, normal, distance, faceIndex, collision, rigidBody, material, protoIndex</code>。雷射高 0.15 m(輪頂 0.10、底盤頂 0.08,射線打不到自己)。<strong>360 束 1.2 ms;對 <code>plant/world.py</code> 解析解逐束 max|Δ| = 0.0 mm</strong>(手動步進下 <code>fetch_results()</code> 之後 scene query 就是最新的,不用另外 update)。</li>
+<li><strong><code>collided</code> 旗標</strong>用與另外兩個受控體同一份公式(0.2 m 圓碰到牆線),物理接觸在那之後——<code>--probe</code> 第 9 項:滿速往 +x,旗標在 x = 2028 mm 亮(公式算的圓碰方塊 2 的角 2027),底盤接著被方塊角頂歪、末端 θ ≈ ±90°;<strong>頂住之後左輪角從 43.0 轉到 104.3 rad</strong>——球輪對方塊打滑,編碼器繼續數。</li>
+</ul>
+<p>六件事各量到什麼(2026-09-16;本機 load 11–15,lockstep 所以只影響牆鐘;每輪重啟受控體):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>#</th>
+<th>場景</th>
+<th>假受控體(§6.2 / §1.2)</th>
+<th>Isaac 6.0.1</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>預設 6 s 腳本,<code>WORLD=1 PLANT=remote</code></td>
+<td>900.8, 0.4, 0.8627</td>
+<td><strong>901.1, −1.0, 0.8603</strong>;C1–C12 全綠,C3 dx 0.1 / dy 1.0 mm、0.7 mrad;C9 2347;60 筆掃描;36.5 ms/步(受控體 + 隧道 22.4 ms)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>滑移(馬達層 + 斜坡之後,從閉環 CSV 算:真值對輪行程)</td>
+<td>0 / 0</td>
+<td>直行段 0.5–3.6 s <strong>−0.08%</strong>(890.9 vs 890.2 mm)、轉向段 3.6–5.2 s <strong>+0.12%</strong>(Δθ 0.8422 vs 0.8432 rad),轉向段真值側移 10.4 mm(假受控體 6.5);<code>--probe</code> 等速一步到滿速時是 3.1% / 0.5%——滑移是加速度的函數,斜坡把它拿掉了。<code>run_loop.sh</code> 的 <code>--slip</code> 從 0.05 改 0.01</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>UPPER=nav2 --seconds 90</code></td>
+<td><code>succeeded</code>,真值到 goal 46 mm、碰撞 0</td>
+<td><code>succeeded</code>(1 次),<strong>真值 47 mm、碰撞 0 步</strong>;C3 0.6 / 0.6 mm;C9 2450;整趟 523 s 牆鐘(0.17×,load 13)</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>--negative blind-scan</code></td>
+<td>碰撞 475 步、末端差 2235 mm,C11 紅;Nav2 沒到</td>
+<td>5.25 s 在 (1165, 655) 亮旗標,之後<strong>沿方塊再走 175 mm</strong> 被角頂住(1336, 620),碰撞 16718 步、末端差 2162 mm,C11 紅;<strong>但 Nav2 回 <code>succeeded</code>、odom 末端離 goal 42 mm</strong>——輪子頂著方塊打滑,韌體 odom 一路走到 goal(C3 紅:odom 對真值差 1631 / 1353 mm、0.75 rad)</td>
+</tr>
+<tr>
+<td>5</td>
+<td>五個 <code>--fault</code></td>
+<td>表在 §1.2</td>
+<td>全部綠:hang 1.995 → 2.995 s 重啟(+1000,死掉期間 CCR 停 330);drv-fault 旗標 +0 ms、300 步 CCR/EN 全 0、放開恢復;bumper 500.4 撞、最遠 <strong>544.8</strong>(假受控體 537.2)、倒車到 239.2;stall 旗標 <strong>+390 ms</strong>(假 +355:輪子是被 drive 的 damping 煞住,不是凍結);no-ping +200 / +495 ms(同)</td>
+</tr>
+<tr>
+<td>6</td>
+<td>決定性</td>
+<td>逐 byte</td>
+<td>沒重驗(§6 第 7 項的條件沒變:CPU 求解)</td>
+</tr>
+</tbody>
+</table></div>
+<p>第 4 列是這一節的重點,也是假受控體做不出來的失敗形態:<strong>撞上去之後車不動、編碼器照數,上位以為到了。</strong> 假受控體撞到就凍結編碼器,odom 跟著停,Nav2 看得出來沒到;Isaac 的球輪對方塊打滑(drive 的 <code>maxForce</code> 20 N·m 換到輪緣是 400 N,9 kg 的車摩擦力上限只有幾十 N),韌體的堵轉判斷(§1.2:|duty| ≥ 60% 且輪速 &lt; 20 mm/s)<strong>永遠不會觸發</strong>——輪速是編碼器量的,輪子在轉。真車撞牆是哪一種(馬達堵轉、還是輪子打滑)看馬達扭矩對摩擦,兩種都會發生;純軟體 HIL 到這裡才第一次能把「打滑」這一支做出來,而它的後果是上位的自述(<code>succeeded</code>、<code>dist_to_goal 0.042</code>)與真值(差 2.2 m)完全脫鉤。要抓它得靠外部真值(場域的定位系統、或這裡的受控體真值——C11 看的是真值不是 odom),不是靠底盤回報。</p>
+<p>另外兩個 Isaac 特有的數字:保險桿的超出量 44.8 mm 比假受控體多 7.6——馬達層之後車的減速由 PhysX 接觸與 drive damping 決定,不是公式;堵轉旗標晚 35 ms,同一個原因。</p>
 <h2 id="7-建議的分階段">7. 建議的分階段</h2>
 <p>不要一開始就接 Isaac。順序:</p>
 <div class="tw"><table>

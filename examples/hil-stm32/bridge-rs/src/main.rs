@@ -53,6 +53,10 @@ struct Args {
     scan_listen: String,
     /// C11:上位(Nav2)應該把車開到 world.goal——只有這個旗標才驗
     expect_goal: bool,
+    /// lockstep 專用的時鐘偏斜實驗(35 篇 §5.1 第 4 點):none | uniform:R(每步 Renode 只推進 R·dt,受控體照 dt 走——
+    /// 「均勻的慢」,比值 R 但沒有停頓)| stall:N:M(每 N 步一次把 Renode 一口氣推進 M·dt、期間編碼器不更新,
+    /// 受控體那一步走 M·dt——「停頓」,比值 ≈ 1)。兩個都是決定性的,不靠主機負載。
+    skew: String,
 }
 
 fn parse_args() -> Args {
@@ -84,6 +88,7 @@ fn parse_args() -> Args {
         world: String::new(),
         scan_listen: String::new(),
         expect_goal: false,
+        skew: "none".into(),
     };
     let v: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -110,6 +115,7 @@ fn parse_args() -> Args {
             "--world" => a.world = val,
             "--scan-listen" => a.scan_listen = val,
             "--expect-goal" => a.expect_goal = val == "1",
+            "--skew" => a.skew = val,
             // lockstep(預設):橋接推進 Renode;realtime:Renode 自由跑,橋接以牆鐘 dt 取樣/注入
             "--mode" => a.mode = val,
             // 上位:script(預設,內建腳本)或 tcp-listen:ADDR(外部上位連進來講 UART 框包,例如 ROS 2 節點)
@@ -349,6 +355,17 @@ fn main() {
         eprintln!("--mode 只接受 lockstep 或 realtime");
         std::process::exit(2);
     }
+    // 時鐘偏斜實驗(lockstep 專用):uniform:R → 每步 Renode 推進 R·dt;stall:N:M → 每 N 步一次推進 M·dt
+    let (skew_scale, skew_every, skew_mult): (f64, u32, u32) = match a.skew.as_str() {
+        "none" => (1.0, 0, 1),
+        s if s.starts_with("uniform:") => (s[8..].parse().expect("--skew uniform:R"), 0, 1),
+        s if s.starts_with("stall:") => { let v: Vec<&str> = s[6..].split(':').collect(); (1.0, v[0].parse().expect("--skew stall:N:M"), v[1].parse().expect("--skew stall:N:M")) }
+        _ => { eprintln!("--skew 只接受 none | uniform:R | stall:N:M"); std::process::exit(2); }
+    };
+    if a.skew != "none" {
+        if realtime { eprintln!("--skew 只在 lockstep 有意義"); std::process::exit(2); }
+        println!("[effect] skew={}:{}", a.skew, if skew_every > 0 { format!(" 每 {} 步一次 Renode 一口氣推進 {}×dt、編碼器凍結、受控體那步走 {}×dt(停頓,比值 ≈ 1)", skew_every, skew_mult, skew_mult) } else { format!(" 每步 Renode 只推進 {}×dt、受控體走 dt(均勻的慢,比值 {})", skew_scale, skew_scale) });
+    }
     println!("[effect] tim3 ARR={} (calib pwm_arr={}) track={} circ_um={} tpr={}",
         arr, c.pwm_arr, c.track_mm, c.wheel_circ_um, c.ticks_per_rev);
     if magic != dbg::MAGIC_VALUE {
@@ -418,6 +435,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let mut can_cmp_mismatch = 0u32;
     let wall0 = Instant::now();
     let renode_t_start = t0;
+    let mut renode_advanced_us: u64 = 0;   // lockstep:實際 run_for 的總和(--skew 時 ≠ steps·dt)
+    let mut skew_stalls = 0u32;
+    let mut plant_dt_mult = 1.0f64;
     let mut plant_t_s = 0.0f64;
     let mut max_lag_us: i64 = 0;
     // 每步各段的牆鐘累計(realtime 模式下步長由這些決定,不是由 dt)
@@ -524,7 +544,13 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                 std::thread::sleep(target - now);
             }
         } else {
-            ec.run_for_us(c.control_period_ms * 1000).expect("run_for");
+            let is_stall = skew_every > 0 && k > 0 && k % skew_every == 0;
+            let mult = if is_stall { skew_mult as f64 } else { skew_scale };
+            let us = (c.control_period_ms as f64 * 1000.0 * mult).round() as u64;
+            ec.run_for_us(us).expect("run_for");
+            renode_advanced_us += us;
+            if is_stall { skew_stalls += 1; }
+            plant_dt_mult = if is_stall { skew_mult as f64 } else { 1.0 };
         }
         t_sleep += ph.elapsed();
 
@@ -657,7 +683,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             plant_t_s = now_s;
             d
         } else {
-            dt_s
+            dt_s * plant_dt_mult
         };
         // 堵轉注入:輪子被卡住——受控體不動、編碼器不動,不管韌體給多少 duty
         let cmd = if fault == "stall" && in_fault_window { MotorCmd { duty_l: 0.0, duty_r: 0.0, fwd_l: true, fwd_r: true, enabled: false } } else { cmd };
@@ -815,9 +841,15 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         last_odom.th_mrad as f64 / 1000.0, last_odom.seq);
 
     // 驗收
-    let expect_time = steps as u64 * c.control_period_ms * 1000;
+    let expect_time = if a.skew == "none" { steps as u64 * c.control_period_ms * 1000 } else { renode_advanced_us };
+    if a.skew != "none" {
+        println!("[skew] renode 推進 {:.3}s / 受控體 {:.3}s = {:.3};停頓 {} 次;max |dv/dt| = {:.0} mm/s²(輪上限 {:.0} × 1.2 = {:.0})",
+            renode_advanced_us as f64 / 1e6, steps as f64 * dt_s + skew_stalls as f64 * (skew_mult as f64 - 1.0) * dt_s,
+            renode_advanced_us as f64 / 1e6 / (steps as f64 * dt_s + skew_stalls as f64 * (skew_mult as f64 - 1.0) * dt_s),
+            skew_stalls, max_plant_accel, wheel_accel_limit, wheel_accel_limit * 1.2);
+    }
     let renode_el_us = t_end - t0;
-    let expect_odom = if realtime { renode_el_us / (c.report_period_ms * 1000) } else { (steps / report_every) as u64 };
+    let expect_odom = if realtime || a.skew != "none" { renode_el_us / (c.report_period_ms * 1000) } else { (steps / report_every) as u64 };
     // 走過的路徑長,不是首尾位移:方形閉環回到原點時位移 ≈ 0,但車確實走了 2.4 m;
     // C3 的容差也該隨路徑長放大(里程計誤差跟著走過的距離累積,不是跟著離起點多遠)
     let dist = path_len_mm;
