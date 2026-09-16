@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GOAL 4:純軟體把差速底盤韌體補到真車的形狀——編碼器、加減速與馬達層、安全 I/O、Nav2 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/">5.1</a><a href="../6.0.1/">6.0.1</a><a href="../fleet/">車隊</a><a href="../hil/" class="on">HIL</a><a href="../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#你是誰在哪">你是誰、在哪</a></li><li class="l2"><a href="#目標一句話">目標(一句話)</a></li><li class="l2"><a href="#四條線順序-a-b-c-da-是主線後三條不擋-a-但等-a-的介面定案">四條線(順序 A → B → C → D;A 是主線,後三條不擋 A 但等 A 的介面定案)</a></li><li class="l3"><a href="#a-編碼器改走-tim-encoder-mode2">A. 編碼器改走 TIM encoder mode(#2)</a></li><li class="l3"><a href="#b-加減速限制前饋整定馬達層加電流限制與摩擦3">B. 加減速限制、前饋、整定;馬達層加電流限制與摩擦(#3)</a></li><li class="l3"><a href="#c-安全-io-五項4">C. 安全 I/O 五項(#4)</a></li><li class="l3"><a href="#d-nav2-in-the-loop5">D. Nav2 in the loop(#5)</a></li><li class="l2"><a href="#工作順序">工作順序</a></li><li class="l2"><a href="#硬規則">硬規則</a></li><li class="l2"><a href="#完成的定義">完成的定義</a></li></ul></aside>
+  <main class="doc">
+<h1 id="goal-4純軟體把差速底盤韌體補到真車的形狀編碼器加減速與馬達層安全-ionav2">GOAL 4:純軟體把差速底盤韌體補到真車的形狀——編碼器、加減速與馬達層、安全 I/O、Nav2</h1>
+<p>產生時間:2026-09-16 15:47。接續 <a href="../hil/GOAL-2026-09-16-1118.html">GOAL 3</a>(四線完成、已 push;上游 PR #250、renode#1003/#1004 已送)。四條線各對應一個 issue:<a href="https://github.com/wicanr2/isaac-sim-study/issues/2">#2 編碼器</a>、<a href="https://github.com/wicanr2/isaac-sim-study/issues/3">#3 加減速與馬達層</a>、<a href="https://github.com/wicanr2/isaac-sim-study/issues/4">#4 安全 I/O</a>、<a href="https://github.com/wicanr2/isaac-sim-study/issues/5">#5 Nav2</a>。做法細節在 issue,這裡只放順序、規則與完成定義;結果回填到各 issue,總結回 <a href="https://github.com/wicanr2/isaac-sim-study/issues/1">issue #1</a>。</p>
+<h2 id="你是誰在哪">你是誰、在哪</h2>
+<ul>
+<li>repo:<code>isaac-sim-study</code>(公開)。先讀 issue #1 最後兩則與 #2–#5,不重問已定案的事。</li>
+<li><code>git config user.email</code> 必須是 <code>wicanr2@gmail.com</code>(歷史已全部改寫,<code>git log --format=%ae | sort -u</code> 只能有這一個)。</li>
+<li>起點:<code>examples/hil-stm32/run_loop.sh</code>、<code>FW=freertos</code>、<code>CAN=socketcan CANHUBFIX=1</code>、<code>UPPER=ros --seconds 40</code> 四個都 ALL PASS。<strong>先跑一次。</strong></li>
+<li>主機 14 核、常有別的 session(load 6–12);速度數字附 <code>uptime</code>;橋接守不住 5 ms 節拍是已知事實,不要再花時間證明。</li>
+<li><strong>沒有板子</strong>:全部純軟體。場域 GPU 主機只在 B 線與 D 線的 Isaac 驗證用,規則同 GOAL 2(先盤點、CPU 一半、只寫 <code>~/hil-plant/</code>、主機資訊不進 repo)。</li>
+</ul>
+<h2 id="目標一句話">目標(一句話)</h2>
+<p>同一台車、同一套橋接與判準,把韌體從「教學級底盤控制器」推到「真車驅動板的形狀」,每一步都在純軟體裡驗到綠,並把路上踩到的 Renode 缺口修掉。</p>
+<h2 id="四條線順序-a-b-c-da-是主線後三條不擋-a-但等-a-的介面定案">四條線(順序 A → B → C → D;A 是主線,後三條不擋 A 但等 A 的介面定案)</h2>
+<h3 id="a-編碼器改走-tim-encoder-mode2">A. 編碼器改走 TIM encoder mode(#2)</h3>
+<p>Renode 1.16.1 的 <code>STM32_Timer</code> 沒有 encoder mode,預期紅 → 修 Renode(NUnit + 探針原版紅/修正版綠)→ 橋接改驅動正交脈衝或寫 CNT(<strong>三種注入法各量每步成本再選</strong>)→ 兩版韌體讀 CNT → lockstep 全綠、負對照(兩路對調)紅、<strong>realtime 同腳本對 lockstep 的差要能只用節拍統計解釋</strong>。35 篇 §5.1 的開放項改寫成結論。</p>
+<h3 id="b-加減速限制前饋整定馬達層加電流限制與摩擦3">B. 加減速限制、前饋、整定;馬達層加電流限制與摩擦(#3)</h3>
+<p><strong>先量步階響應再改</strong>(假受控體 + Isaac 各一次,寫成基準表)。斜坡與前饋進 calib,兩版韌體同改;受控體三個實作(Rust Fake、Python、Isaac)同一份馬達公式。新增 C9(加速度上限)與負對照;Isaac 滑移與方形閉合誤差目標先量再定,不硬湊。</p>
+<h3 id="c-安全-io-五項4">C. 安全 I/O 五項(#4)</h3>
+<p>IWDG、驅動器故障腳、bumper、堵轉、心跳。每項:韌體 + 橋接/受控體那一側 + <strong>一個 <code>--negative</code> 旗標</strong>;<code>flags</code> 位元進 odom 與 CAN 狀態框。IWDG 先盤點 Renode 的看門狗模型逾時會不會 reset——不會就是缺口,修。新增 C10。</p>
+<h3 id="d-nav2-in-the-loop5">D. Nav2 in the loop(#5)</h3>
+<p>受控體加假雷射(矩形房間 + 方塊,<code>SCAN</code> 一行),橋接只轉譯;driver 加 <code>/scan</code> 與靜態 TF;Nav2 最小 bringup。<code>NavigateToPose</code> 3 m 級到達 &lt; 0.1 m、不撞方塊;負對照:<code>/scan</code> 全設最大距離 → 撞 → 紅。<strong>拉 Nav2 映像(約 +2 GB)前報數字再問。</strong></p>
+<h2 id="工作順序">工作順序</h2>
+<p>起點驗證 → A-盤點 → A-修 Renode → A-橋接注入法量測 → A-韌體 → A-驗收 → B-步階基準 → B → C(五項各一 commit)→ D。每條線結束:<code>build_site.py</code> + <code>check_docs.py</code> 全綠、對應 issue 回填、commit;<strong>push 前問</strong>。</p>
+<h2 id="硬規則">硬規則</h2>
+<ul>
+<li>GOAL 1–3 全部硬規則照舊(docker、匿名化、缺口修 Renode 不改韌體、每條升級附量測、長跑與拉映像前報數字、PR 英文且送前給看)。</li>
+<li><strong>[HARD] 韌體照 RM0090 寫。</strong> encoder mode、IWDG 的暫存器序列以手冊為準;Renode 不支援就修 Renode,不在韌體加「模擬裡的替代路徑」。</li>
+<li><strong>[HARD] 每個新判準都要有讓它轉紅的負對照,先紅再綠。</strong></li>
+<li><strong>[HARD] 三個受控體實作同一份公式</strong>(馬達層、假雷射):改一處要改三處,末端位姿要互相在容差內。</li>
+<li><strong>[HARD] 圖與正文同一份數字</strong>;新的機制(encoder mode 計數規則、斜坡、安全狀態機、假雷射)各補一張 SVG。</li>
+<li>場域 GPU 主機:每次開跑前 <code>nvidia-smi</code>、<code>uptime</code>、<code>ps</code>,不拿上次快照當現況。</li>
+</ul>
+<h2 id="完成的定義">完成的定義</h2>
+<ul>
+<li>A:Renode encoder mode 修正(NUnit、探針)進 fork;兩版韌體讀 CNT;C1–C8 全綠、負對照紅;realtime 差有節拍統計解釋;35/36/37 篇改寫</li>
+<li>B:步階基準表;C9 與負對照;Isaac 滑移與方形閉合前後對照有數字</li>
+<li>C:五項各有正/負對照與 <code>io_check</code> 項;C10</li>
+<li>D:Nav2 到達與不撞的數字、負對照紅;realtime 節拍與 <code>[clocks]</code> 一起報</li>
+<li>每個 issue 回填、issue #1 總結;<code>check_docs.py</code> 全綠;沒做到的寫明為什麼</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../">總覽</a> · <a href="../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>
