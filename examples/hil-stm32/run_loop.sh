@@ -46,7 +46,7 @@ case "$FW" in
   baremetal) ELF=/w/firmware/build/hilctl.elf; SYM=firmware/build/hilctl.sym; EXTRA=() ;;
   # FreeRTOS 版在原版 Renode 1.16.1 上第一個 SysTick 週期是 2^24 cycle(233 ms,NVIC 缺口,見 renode/upstream/),
   # 開機等待拉到 400 ms;修了 NVIC 之後可以回 100
-  freertos)  ELF=/w/firmware-freertos/build/hilctl-rtos.elf; SYM=firmware-freertos/build/hilctl-rtos.sym; EXTRA=(--boot-ms 400 --dbg-extra 9) ;;
+  freertos)  ELF=/w/firmware-freertos/build/hilctl-rtos.elf; SYM=firmware-freertos/build/hilctl-rtos.sym; EXTRA=(--boot-ms 402 --dbg-extra 9) ;;
   *) echo "FW 只接受 baremetal 或 freertos"; exit 2 ;;
 esac
 CPUS="${CPUS:-2}"
@@ -137,6 +137,8 @@ case "$PLANT" in
     ;;
 esac
 
+# --negative no-latch 是上位側的負對照(driver 對 WDT_RESET/STALL 不反應),橋接只印標籤;這裡把它翻成 driver 的參數
+case " $* " in *" --negative no-latch "*) FAULT_LATCH=false ;; esac
 UPPER_ARG=()
 if [ "$UPPER" = ros ] || [ "$UPPER" = nav2 ]; then
   # ROS_SCRIPT:run_square.sh(預設,方形閉環)/ run_scan_check.sh(只驗 /scan);UPPER=nav2 → run_nav.sh 在 hil-nav2:jazzy(ros/Dockerfile.nav2)
@@ -145,7 +147,7 @@ if [ "$UPPER" = ros ] || [ "$UPPER" = nav2 ]; then
   echo "[ros] 啟動 $RNAME($ROS_IMAGE,ros/$ROS_SCRIPT,與 Renode 同 netns,$ROS_CPUS 核;log → out/ros.log)"
   docker run -d --name "$RNAME" --network "container:$NAME" --cpus "$ROS_CPUS" --memory 2g --pids-limit 256 \
     --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    -e "SIDE_M=${SIDE_M:-0.6}" -e "TIMEOUT_S=${TIMEOUT_S:-120.0}" -e "SECONDS_CHECK=${SECONDS_CHECK:-8.0}" \
+    -e "SIDE_M=${SIDE_M:-0.6}" -e "TIMEOUT_S=${TIMEOUT_S:-120.0}" -e "SECONDS_CHECK=${SECONDS_CHECK:-8.0}" -e "FAULT_LATCH=${FAULT_LATCH:-true}" \
     -v "$PWD":/w -w /w/ros "$ROS_IMAGE" bash "./$ROS_SCRIPT" >/dev/null
   UPPER_ARG=(--upper tcp-listen:0.0.0.0:3800)
   [ "$UPPER" = nav2 ] && UPPER_ARG+=(--expect-goal 1)

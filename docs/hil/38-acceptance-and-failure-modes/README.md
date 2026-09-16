@@ -10,7 +10,7 @@
 
 ```
 [effect] encoder: calib=tim inject=hook
-[effect] renode ec=127.0.0.1:3500 hook=127.0.0.1:3600 machine=hilctl boot_ms=100 t0_us=100000
+[effect] renode ec=127.0.0.1:3500 hook=127.0.0.1:3600 machine=hilctl boot_ms=102 t0_us=102000
 [effect] g_dbg@0x2000011c magic=0x48494c31 (ok) init_err=0
 [effect] mode=lockstep plant=fake dt_ms=5 steps=1200 report_every=4 script="0:0,0;0.5:300,0;3.5:0,600;5:0,0" negative=none slip=0
 [effect] tim3 ARR=999 (calib pwm_arr=999) track=300 circ_um=314159 tpr=4096
@@ -74,15 +74,15 @@ C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌
 
 | 項 | 韌體(RM0090) | 橋接注入(`--fault`) | C10 判準 | 實測 | 負對照(`--negative`) |
 |---|---|---|---|---|---|
-| IWDG | `KR=0x5555 → PR=3(/32 → 1 kHz)→ RLR=999 → KR=0xCCCC → KR=0xAAAA`;每個控制步餵(FreeRTOS 版由最低優先的 report_task 餵) | `hang`:`g_cfg.hang_at_ms` 到時關中斷死迴圈 | 死掉後 1.2 s 內重啟(`.noinit` 計數 +1、tick 從頭)、重啟那步 CCR 0 | 1.995 s 死掉(`ctrl_steps` 停在 420)→ **2.995 s 重啟**(+1000 ms);死掉期間 CCR 停在 330(33% duty 轉了 1 s);重啟那步 CCR 0,5 ms 後上位的 cmd_vel 又進來,車又走 | `iwdg-off`:不起動 IWDG → 沒重啟,CCR 330 轉到結束,車跑到 1.59 m,**紅** |
+| IWDG | `KR=0x5555 → PR=3(/32 → 1 kHz)→ RLR=999 → KR=0xCCCC → KR=0xAAAA`;每個控制步餵(FreeRTOS 版由最低優先的 report_task 餵) | `hang`:`g_cfg.hang_at_ms` 到時關中斷死迴圈 | 死掉後 1.2 s 內重啟(`.noinit` 計數 +1、tick 從頭)、重啟那步 CCR 0 | 1.995 s 死掉(`ctrl_steps` 停在 420)→ **2.995 s 重啟**(+1000 ms);死掉期間 CCR 停在 345(34.5% duty 轉了 1 s);重啟那步 CCR 0,5 ms 後上位的 cmd_vel 又進來,車又走 | `iwdg-off`:不起動 IWDG → 沒重啟,CCR 345 轉到結束,車跑到 1.6 m,**紅** |
 | 驅動器故障腳 | PC14/PC15 輸入 + pull-up,低有效 → 致能關、duty 0、積分清 | `drv-fault`:2.0–3.5 s `gpio_set` PC14 低 | 拉低後 10 ms 內 DRV_FAULT、EN 低、CCR 0;放開後恢復 | 旗標 **+0 ms**(同一個控制步);故障期間 300 步 CCR/EN 全 0;放開後恢復 | `drv-fault-off`:旗標不出現,299 步 CCR≠0,**紅** |
 | 保險桿 | PC0 輸入 + pull-up,常閉接點斷開 = 撞到 → 前進命令改 0 走斜坡,倒車放行 | `bumper`:受控體 x ≥ 500 mm 就把 PC0 拉低(腳本 3.5 s 改倒車) | 撞牆後 60 mm 內停、旗標亮、倒車後 x 少 100 mm 以上 | 500.5 mm 撞到,最遠 **537.2**(+37.2:斜坡 30 mm + 一個控制步);倒車到 239.7 | `bumper-off`:穿牆到 900.2,**紅** |
-| 堵轉 | 上一步 \|duty\| ≥ 60% 且 \|輪速\| < 20 mm/s 持續 200 ms → 鎖住(致能關),上位命令歸零才解 | `stall`:2.0–3.5 s 受控體不動、編碼器不動 | 卡住後 500 ms 內 STALL 且 CCR 0;命令歸零後解 | 旗標 **+345 ms**(輪速衰減 ~150 ms + 200 ms);之後 3.5 s 的轉向命令被擋,5.0 s 歸零解鎖 | `stall-off`:旗標不出現,duty 100% 灌到 3.5 s,**紅** |
+| 堵轉 | 上一步 \|duty\| ≥ 60% 且 \|輪速\| < 20 mm/s 持續 200 ms → 鎖住(致能關),上位命令歸零才解 | `stall`:2.0–3.5 s 受控體不動、編碼器不動 | 卡住後 500 ms 內 STALL 且 CCR 0;命令歸零後解 | 旗標 **+355 ms**(輪速衰減 ~150 ms + 200 ms);之後 3.5 s 的轉向命令被擋,5.0 s 歸零解鎖 | `stall-off`:旗標不出現,duty 100% 灌到 3.5 s,**紅** |
 | 心跳 | 上位每 100 ms 送 PING;300 ms 沒收到 → 命令改 0 走斜坡(與 500 ms 命令逾時分開) | `no-ping`:2.0 s 起不送 PING(cmd_vel 照送) | PING 停後 320 ms 內 HB_LOST、700 ms 內車停 | 旗標 **+200 ms**(最後一筆 PING 在 1.9 s);車停 +495 ms | `hb-off`:旗標不出現,車照跑到 900.8,**紅** |
 
 三個細節是做了才知道的:
 
-- **堵轉的速度門檻要高於感測器的量子。** 一個 tick = 76.7 µm,5 ms 一個控制步,所以最小的非零速度是 15 mm/s;門檻 5 mm/s 的話,輪子還在慢慢滑的那幾百毫秒裡每偶爾一個 tick 就把計時清零,量到 +525 ms 才鎖。門檻改 20 → +345 ms。
+- **堵轉的速度門檻要高於感測器的量子。** 一個 tick = 76.7 µm,5 ms 一個控制步,所以最小的非零速度是 15 mm/s;門檻 5 mm/s 的話,輪子還在慢慢滑的那幾百毫秒裡每偶爾一個 tick 就把計時清零,量到 +525 ms 才鎖。門檻改 20 → +355 ms。
 - **Renode 的 GPIO 輸入腳預設是 0,而且機器重置後回到 0。** 低有效的腳在真板上靠 pull-up,Renode 不看 `PUPDR`;橋接開機前把三腳拉高,IWDG 重啟後也要再拉一次(重啟後那一步 DRV_FAULT 與 BUMPER 會亮一下)。這是「橋接扮演板子」的一部分,不是韌體的事——韌體照 RM0090 寫 `PUPDR = 01`。
 - **暖重置的證據。** 真板讀 `RCC_CSR.IWDGRSTF`;Renode 的 RCC 給重置值 `0x0E000000`(POR/PIN/BOR 三個旗標),不設 IWDGRSTF——這是 `STM32_IndependentWatchdog` 原始碼裡的 `TODO`。韌體另外用 `.noinit` 區段的計數(`LoadELF` 只寫檔案裡有的區段,`NOLOAD` 的 SRAM 跨 reset 保留),兩個都記進 `g_dbg`。看門狗模型本身照 RM0090 第 21 章的序列反應:`Reload()` 才把 RLR 載入計數器、起動時從 0xFFF 起、逾時 `machine.RequestReset()`;監視器的 `macro reset` 接著重載 ELF,韌體從 `Reset_Handler` 重來。**這一項 Renode 沒有缺口。**
 
@@ -113,8 +113,8 @@ C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌
 
 但換一個「同一個模型」的實作就不一樣了。`plant/fake_plant.py`(Python,走 UDP)與橋接內建的 Rust `Fake` 是同一組公式、同一份 calib:
 
-- 末端位姿:x 900.8、y 0.4 相同,θ 0.8627 vs 0.8628
-- 1200 步 × 8 個欄位裡有 **811 個不同**,第一個在第 446 步:`ticks_l` 6310 vs 6309
+- 末端位姿 x 900.8、y 0.4、θ 0.8627 相同
+- 1200 步 × 8 個欄位裡有 **568 個不同**,第一個在第 270 步:`ticks_l` 2856 vs 2855
 
 差在 `floor(s / 周長 × 4096)` 的邊界——兩種語言的浮點運算在最後一位偶爾不同,落在整數邊界上就差 1 tick;馬達層的死區與限幅多了幾次乘除,邊界撞到的次數也跟著多。**決定性是每個實作各自成立的性質**;要跨實作比對,用容差,不用相等。
 
@@ -159,7 +159,8 @@ step 376: 前一步 CCR=297,這一步 CCR=298,下一步 CCR=306;CAN 框說 305
 | 方形閉環加了斜坡後閉合從 35 變 277 mm | 斜坡對兩輪各自限,轉→直時兩輪從不同速度起步、不同時到,每段直線畫弧 +0.16 rad | 每段結束的位姿;改成 v/w 各限(§1.1) |
 | 堵轉旗標晚了 525 ms 才亮 | 速度門檻 5 mm/s 低於感測器量子(一個 tick / 5 ms = 15 mm/s),輪子慢慢滑時偶爾一個 tick 就把計時清零 | 門檻 ≥ 量子(§1.2) |
 | IWDG 重啟後 DRV_FAULT、BUMPER 亮一步 | 機器重置把 GPIO 埠也重置,低有效的輸入腳回到 0;真板的 pull-up 在板子上 | 橋接偵測到 tick 倒退就重新拉高(§1.2) |
-| 韌體死掉了,車還在走 | 這不是 bug,是沒有看門狗時的必然:CPU 停了,TIM3 的 PWM 沒停 | `--negative iwdg-off`:CCR 停在 330、車跑 1.6 m;正對照 IWDG 1 s 後整顆重置 |
+| 韌體死掉了,車還在走 | 這不是 bug,是沒有看門狗時的必然:CPU 停了,TIM3 的 PWM 沒停 | `--negative iwdg-off`:CCR 停在 345、車跑 1.6 m;正對照 IWDG 1 s 後整顆重置 |
+| 只搬不改的重構讓 CSV 有 429 個欄位不同;原版加 200 圈 NOP 更差(8639 個、C9 紅) | 橋接的步邊界(`boot_ms` 100 + 5k)與韌體的控制 tick(5k)重合,暫停切在控制步中間;哪些存取在邊界前後由指令數決定 | `ccr1 ≠ duty_l` 的那一步就是被切的證據;邊界錯開 2 ms(`boot_ms` 102)後三個版本逐 byte 相同([37 篇](../37-bus-signal-bridging/README.md) §5) |
 
 共同點:**每一個的第一眼症狀都指向別的地方**——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯、彈飛像腳輪或質量。每一個都是先讀原始碼或加一個更近的觀測點才看到真因;彈飛那一個,近一點的觀測點是「靜止後停在哪個高度」。
 

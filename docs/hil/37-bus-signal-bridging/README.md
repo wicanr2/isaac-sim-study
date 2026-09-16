@@ -127,6 +127,8 @@ Renode 1.16.1 把 CAN 訊框送到模擬器外面的**官方**管道只有 `Crea
 
 **一步延遲**:第 5 步注入的訊框,韌體在下一步的 `run_for` 裡才讀。6 s 跑完 `enc_frames` = 1199 = steps − 1。
 
+**步邊界要跟韌體的控制 tick 錯開。** 橋接開機先 `run_for boot_ms`,之後每步 5 ms;韌體的控制步跑在 SysTick 的 5k ms 上。`boot_ms` 若是 5 的倍數,每個邊界都落在韌體正要跑控制步的那幾微秒裡:橋接在那裡暫停、注入 CNT、讀 CCR 與 `g_dbg`,而韌體的「讀 CNT」「寫 CCR」「寫 g_dbg」哪些在暫停前、哪些在暫停後,由**指令數**決定。量到的:原版韌體 `boot_ms=100` 時有一步 `ccr1 ≠ duty_l`(邊界切在 `motor_apply` 與 `g_dbg.duty_l =` 之間);控制步開頭多 200 圈 NOP(邏輯不變)→ 8639 個欄位不同、四步被切、C9 紅(CNT 讀在注入前、下一步吃到兩步的 tick,PI 把 duty 打上去);把兩版韌體的共用碼抽成 `control.c`(GOAL 5)→ 429 個欄位不同、被切的那一步從 336 移到 341。`boot_ms=102`(邊界在控制步後 2 ms)之後三個版本**逐 byte 相同**、沒有一步被切,末端位姿不變。現在裸機預設 102、FreeRTOS 402;lockstep 的「同一輸入逐 byte 相同」只在這個前提下對**不同建置**也成立。
+
 **每步成本**:主機閒時 8–13 ms(分段:`run_for` 9.3 ms、hook 2.2 ms、`ec_read` 1.0 ms),主機另有負載時 29.6 ms——橋接每步印 `[run] per-step wall: ec_read/hook/plant/run_for` 四段,看數字不用猜。要更快的話,順序是:把 drain 換成「等一個明確的 end-of-step 紀錄」(省 1 ms)、把 GPIO 三次讀合併成一次 `ODR` 匯流排讀(省 2 RPC)、最後才是把 `run_for` 拉長。
 
 `--mode realtime` 用同一個迴圈,只換第 2 步:開跑前經 hook 送 `START`(`0xFFFF0010`,hook 呼叫 `StartAll()` 後 ack),每步不再 `run_for`,改 sleep 到下一個 5 ms 牆鐘刻度;受控體的 dt 用實際過了多久;跑完送 `PAUSE`(`0xFFFF0011`)。每步 5.0–5.2 ms(`ec_read` 1.8 + hook 2.4 + sleep 0.4),三個時鐘的分歧與後果量在 [35 篇](../35-hil-what-and-why/README.md) §5.1。

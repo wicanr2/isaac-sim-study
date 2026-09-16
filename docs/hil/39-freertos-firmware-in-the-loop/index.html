@@ -63,7 +63,7 @@
 </tr>
 </tbody>
 </table></div>
-<p>大小:text 8540 B、bss 12.9 KB(12 KB 是 heap:三個 task + idle 的 TCB 與 stack)。</p>
+<p>大小:text 9496 B、bss 12.9 KB(12 KB 是 heap:三個 task + idle 的 TCB 與 stack;抽共用 <code>control.c</code> 前 9864 B)。</p>
 <h2 id="2-三個-task一條-isr">2. 三個 task,一條 ISR</h2>
 <pre><code>rx_task     優先權 2   ulTaskNotifyTake 睡到 USART1 ISR 通知 → ring buffer 解框包 → 更新設定點
 ctrl_task   優先權 3   xTaskDelayUntil 每 5 ms:收 CAN 編碼器、量測、PI、PWM、安全閘門
@@ -71,13 +71,66 @@ report_task 優先權 1   xTaskDelayUntil 每 20 ms:odom(USART1)、馬達狀態(
 idle hook              WFI
 USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM_ISR
 </code></pre>
-<p>設計上跟裸機版<strong>刻意只差「誰排程」</strong>:協定、暫存器、控制律、<code>g_dbg</code> 前 17 個字的版面逐字相同,橋接一行都不用改。差異在三個地方:</p>
+<p>設計上跟裸機版<strong>刻意只差「誰排程」</strong>。第一版是把裸機版的協定、暫存器序列、控制律逐行複製過來(理由:兩支韌體各自完整、可獨立閱讀);GOAL 4 改了四次、每次改兩份之後,這一版把它們抽成兩版共用的 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/firmware/control.c"><code>firmware/control.c</code></a>(協定收發、GPIO/編碼器/PWM/CAN/IWDG 的暫存器序列、安全閘門、斜坡與 PI、里程計、回報、<code>g_dbg</code>/<code>g_cfg</code> 版面),兩個 <code>main</code> 只剩平台的事:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>裸機 <code>firmware/main.c</code></th>
+<th>FreeRTOS <code>firmware-freertos/main-rtos.c</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>時間</td>
+<td>SysTick ISR 數的 <code>s_tick_ms</code></td>
+<td><code>xTaskGetTickCount()</code>(1 kHz)</td>
+</tr>
+<tr>
+<td>USART1 收訊</td>
+<td>ISR 進 ring buffer,主迴圈每 1 ms 醒來解</td>
+<td>ISR 進 ring buffer + <code>vTaskNotifyGiveFromISR</code>,<code>rx_task</code> 被叫醒才解</td>
+</tr>
+<tr>
+<td>控制步</td>
+<td>主迴圈看 <code>now − next_ctrl</code></td>
+<td><code>ctrl_task</code> 的 <code>xTaskDelayUntil</code>,晚了記 <code>ctrl_missed</code></td>
+</tr>
+<tr>
+<td>CAN FIFO 收乾</td>
+<td>主迴圈每次醒來</td>
+<td><code>ctrl_task</code> 每步開頭</td>
+</tr>
+<tr>
+<td>餵狗</td>
+<td>控制步真的跑了才餵</td>
+<td>最低優先的 <code>report_task</code> 餵(高優先 task 把 CPU 吃光時它餵不到 = 該重置)</td>
+</tr>
+<tr>
+<td>死機注入</td>
+<td>主迴圈</td>
+<td><code>ctrl_task</code>(最高優先,關中斷後全部餓死)</td>
+</tr>
+<tr>
+<td>CAN 交握逾時</td>
+<td>給 <code>now_ms</code>(SysTick 已在走,10 ms)</td>
+<td>給 <code>NULL</code>(tick 要 scheduler 起來才走,用迭代數)</td>
+</tr>
+<tr>
+<td><code>g_dbg</code></td>
+<td>就是 <code>dbg_common_t</code>(20 字)</td>
+<td><code>dbg_common_t</code> 當第一個成員,後面接 RTOS 欄位;<code>ctl_bind_dbg(&amp;g_dbg.c)</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><code>control.c</code> 不知道時間怎麼來:每個要看時間的函式都收 <code>now_ms</code> 參數。判準是重構前後<strong>每一個 lockstep CSV 逐 byte 相同</strong>——裸機版第一次比對差了 429 個欄位,追下去是橋接步邊界與韌體控制 tick 重合的問題,不是搬錯(<a href="../../hil/37-bus-signal-bridging/">37 篇</a> §5);邊界錯開之後兩版都逐字相同。text:裸機 5716 → 6196 B(指令間接與函式呼叫),FreeRTOS 9864 → 9496。</p>
+<p>原本的三個差異點:</p>
 <ul>
 <li><strong>收訊不再輪詢。</strong> ISR 塞 ring buffer 後用 task notification 叫醒 <code>rx_task</code>;沒資料時它睡著,不佔 CPU。裸機版是每 1 ms 醒來看一眼。</li>
 <li><strong>週期由 <code>xTaskDelayUntil</code> 保證。</strong> 它回 <code>pdFALSE</code> 表示「這一輪已經晚了,沒有真的睡」——那就是錯過週期,記進 <code>g_dbg.ctrl_missed</code>。裸機版的 <code>next_ctrl += 5</code> 會默默追趕,看不出來。</li>
 <li><strong><code>proto_send</code> 包在 critical section 裡。</strong> USART1 只有一條 TX 線,<code>rx_task</code> 回 PONG 與 <code>report_task</code> 送 odom 可能交錯——裸機版沒有這個問題,因為只有一條執行流。</li>
 </ul>
-<p><code>g_dbg</code> 第 17 字之後多了 RTOS 才有的觀測:<code>ctrl_missed</code>、<code>report_missed</code>、<code>rx_wakeups</code>、三個 task 的 stack high-water mark、<code>assert_line</code>、<code>stack_overflow</code>、<code>malloc_failed</code>。橋接用 <code>--dbg-extra 9</code> 跑完印出。</p>
+<p><code>g_dbg</code> 第 20 字之後多了 RTOS 才有的觀測:<code>ctrl_missed</code>、<code>report_missed</code>、<code>rx_wakeups</code>、三個 task 的 stack high-water mark、<code>assert_line</code>、<code>stack_overflow</code>、<code>malloc_failed</code>。橋接用 <code>--dbg-extra 9</code> 跑完印出。</p>
 <h2 id="3-閉環結果跟裸機版比">3. 閉環結果:跟裸機版比</h2>
 <p>同一條指令、同一份腳本(0.5 s 起 300 mm/s 走 3 s → 600 mrad/s 轉 1.5 s → 停),假受控體:</p>
 <div class="tw"><table>
@@ -136,7 +189,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 </tr>
 </tbody>
 </table></div>
-<p>兩份 CSV 逐步比對:末端相同,但途中 <code>ccr1</code> 在 297/1200 步不同、<code>odom_seq</code> 全部不同。原因是<strong>相位</strong>:RTOS 版開機晚了 235 ms(§4),橋接的第 k 步對到韌體的另一個 tick;控制律一樣,只是取樣點錯開。這是 <a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §4「步邊界取樣」的另一個面向——同一個系統換一個相位,逐步的數字就不同,末端才是該比的量。</p>
+<p>兩份 CSV 逐步比對:末端相同,<code>ccr1</code> 也 1200 步全部相同,只有 <code>odom_seq</code> 全部不同。<code>ccr1</code> 相同是因為兩版現在共用 <code>control.c</code>、而且橋接的步邊界對兩版的控制 tick 都錯開 2 ms(裸機 <code>boot_ms</code> 102、RTOS 402;<a href="../../hil/37-bus-signal-bridging/">37 篇</a> §5)——邊界還跟 tick 重合時,同一份控制律在兩版量到 297/1200 步的 <code>ccr1</code> 不同,差在被切的那幾步。<code>odom_seq</code> 不同是<strong>相位</strong>:RTOS 版開機晚了 235 ms(§4),20 ms 的回報週期對到不同的 tick。這是 <a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §4「步邊界取樣」的另一個面向——同一個系統換一個相位,逐步的數字就不同,末端才是該比的量。</p>
 <p><code>ctrl_missed = 0</code> 是這一篇最重要的一個數字:在 Renode 的虛擬時間裡,5 ms 的控制週期一次都沒錯過。但它<strong>只證明虛擬時間下沒錯過</strong>——<a href="../../hil/35-hil-what-and-why/">35 篇</a> §7 講過,時序只有實板算數。這個欄位的價值是在實板上會變成真的量測。</p>
 <h2 id="4-rtos-才會踩到的-renode-缺口systick-的第一個週期">4. RTOS 才會踩到的 Renode 缺口:SysTick 的第一個週期</h2>
 <p>第一次跑 FreeRTOS 版,500 ms 只走了 265 個 tick。逐段量:</p>
@@ -175,7 +228,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 <h2 id="5-什麼沒變">5. 什麼沒變</h2>
 <ul>
 <li>橋接、hook、External Control、受控體、十項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。</li>
-<li><code>g_dbg</code> 前 17 字的版面。橋接靠 <code>magic</code> 確認讀對東西,靠符號表找位址;FreeRTOS 版的 <code>g_dbg</code> 在 <code>0x200000d8</code>(裸機 <code>0x200000f8</code>),<code>--sym</code> 換一份就好。</li>
+<li><code>g_dbg</code> 前 20 字的版面(<code>dbg_common_t</code>)。橋接靠 <code>magic</code> 確認讀對東西,靠符號表找位址;兩版的 <code>g_dbg</code> 位址不同,<code>--sym</code> 換一份就好。</li>
 <li>三條規則(35 篇 §6):沒有模擬模式、橋接不做安全、生效證明。<code>[effect]</code> 那幾行多印了 <code>g_dbg</code> 位址與 magic。</li>
 </ul>
 <h2 id="6-檢查清單">6. 檢查清單</h2>

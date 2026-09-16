@@ -17,7 +17,7 @@ Cortex-M4F 是 FreeRTOS 的官方 port(`portable/GCC/ARM_CM4F`),核心只靠三�
 | 中斷優先權 | `configPRIO_BITS 4`、核心 15(最低)、`MAX_SYSCALL` 5;USART1 IRQ 設 6 | 呼叫 `FromISR` API 的中斷,數值要 ≥ MAX_SYSCALL(較不緊急);Renode 的 `nvic priorityMask: 0xF0` 就是 4 位元 |
 | tick | 1 kHz,`configCPU_CLOCK_HZ 72000000` | 與平台描述的 `systickFrequency` 一致;Renode 不看 RCC |
 
-大小:text 8540 B、bss 12.9 KB(12 KB 是 heap:三個 task + idle 的 TCB 與 stack)。
+大小:text 9496 B、bss 12.9 KB(12 KB 是 heap:三個 task + idle 的 TCB 與 stack;抽共用 `control.c` 前 9864 B)。
 
 ## 2. 三個 task,一條 ISR
 
@@ -29,13 +29,28 @@ idle hook              WFI
 USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM_ISR
 ```
 
-設計上跟裸機版**刻意只差「誰排程」**:協定、暫存器、控制律、`g_dbg` 前 17 個字的版面逐字相同,橋接一行都不用改。差異在三個地方:
+設計上跟裸機版**刻意只差「誰排程」**。第一版是把裸機版的協定、暫存器序列、控制律逐行複製過來(理由:兩支韌體各自完整、可獨立閱讀);GOAL 4 改了四次、每次改兩份之後,這一版把它們抽成兩版共用的 [`firmware/control.c`](../../../examples/hil-stm32/firmware/control.c)(協定收發、GPIO/編碼器/PWM/CAN/IWDG 的暫存器序列、安全閘門、斜坡與 PI、里程計、回報、`g_dbg`/`g_cfg` 版面),兩個 `main` 只剩平台的事:
+
+| | 裸機 `firmware/main.c` | FreeRTOS `firmware-freertos/main-rtos.c` |
+|---|---|---|
+| 時間 | SysTick ISR 數的 `s_tick_ms` | `xTaskGetTickCount()`(1 kHz) |
+| USART1 收訊 | ISR 進 ring buffer,主迴圈每 1 ms 醒來解 | ISR 進 ring buffer + `vTaskNotifyGiveFromISR`,`rx_task` 被叫醒才解 |
+| 控制步 | 主迴圈看 `now − next_ctrl` | `ctrl_task` 的 `xTaskDelayUntil`,晚了記 `ctrl_missed` |
+| CAN FIFO 收乾 | 主迴圈每次醒來 | `ctrl_task` 每步開頭 |
+| 餵狗 | 控制步真的跑了才餵 | 最低優先的 `report_task` 餵(高優先 task 把 CPU 吃光時它餵不到 = 該重置) |
+| 死機注入 | 主迴圈 | `ctrl_task`(最高優先,關中斷後全部餓死) |
+| CAN 交握逾時 | 給 `now_ms`(SysTick 已在走,10 ms) | 給 `NULL`(tick 要 scheduler 起來才走,用迭代數) |
+| `g_dbg` | 就是 `dbg_common_t`(20 字) | `dbg_common_t` 當第一個成員,後面接 RTOS 欄位;`ctl_bind_dbg(&g_dbg.c)` |
+
+`control.c` 不知道時間怎麼來:每個要看時間的函式都收 `now_ms` 參數。判準是重構前後**每一個 lockstep CSV 逐 byte 相同**——裸機版第一次比對差了 429 個欄位,追下去是橋接步邊界與韌體控制 tick 重合的問題,不是搬錯([37 篇](../37-bus-signal-bridging/README.md) §5);邊界錯開之後兩版都逐字相同。text:裸機 5716 → 6196 B(指令間接與函式呼叫),FreeRTOS 9864 → 9496。
+
+原本的三個差異點:
 
 - **收訊不再輪詢。** ISR 塞 ring buffer 後用 task notification 叫醒 `rx_task`;沒資料時它睡著,不佔 CPU。裸機版是每 1 ms 醒來看一眼。
 - **週期由 `xTaskDelayUntil` 保證。** 它回 `pdFALSE` 表示「這一輪已經晚了,沒有真的睡」——那就是錯過週期,記進 `g_dbg.ctrl_missed`。裸機版的 `next_ctrl += 5` 會默默追趕,看不出來。
 - **`proto_send` 包在 critical section 裡。** USART1 只有一條 TX 線,`rx_task` 回 PONG 與 `report_task` 送 odom 可能交錯——裸機版沒有這個問題,因為只有一條執行流。
 
-`g_dbg` 第 17 字之後多了 RTOS 才有的觀測:`ctrl_missed`、`report_missed`、`rx_wakeups`、三個 task 的 stack high-water mark、`assert_line`、`stack_overflow`、`malloc_failed`。橋接用 `--dbg-extra 9` 跑完印出。
+`g_dbg` 第 20 字之後多了 RTOS 才有的觀測:`ctrl_missed`、`report_missed`、`rx_wakeups`、三個 task 的 stack high-water mark、`assert_line`、`stack_overflow`、`malloc_failed`。橋接用 `--dbg-extra 9` 跑完印出。
 
 ## 3. 閉環結果:跟裸機版比
 
@@ -53,7 +68,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 | stack 餘量 ctrl / rx / report(word,配 256) | — | 189 / 197 / 179 |
 | `ctrl_steps`(6 s + 開機) | 1220 | 1233 |
 
-兩份 CSV 逐步比對:末端相同,但途中 `ccr1` 在 297/1200 步不同、`odom_seq` 全部不同。原因是**相位**:RTOS 版開機晚了 235 ms(§4),橋接的第 k 步對到韌體的另一個 tick;控制律一樣,只是取樣點錯開。這是 [38 篇](../38-acceptance-and-failure-modes/README.md) §4「步邊界取樣」的另一個面向——同一個系統換一個相位,逐步的數字就不同,末端才是該比的量。
+兩份 CSV 逐步比對:末端相同,`ccr1` 也 1200 步全部相同,只有 `odom_seq` 全部不同。`ccr1` 相同是因為兩版現在共用 `control.c`、而且橋接的步邊界對兩版的控制 tick 都錯開 2 ms(裸機 `boot_ms` 102、RTOS 402;[37 篇](../37-bus-signal-bridging/README.md) §5)——邊界還跟 tick 重合時,同一份控制律在兩版量到 297/1200 步的 `ccr1` 不同,差在被切的那幾步。`odom_seq` 不同是**相位**:RTOS 版開機晚了 235 ms(§4),20 ms 的回報週期對到不同的 tick。這是 [38 篇](../38-acceptance-and-failure-modes/README.md) §4「步邊界取樣」的另一個面向——同一個系統換一個相位,逐步的數字就不同,末端才是該比的量。
 
 `ctrl_missed = 0` 是這一篇最重要的一個數字:在 Renode 的虛擬時間裡,5 ms 的控制週期一次都沒錯過。但它**只證明虛擬時間下沒錯過**——[35 篇](../35-hil-what-and-why/README.md) §7 講過,時序只有實板算數。這個欄位的價值是在實板上會變成真的量測。
 
@@ -88,7 +103,7 @@ ARMv7-M(B3.3.3)規定 `ENABLE` 由 0 變 1 時計數器從 `SYST_RVR` 載入。R
 ## 5. 什麼沒變
 
 - 橋接、hook、External Control、受控體、十項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。
-- `g_dbg` 前 17 字的版面。橋接靠 `magic` 確認讀對東西,靠符號表找位址;FreeRTOS 版的 `g_dbg` 在 `0x200000d8`(裸機 `0x200000f8`),`--sym` 換一份就好。
+- `g_dbg` 前 20 字的版面(`dbg_common_t`)。橋接靠 `magic` 確認讀對東西,靠符號表找位址;兩版的 `g_dbg` 位址不同,`--sym` 換一份就好。
 - 三條規則(35 篇 §6):沒有模擬模式、橋接不做安全、生效證明。`[effect]` 那幾行多印了 `g_dbg` 位址與 magic。
 
 ## 6. 檢查清單

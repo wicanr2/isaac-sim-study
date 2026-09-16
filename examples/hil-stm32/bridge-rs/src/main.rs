@@ -67,7 +67,11 @@ fn parse_args() -> Args {
         script: "0:0,0;0.5:300,0;3.5:0,600;5:0,0".into(),
         log: "out/run.csv".into(),
         negative: "none".into(),
-        boot_ms: 100,
+        // 開機 run_for 的長度,也決定之後每個 5 ms 步邊界落在韌體時間的哪一相位。**不能是 5 的倍數**:
+        // 韌體的控制步在 SysTick 的 5k ms 上跑,邊界若也落在 5k ms,橋接的暫停會切在控制步中間——
+        // CNT 注入與韌體讀 CNT、CCR 寫與 g_dbg 寫,哪個在邊界前後由指令數決定,改幾行碼 CSV 就變
+        // (量到:原版 +200 圈 NOP 8639 個欄位不同、C9 紅;邊界錯開 2 ms 後三個版本逐 byte 相同)
+        boot_ms: 102,
         slip: 0.0,
         dbg_extra: 0,
         mode: "lockstep".into(),
@@ -274,6 +278,7 @@ fn main() {
         "iwdg-off" => "hang".into(), "drv-fault-off" => "drv-fault".into(), "bumper-off" => "bumper".into(),
         "stall-off" => "stall".into(), "hb-off" => "no-ping".into(), _ => a.fault.clone(),
     };
+    if neg == "no-latch" && !a.upper.starts_with("tcp-listen:") { eprintln!("--negative no-latch 是上位側的負對照,要配 --upper tcp-listen(UPPER=nav2)"); }
     let mask_clear: u32 = match neg {
         "iwdg-off" => safety::IWDG, "drv-fault-off" => safety::DRV_FAULT, "bumper-off" => safety::BUMPER,
         "stall-off" => safety::STALL, "hb-off" => safety::HB, _ => 0,
@@ -441,6 +446,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let fault_end_step = ((a.fault_at + 1.5) / dt_s).round() as u32;   // drv-fault / stall 的注入持續 1.5 s
     let mut last_flags: u32 = 0;
     let mut collisions = 0u32;
+    let mut moved_after_reset = 0u32;      // C12:重啟 0.5 s 後受控體還在動的步數
+    let mut dist_after_reset = 0.0f64;
+    let mut pos_at_reset: Option<(f64, f64)> = None;
     let mut first_collision: Option<u32> = None;
     let mut scans_sent = 0u32;
     if realtime {
@@ -656,6 +664,14 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         let out = pl.step(k, plant_dt, cmd).expect("plant step");
         if fault != "none" && t_s >= a.fault_at && stop_step.is_none() && out.vl_mm_s.abs() < 5.0 && out.vr_mm_s.abs() < 5.0 { stop_step = Some(k); }
         if out.x_mm > x_max { x_max = out.x_mm; }
+        if let Some(rs) = reset_step {
+            if pos_at_reset.is_none() { pos_at_reset = Some((out.x_mm, out.y_mm)); }
+            if k >= rs + (0.5 / dt_s) as u32 {
+                if out.vl_mm_s.abs() >= 5.0 || out.vr_mm_s.abs() >= 5.0 { moved_after_reset += 1; }
+                let (x0, y0) = pos_at_reset.unwrap();
+                dist_after_reset = dist_after_reset.max(((out.x_mm - x0).powi(2) + (out.y_mm - y0).powi(2)).sqrt());
+            }
+        }
         if out.collided {
             collisions += 1;
             if first_collision.is_none() { first_collision = Some(k); println!("[world] t={:.3}s 受控體撞到牆或方塊 @({:.0}, {:.0}) mm", t_s, out.x_mm, out.y_mm); }
@@ -907,9 +923,16 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             pass: hang_counts || if enc_mode != "can" { if realtime { cnt_l == last_plant.ticks_l as u32 & 0xFFFF && cnt_r == last_plant.ticks_r as u32 & 0xFFFF } else { tim_ok } } else if realtime { enc_frames as f64 >= 0.9 * steps as f64 } else { enc_frames == steps - 1 },
             detail: if enc_mode != "can" { format!("CNT {cnt_l}/{cnt_r} vs plant {}/{};fw {fw_enc_l}/{fw_enc_r} vs 前一步 {}/{}", last_plant.ticks_l as u32 & 0xFFFF, last_plant.ticks_r as u32 & 0xFFFF, ticks_before_last[0], ticks_before_last[1]) } else { format!("{enc_frames} vs {}", if realtime { steps } else { steps - 1 }) } },
         Check { name: c10_name.leak(), pass: c10_pass, detail: c10_detail },
+        // C12:上位對 WDT_RESET 的反應——韌體重啟後 0.5 s 起到跑完,受控體不得再動(上位該把命令歸零、取消 goal);
+        // 只在 hang + 外部上位驗。負對照 --negative no-latch 是上位那側的參數(driver 不反應),橋接只印標籤
+        Check { name: if fault == "hang" && up.is_some() { "C12 上位對 WDT_RESET 的反應:重啟 0.5 s 後車不再動" } else { "C12 (沒有 hang + 外部上位,不驗)" },
+            pass: !(fault == "hang" && up.is_some()) || (reset_step.is_some() && moved_after_reset == 0),
+            detail: if fault == "hang" && up.is_some() { format!("重啟 {};重啟 0.5 s 後 |v| ≥ 5 mm/s 的步數 {},最遠再走 {:.0} mm",
+                step_ms(reset_step).map(|t| format!("@{:.0} ms", t)).unwrap_or("沒發生".into()), moved_after_reset, dist_after_reset) } else { String::new() } },
         // C11:有世界且上位是外部的(Nav2)→ 到達 goal 0.1 m 內、途中沒撞;沒世界不驗
-        Check { name: if world.is_some() && a.expect_goal { "C11 Nav2:受控體到達 world.goal 0.1 m 內,途中沒撞牆或方塊" } else { "C11 (沒有 --expect-goal,不驗)" },
-            pass: match (&world, a.expect_goal) {
+        // 有故障注入時不驗到達:那個場景在驗 C10/C12(車該停),不是該到
+        Check { name: if world.is_some() && a.expect_goal && fault == "none" { "C11 Nav2:受控體到達 world.goal 0.1 m 內,途中沒撞牆或方塊" } else if fault != "none" { "C11 (故障注入場景,不驗到達)" } else { "C11 (沒有 --expect-goal,不驗)" },
+            pass: match (&world, a.expect_goal && fault == "none") {
                 (Some(w), true) => collisions == 0 && ((last_plant.x_mm - w.goal.0 * 1000.0).powi(2) + (last_plant.y_mm - w.goal.1 * 1000.0).powi(2)).sqrt() <= 100.0,
                 _ => true },
             detail: match &world {

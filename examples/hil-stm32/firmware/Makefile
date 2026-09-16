@@ -8,12 +8,12 @@ SIZE    = arm-none-eabi-size
 CFLAGS  = -mcpu=cortex-m4 -mthumb -mfloat-abi=soft -O2 -g -Wall -Wextra \
           -ffreestanding -fno-builtin -nostdlib -ffunction-sections -fdata-sections
 LDFLAGS = -T stm32f4.ld -nostdlib -Wl,--gc-sections -Wl,-Map=build/hilctl.map
-SRCS    = startup.c crc16.c main.c
+SRCS    = startup.c crc16.c control.c main.c
 OBJS    = $(SRCS:%.c=build/%.o)
 
 all: build/hilctl.elf build/hilctl.sym
 
-build/%.o: %.c regs.h proto.h calib.h crc16.h | build
+build/%.o: %.c regs.h proto.h calib.h crc16.h control.h | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
 build/hilctl.elf: $(OBJS) stm32f4.ld

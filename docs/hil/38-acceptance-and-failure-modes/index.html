@@ -23,7 +23,7 @@
 <h2 id="1-十項判準在開跑前寫死">1. 十項判準,在開跑前寫死</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/run_loop.sh"><code>run_loop.sh</code></a> 一條指令:起 Renode 容器(<code>--network none</code>)、橋接容器共用它的 netns、跑完只停自己起的那一個。橋接開頭先印生效證明:</p>
 <pre><code>[effect] encoder: calib=tim inject=hook
-[effect] renode ec=127.0.0.1:3500 hook=127.0.0.1:3600 machine=hilctl boot_ms=100 t0_us=100000
+[effect] renode ec=127.0.0.1:3500 hook=127.0.0.1:3600 machine=hilctl boot_ms=102 t0_us=102000
 [effect] g_dbg@0x2000011c magic=0x48494c31 (ok) init_err=0
 [effect] mode=lockstep plant=fake dt_ms=5 steps=1200 report_every=4 script=&quot;0:0,0;0.5:300,0;3.5:0,600;5:0,0&quot; negative=none slip=0
 [effect] tim3 ARR=999 (calib pwm_arr=999) track=300 circ_um=314159 tpr=4096
@@ -176,8 +176,8 @@
 <td><code>KR=0x5555 → PR=3(/32 → 1 kHz)→ RLR=999 → KR=0xCCCC → KR=0xAAAA</code>;每個控制步餵(FreeRTOS 版由最低優先的 report_task 餵)</td>
 <td><code>hang</code>:<code>g_cfg.hang_at_ms</code> 到時關中斷死迴圈</td>
 <td>死掉後 1.2 s 內重啟(<code>.noinit</code> 計數 +1、tick 從頭)、重啟那步 CCR 0</td>
-<td>1.995 s 死掉(<code>ctrl_steps</code> 停在 420)→ <strong>2.995 s 重啟</strong>(+1000 ms);死掉期間 CCR 停在 330(33% duty 轉了 1 s);重啟那步 CCR 0,5 ms 後上位的 cmd_vel 又進來,車又走</td>
-<td><code>iwdg-off</code>:不起動 IWDG → 沒重啟,CCR 330 轉到結束,車跑到 1.59 m,<strong>紅</strong></td>
+<td>1.995 s 死掉(<code>ctrl_steps</code> 停在 420)→ <strong>2.995 s 重啟</strong>(+1000 ms);死掉期間 CCR 停在 345(34.5% duty 轉了 1 s);重啟那步 CCR 0,5 ms 後上位的 cmd_vel 又進來,車又走</td>
+<td><code>iwdg-off</code>:不起動 IWDG → 沒重啟,CCR 345 轉到結束,車跑到 1.6 m,<strong>紅</strong></td>
 </tr>
 <tr>
 <td>驅動器故障腳</td>
@@ -200,7 +200,7 @@
 <td>上一步 |duty| ≥ 60% 且 |輪速| &lt; 20 mm/s 持續 200 ms → 鎖住(致能關),上位命令歸零才解</td>
 <td><code>stall</code>:2.0–3.5 s 受控體不動、編碼器不動</td>
 <td>卡住後 500 ms 內 STALL 且 CCR 0;命令歸零後解</td>
-<td>旗標 <strong>+345 ms</strong>(輪速衰減 ~150 ms + 200 ms);之後 3.5 s 的轉向命令被擋,5.0 s 歸零解鎖</td>
+<td>旗標 <strong>+355 ms</strong>(輪速衰減 ~150 ms + 200 ms);之後 3.5 s 的轉向命令被擋,5.0 s 歸零解鎖</td>
 <td><code>stall-off</code>:旗標不出現,duty 100% 灌到 3.5 s,<strong>紅</strong></td>
 </tr>
 <tr>
@@ -215,7 +215,7 @@
 </table></div>
 <p>三個細節是做了才知道的:</p>
 <ul>
-<li><strong>堵轉的速度門檻要高於感測器的量子。</strong> 一個 tick = 76.7 µm,5 ms 一個控制步,所以最小的非零速度是 15 mm/s;門檻 5 mm/s 的話,輪子還在慢慢滑的那幾百毫秒裡每偶爾一個 tick 就把計時清零,量到 +525 ms 才鎖。門檻改 20 → +345 ms。</li>
+<li><strong>堵轉的速度門檻要高於感測器的量子。</strong> 一個 tick = 76.7 µm,5 ms 一個控制步,所以最小的非零速度是 15 mm/s;門檻 5 mm/s 的話,輪子還在慢慢滑的那幾百毫秒裡每偶爾一個 tick 就把計時清零,量到 +525 ms 才鎖。門檻改 20 → +355 ms。</li>
 <li><strong>Renode 的 GPIO 輸入腳預設是 0,而且機器重置後回到 0。</strong> 低有效的腳在真板上靠 pull-up,Renode 不看 <code>PUPDR</code>;橋接開機前把三腳拉高,IWDG 重啟後也要再拉一次(重啟後那一步 DRV_FAULT 與 BUMPER 會亮一下)。這是「橋接扮演板子」的一部分,不是韌體的事——韌體照 RM0090 寫 <code>PUPDR = 01</code>。</li>
 <li><strong>暖重置的證據。</strong> 真板讀 <code>RCC_CSR.IWDGRSTF</code>;Renode 的 RCC 給重置值 <code>0x0E000000</code>(POR/PIN/BOR 三個旗標),不設 IWDGRSTF——這是 <code>STM32_IndependentWatchdog</code> 原始碼裡的 <code>TODO</code>。韌體另外用 <code>.noinit</code> 區段的計數(<code>LoadELF</code> 只寫檔案裡有的區段,<code>NOLOAD</code> 的 SRAM 跨 reset 保留),兩個都記進 <code>g_dbg</code>。看門狗模型本身照 RM0090 第 21 章的序列反應:<code>Reload()</code> 才把 RLR 載入計數器、起動時從 0xFFF 起、逾時 <code>machine.RequestReset()</code>;監視器的 <code>macro reset</code> 接著重載 ELF,韌體從 <code>Reset_Handler</code> 重來。<strong>這一項 Renode 沒有缺口。</strong></li>
 </ul>
@@ -236,8 +236,8 @@
 <p>同一腳本跑兩次,1201 行 CSV(每步 32 個欄位;realtime 多一欄 <code>wall_ms</code>:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)<strong>逐 byte 相同</strong>。靠的是 <a href="../../hil/37-bus-signal-bridging/">37 篇</a> §3 的 ack:每筆注入確認進了週邊才推進時間。</p>
 <p>但換一個「同一個模型」的實作就不一樣了。<code>plant/fake_plant.py</code>(Python,走 UDP)與橋接內建的 Rust <code>Fake</code> 是同一組公式、同一份 calib:</p>
 <ul>
-<li>末端位姿:x 900.8、y 0.4 相同,θ 0.8627 vs 0.8628</li>
-<li>1200 步 × 8 個欄位裡有 <strong>811 個不同</strong>,第一個在第 446 步:<code>ticks_l</code> 6310 vs 6309</li>
+<li>末端位姿 x 900.8、y 0.4、θ 0.8627 相同</li>
+<li>1200 步 × 8 個欄位裡有 <strong>568 個不同</strong>,第一個在第 270 步:<code>ticks_l</code> 2856 vs 2855</li>
 </ul>
 <p>差在 <code>floor(s / 周長 × 4096)</code> 的邊界——兩種語言的浮點運算在最後一位偶爾不同,落在整數邊界上就差 1 tick;馬達層的死區與限幅多了幾次乘除,邊界撞到的次數也跟著多。<strong>決定性是每個實作各自成立的性質</strong>;要跨實作比對,用容差,不用相等。</p>
 <h2 id="4-步邊界取樣的盲點">4. 步邊界取樣的盲點</h2>
@@ -331,7 +331,8 @@
 | 方形閉環加了斜坡後閉合從 35 變 277 mm | 斜坡對兩輪各自限,轉→直時兩輪從不同速度起步、不同時到,每段直線畫弧 +0.16 rad | 每段結束的位姿;改成 v/w 各限(§1.1) |
 | 堵轉旗標晚了 525 ms 才亮 | 速度門檻 5 mm/s 低於感測器量子(一個 tick / 5 ms = 15 mm/s),輪子慢慢滑時偶爾一個 tick 就把計時清零 | 門檻 ≥ 量子(§1.2) |
 | IWDG 重啟後 DRV_FAULT、BUMPER 亮一步 | 機器重置把 GPIO 埠也重置,低有效的輸入腳回到 0;真板的 pull-up 在板子上 | 橋接偵測到 tick 倒退就重新拉高(§1.2) |
-| 韌體死掉了,車還在走 | 這不是 bug,是沒有看門狗時的必然:CPU 停了,TIM3 的 PWM 沒停 | <code>--negative iwdg-off</code>:CCR 停在 330、車跑 1.6 m;正對照 IWDG 1 s 後整顆重置 |</p>
+| 韌體死掉了,車還在走 | 這不是 bug,是沒有看門狗時的必然:CPU 停了,TIM3 的 PWM 沒停 | <code>--negative iwdg-off</code>:CCR 停在 345、車跑 1.6 m;正對照 IWDG 1 s 後整顆重置 |
+| 只搬不改的重構讓 CSV 有 429 個欄位不同;原版加 200 圈 NOP 更差(8639 個、C9 紅) | 橋接的步邊界(<code>boot_ms</code> 100 + 5k)與韌體的控制 tick(5k)重合,暫停切在控制步中間;哪些存取在邊界前後由指令數決定 | <code>ccr1 ≠ duty_l</code> 的那一步就是被切的證據;邊界錯開 2 ms(<code>boot_ms</code> 102)後三個版本逐 byte 相同(<a href="../../hil/37-bus-signal-bridging/">37 篇</a> §5) |</p>
 <p>共同點:<strong>每一個的第一眼症狀都指向別的地方</strong>——握手失敗像版本不合、SRAM 全零像位址錯、FIFO 空像模型缺口、C4 不符像韌體回報錯、彈飛像腳輪或質量。每一個都是先讀原始碼或加一個更近的觀測點才看到真因;彈飛那一個,近一點的觀測點是「靜止後停在哪個高度」。</p>
 <h2 id="6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/plant/isaac_plant.py"><code>plant/isaac_plant.py</code></a> 實作同一個受控體協定(TCP 版,因為 <code>ssh -L</code> 只轉 TCP):用 <code>pxr</code> / <code>UsdPhysics</code> 直接建一台差速車(Mesh 盒底盤 + 兩個球形輪 + 球關節腳輪),<code>DriveAPI</code> 的 angular 速度目標當馬達,<code>omni.physx</code> 手動步進,物理步長綁 calib 的 5 ms。它刻意不用 OmniGraph(<a href="../../fleet/31-omnigraph-and-ros2-bridge-truth/">31 篇</a> §5:headless 下 <code>world.step(render=False)</code> 不 tick action graph)、也不依賴 <code>isaacsim.core.api</code> 或 <code>isaacsim.core.experimental</code> 任一邊(<a href="../../common/01-install-and-run-modes/">01 篇</a> §3 的命名空間搬家)。</p>

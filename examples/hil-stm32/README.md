@@ -31,8 +31,8 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 | `calib.json` | 韌體、橋接、受控體共用的唯一參數來源;`tools/gen_calib.py` 產 `firmware/calib.h`。`pwm_prescaler` 0 = 10 kHz 載波(Renode 自由跑 0.46×)、9 = 1 kHz(1.0×);不影響 lockstep 結果。`accel_limit_mm_s2` / `alpha_limit_mrad_s2`(韌體斜坡)、`ff_gain_q8`、`pi_kp_q8` / `pi_ki_q8`、`motor_tau_s` / `motor_accel_max_mm_s2` / `motor_deadband_duty`(三個受控體共用的馬達層) | 步階與 C9,[38 篇 §1.1](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
 | `tools/io_check.sh` | 在 Renode 容器裡跑 `renode/io_check.resc`:monitor 扮演板子(pull-up、PING、CNT、PC 腳),A–J 十項含 IWDG 重啟 | 實測 |
 | `tools/step_response.py`、`tools/tune_sweep.sh` | 從 CSV 算步階響應(上升、超調、±2% 帶、最大加速度);kp × ki 網格掃描,每格用橋接 `--cfg` 經 External Control 改 `g_cfg`,不重編韌體 | 實測 |
-| `firmware/` | 裸機 STM32F4 韌體(C,無 HAL / libc):USART1 框包 + CRC16(中斷收訊)、TIM3 PWM、方向/致能 GPIO、TIM2/TIM4 encoder mode、bxCAN 狀態、5 ms 斜坡 + PI + 前饋、20 ms odom、WFI;安全:PC13 急停、PC14/15 驅動器故障、PC0 保險桿、堵轉、PING 心跳、IWDG(`.noinit` 暖重置計數) | Renode 1.16.1 實測 |
-| `firmware-freertos/` | 同一台車的 FreeRTOS V11.3.1 版(三個 task + USART1 ISR;kernel 最小子集 vendor 在 `kernel/`,MIT);`FW=freertos ./run_loop.sh` | Renode 實測 ALL PASS |
+| `firmware/` | 裸機 STM32F4 韌體(C,無 HAL / libc)。`control.c`/`control.h` 是兩版共用的:USART1 框包 + CRC16、GPIO/TIM2-TIM4 encoder mode/TIM3 PWM/bxCAN/IWDG 的暫存器序列、5 ms 斜坡 + PI + 前饋、安全閘門(PC13 急停、PC14/15 驅動器故障、PC0 保險桿、堵轉、PING 心跳)、里程計、20 ms 回報、`g_dbg`/`g_cfg` 版面;`main.c` 只有 SysTick、USART1 ISR + ring buffer、主迴圈排程、餵狗 | Renode 1.16.1 實測;重構前後 lockstep CSV 逐 byte 相同 |
+| `firmware-freertos/` | 同一台車的 FreeRTOS V11.3.1 版:`main-rtos.c` 只有三個 task + USART1 ISR + hooks,其餘連 `../firmware/control.c`(kernel 最小子集 vendor 在 `kernel/`,MIT);`FW=freertos ./run_loop.sh` | Renode 實測 ALL PASS;重構前後 CSV 逐 byte 相同 |
 | `renode/` | vendor 的 1.16.1 `stm32f4.repl`(拿掉 `ApplySVD`)、開機腳本(`hilctl-common.resc` 共用;`hilctl-socketcan*.resc` 走 vcan)、`hil_hook.py`(IronPython:CAN/UART ↔ TCP,每筆注入回 ack;機器在跑時走 `HandleTimeDomainEvent`)、`boot_check` / `perf_check` / `perf_freerun` / `perf_timer_events` / `io_check` 驗收腳本 | 實測 |
 | `renode/upstream/` | 給 Renode 上游的四項修正(`STM32_Timer` 三項、`NVIC` SysTick、`CANHub` 暫停丟訊框)的原版/patch/執行期載入版、探針、Robot、NUnit、不建 Renode 的驗證流程 | fork 三個 commit,NUnit 修正版 9/9、原版 2/9 |
 | `tools/vcan_up.py` | 用 netlink 在目前 netns 建 vcan(不需要 iproute2);要 root + `NET_ADMIN` | 實測 |
@@ -64,9 +64,9 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 
 ## 實測數字(2026-09-15/16,docker 2 核,主機另有負載)
 
-- 6 s 預設腳本 = 1200 步(現行 calib,2026-09-16,load 7–8):牆鐘 12.6 s,每步 10.5 ms,0.49× 實時;末端 900.8 / 0.4 / 0.8627,odom 對真值 0.8 mm / 0.7 mrad;裸機、FreeRTOS、hook/gpio/cnt 三種注入、vcan 路末端逐字相同,UDP 受控體 θ 差 0.1 mrad
+- 6 s 預設腳本 = 1200 步(現行 calib,2026-09-16,load 7–8):牆鐘 12.6 s,每步 10.5 ms,0.49× 實時;末端 900.8 / 0.4 / 0.8627,odom 對真值 0.8 mm / 0.7 mrad;裸機、FreeRTOS、hook/gpio/cnt 三種注入、vcan 路、UDP 受控體末端逐字相同
 - 兩次跑 CSV 逐 byte 相同;`--negative bad-crc` → `bad_crc=300`、位移 0、C2 紅;`enc-swap` → 車跑到 5.3 m、C3/C8/C9 紅;`no-ramp` → 加速度 3000 vs 2520、C9 紅
-- 安全 I/O 五項(`--fault`):韌體 1.995 s 死掉 → IWDG 2.995 s 重啟(+1000 ms,馬達以 33% duty 轉了 1 s);驅動器故障腳拉低 → 同一個控制步切掉;撞牆 +37 mm 停、倒車放行;堵轉 +345 ms 鎖住;PING 停 +200 ms HB_LOST、+495 ms 車停。五個 `*-off` 負對照各自紅(iwdg-off 的車跑到 1.59 m)
+- 安全 I/O 五項(`--fault`):韌體 1.995 s 死掉 → IWDG 2.995 s 重啟(+1000 ms,馬達以 34.5% duty 轉了 1 s);驅動器故障腳拉低 → 同一個控制步切掉;撞牆 +37 mm 停、倒車放行;堵轉 +355 ms 鎖住;PING 停 +200 ms HB_LOST、+495 ms 車停。五個 `*-off` 負對照各自紅(iwdg-off 的車跑到 1.6 m)
 - 加減速(斜坡在韌體 1500 mm/s² / 4000 mrad/s²、前饋、馬達層在受控體):300 mm/s 步階假受控體超調 15.4% → 2.2%、最大加速度 9300 → 1820;Isaac 60% → 3.0%、91400 → 1900,C3 dθ 27.6 → 0.8 mrad
 - 韌體 text 5092 B(含斜坡、前饋、encoder mode);WFI 讓 1 s 虛擬時間從 13.4 s 降到 1.83 s
 - Isaac 6.0.1 受控體(遠端,`ssh -L`):每步 52 ms;odom 對真值 3.4 / 2.0 mm、0.028 rad;滑移 3.1%;兩次 CSV 逐 byte 相同(CPU 求解)
