@@ -1,0 +1,35 @@
+# 盤點 encoder mode:TIM4 設 SMS=011(TI1+TI2 都計數)、CC1S/CC2S=01(輸入),從 monitor 直接對 timer4 的
+# 輸入腳(OnGPIO 0/1 = TI1/TI2)灌正交序列,讀 CNT。$timer 選 stock(1.16.1)或 master(執行期載入)。
+# 用法:-e "include @/w/renode/upstream/probe_encoder_stock.resc"(原版)或 probe_encoder_master.resc(master 版)
+# TIM4 @ 0x40000800:CR1 0x00 SMCR 0x08 CCMR1 0x18 CCER 0x20 CNT 0x24 ARR 0x2C
+sysbus WriteDoubleWord 0x4000082C 0xFFFF
+sysbus WriteDoubleWord 0x40000818 0x0101
+sysbus WriteDoubleWord 0x40000820 0x0011
+sysbus WriteDoubleWord 0x40000808 0x0003
+sysbus WriteDoubleWord 0x40000800 0x0001
+echo "[enc] SMCR readback / CNT start:"
+sysbus ReadDoubleWord 0x40000808
+sysbus ReadDoubleWord 0x40000824
+# 一個正交週期 = 4 個邊緣:A↑ B↑ A↓ B↓(A 領先 B → 正向)
+timer4 OnGPIO 0 true
+timer4 OnGPIO 1 true
+timer4 OnGPIO 0 false
+timer4 OnGPIO 1 false
+echo "[enc] CNT after one forward quadrature cycle (expect 4):"
+sysbus ReadDoubleWord 0x40000824
+# 反向:B 領先 A
+timer4 OnGPIO 1 true
+timer4 OnGPIO 0 true
+timer4 OnGPIO 1 false
+timer4 OnGPIO 0 false
+echo "[enc] CNT after one reverse cycle (expect 0):"
+sysbus ReadDoubleWord 0x40000824
+timer4 OnGPIO 1 true
+timer4 OnGPIO 0 true
+timer4 OnGPIO 1 false
+timer4 OnGPIO 0 false
+echo "[enc] CNT after another reverse cycle (expect 0xFFFC, wraps below 0):"
+sysbus ReadDoubleWord 0x40000824
+echo "[enc] CR1 DIR bit (expect 0x11 = CEN | DIR down):"
+sysbus ReadDoubleWord 0x40000800
+quit

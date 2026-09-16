@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="494" viewBox="0 0 860 494" font-family="'Noto Sans CJK TC','PingFang TC','Microsoft JhengHei',sans-serif">
+  <rect width="860" height="470" fill="#ffffff"/>
+  <text x="430" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#333">編碼器改走 TIM encoder mode:韌體在自己的 tick 讀 CNT,時間基準回到韌體身上</text>
+  <defs>
+    <marker id="eGrn" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#2e7d4f"/></marker>
+    <marker id="eOrg" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#b35c1e"/></marker>
+  </defs>
+
+  <!-- 左:正交波形與計數規則 -->
+  <text x="40" y="58" font-size="12.5" font-weight="bold" fill="#333">正交訊號與 SMS=011(TI1、TI2 的邊緣都計數):一個週期 4 個計數</text>
+  <g font-size="11" fill="#555">
+    <text x="40" y="92">TI1(A)</text>
+    <text x="40" y="132">TI2(B)</text>
+    <text x="40" y="172">CNT</text>
+  </g>
+  <!-- A: 00 10 11 01 00 ... 每格 40 px -->
+  <path d="M100,100 L140,100 L140,80 L220,80 L220,100 L300,100 L300,80 L380,80 L380,100 L420,100" fill="none" stroke="#5b7fa6" stroke-width="2"/>
+  <path d="M100,140 L180,140 L180,120 L260,120 L260,140 L340,140 L340,120 L420,120" fill="none" stroke="#b35c1e" stroke-width="2"/>
+  <g font-size="10.5" fill="#333" text-anchor="middle">
+    <text x="140" y="176">+1</text><text x="180" y="176">+1</text><text x="220" y="176">+1</text><text x="260" y="176">+1</text><text x="300" y="176">+1</text><text x="340" y="176">+1</text><text x="380" y="176">+1</text>
+  </g>
+  <g stroke="#ddd" stroke-dasharray="2 2"><line x1="140" y1="76" x2="140" y2="180"/><line x1="180" y1="76" x2="180" y2="180"/><line x1="220" y1="76" x2="220" y2="180"/><line x1="260" y1="76" x2="260" y2="180"/><line x1="300" y1="76" x2="300" y2="180"/><line x1="340" y1="76" x2="340" y2="180"/><line x1="380" y1="76" x2="380" y2="180"/></g>
+  <text x="40" y="200" font-size="10.5" fill="#555">A 領先 B → 每個邊緣 +1、DIR=0;B 領先 A → −1、DIR=1;</text>
+  <text x="40" y="214" font-size="10.5" fill="#555">0 往下數繞到 ARR,ARR 往上數繞到 0(RM0090 §18.3.12)</text>
+  <text x="40" y="232" font-size="10.5" fill="#b03a2e">1.16.1:SMS 是 tagged flag,CNT 永遠 0。master 有 encoder mode,</text>
+  <text x="40" y="246" font-size="10.5" fill="#b03a2e">但 0 往下數丟例外、DIR 不動 → fork 修(NUnit 5 條,原版 1/5)</text>
+
+  <!-- 右:韌體讀 CNT -->
+  <rect x="470" y="70" width="350" height="150" rx="8" fill="#fbe3e0" stroke="#b03a2e"/>
+  <text x="645" y="92" text-anchor="middle" font-size="12" font-weight="bold" fill="#7a1f16">韌體(裸機與 FreeRTOS 同)</text>
+  <g font-size="10.5" fill="#7a1f16">
+    <text x="485" y="114">TIM2(PA0/PA1 AF1)左輪、TIM4(PB6/PB7 AF2)右輪</text>
+    <text x="485" y="130">CC1S/CC2S=01、CCER 兩通道、SMCR SMS=011、ARR=0xFFFF、CEN</text>
+    <text x="485" y="152">每 5 ms 控制步:dl = (int16)(CNT − 上次 CNT)</text>
+    <text x="485" y="168">輪速 = dl × 周長 / 4096 / 5 ms;累計進里程計</text>
+    <text x="485" y="190">時間基準 = 韌體自己的 SysTick,不再假設「每筆訊框 5 ms」</text>
+    <text x="485" y="206">→ realtime 下閉環速度 = 設定點 × (Renode 時間 / 牆鐘),一個數字就解釋完</text>
+  </g>
+
+  <!-- 下:三種注入法 -->
+  <text x="40" y="276" font-size="12.5" font-weight="bold" fill="#333">受控體的 tick 怎麼進到 CNT:三種注入法(lockstep 每步成本,主機 load 8–10)</text>
+  <g font-size="11">
+    <rect x="40" y="294" width="250" height="118" rx="8" fill="#e8f3ec" stroke="#2e7d4f"/>
+    <text x="165" y="316" text-anchor="middle" font-weight="bold" fill="#1f5236">hook(一筆紀錄 Δtick 左/右)</text>
+    <text x="165" y="336" text-anchor="middle" fill="#1f5236">.NET QuadratureFeeder 在 Renode 裡</text>
+    <text x="165" y="352" text-anchor="middle" fill="#1f5236">對 timer 的 TI1/TI2 打邊緣,一個 ack</text>
+    <text x="165" y="374" text-anchor="middle" fill="#2e7d4f" font-weight="bold">2.9 ms/步;走的是 encoder mode 本身</text>
+    <text x="165" y="394" text-anchor="middle" fill="#555">lockstep 預設</text>
+    <rect x="305" y="294" width="250" height="118" rx="8" fill="#fafafa" stroke="#888"/>
+    <text x="430" y="316" text-anchor="middle" font-weight="bold" fill="#333">gpio(每個邊緣一個 RPC)</text>
+    <text x="430" y="336" text-anchor="middle" fill="#555">External Control gpio_set 直接對</text>
+    <text x="430" y="352" text-anchor="middle" fill="#555">timer2 / timer4 的輸入腳</text>
+    <text x="430" y="374" text-anchor="middle" fill="#333" font-weight="bold">4.2 ms/步(約 40 個 RPC)</text>
+    <text x="430" y="394" text-anchor="middle" fill="#555">對照用</text>
+    <rect x="570" y="294" width="250" height="118" rx="8" fill="#fff3e6" stroke="#b35c1e"/>
+    <text x="695" y="316" text-anchor="middle" font-weight="bold" fill="#7a3d0f">cnt(直接寫 CNT 暫存器)</text>
+    <text x="695" y="336" text-anchor="middle" fill="#7a3d0f">External Control 匯流排寫 TIM2/TIM4 CNT</text>
+    <text x="695" y="352" text-anchor="middle" fill="#7a3d0f">繞過 encoder 邏輯,韌體看不出差別</text>
+    <text x="695" y="374" text-anchor="middle" fill="#b35c1e" font-weight="bold">2.8 ms/步;realtime 預設</text>
+    <text x="695" y="394" text-anchor="middle" fill="#555">每個邊緣在模型裡是一次 Value 寫入(50–100 µs)</text>
+  </g>
+  <text x="430" y="440" text-anchor="middle" font-size="11" fill="#333">三種注入法 lockstep 末端逐字相同(902.0, −0.9, 0.9019);負對照 A/B 對調 → 韌體量到負速度、正回饋跑掉 5.4 m,C3 紅。</text>
+  <text x="430" y="460" text-anchor="middle" font-size="11" fill="#333">realtime 三次:x = 902 × 驅動段 Renode/牆鐘比(883/771/665 預測 vs 876/766/668 實測),θ 同理——差全部在時鐘比裡。</text>
+  <text x="430" y="482" text-anchor="middle" font-size="10.5" fill="#888">36 篇 §1 §3、37 篇 §5;2026-09-16。</text>
+</svg>

@@ -9,7 +9,10 @@ $quantum ?= "0.0001"
 using sysbus
 mach create "hilctl"
 emulation SetGlobalQuantum $quantum
-machine LoadPlatformDescription @/w/renode/hilctl.repl
+# $repl 可由呼叫端換成 upstream/stm32f4-encoder.repl(TIM2/TIM4 換成有 encoder mode 的 master 版 timer,
+# 要先 i @/w/renode/upstream/STM32_Timer_Master.cs)
+$repl ?= @/w/renode/hilctl.repl
+machine LoadPlatformDescription $repl
 
 # USART2 = 人看的除錯輸出。headless 下 showAnalyzer 沒有用,改寫到檔案。
 usart2 CreateFileBackend @/w/renode/out/usart2.txt true

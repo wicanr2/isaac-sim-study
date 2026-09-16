@@ -74,6 +74,12 @@
 <td>IronPython hook(<code>can1.OnFrameReceived</code> / <code>FrameSent</code>)</td>
 <td>不碰核心;三條路的取捨在 §4</td>
 </tr>
+<tr>
+<td>編碼器 tick</td>
+<td>受控體 → MCU</td>
+<td>hook 一筆 <code>0xFFFF0020</code>(Δtick 左/右)→ Renode 裡的 .NET <code>QuadratureFeeder</code> 對 TIM2/TIM4 的 TI1/TI2 打正交邊緣;或 External Control 寫 CNT</td>
+<td>lockstep 走邊緣(驗 encoder mode),realtime 寫 CNT(每個邊緣 50–100 µs);36 篇 §3.1</td>
+</tr>
 </tbody>
 </table></div>
 <p>兩個 TCP 埠:3500(External Control)、3600(hook)。3456 的 socket terminal 留著當對照。</p>
@@ -211,6 +217,7 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 <p><strong>一步延遲</strong>:第 5 步注入的訊框,韌體在下一步的 <code>run_for</code> 裡才讀。6 s 跑完 <code>enc_frames</code> = 1199 = steps − 1。</p>
 <p><strong>每步成本</strong>:主機閒時 8–13 ms(分段:<code>run_for</code> 9.3 ms、hook 2.2 ms、<code>ec_read</code> 1.0 ms),主機另有負載時 29.6 ms——橋接每步印 <code>[run] per-step wall: ec_read/hook/plant/run_for</code> 四段,看數字不用猜。要更快的話,順序是:把 drain 換成「等一個明確的 end-of-step 紀錄」(省 1 ms)、把 GPIO 三次讀合併成一次 <code>ODR</code> 匯流排讀(省 2 RPC)、最後才是把 <code>run_for</code> 拉長。</p>
 <p><code>--mode realtime</code> 用同一個迴圈,只換第 2 步:開跑前經 hook 送 <code>START</code>(<code>0xFFFF0010</code>,hook 呼叫 <code>StartAll()</code> 後 ack),每步不再 <code>run_for</code>,改 sleep 到下一個 5 ms 牆鐘刻度;受控體的 dt 用實際過了多久;跑完送 <code>PAUSE</code>(<code>0xFFFF0011</code>)。每步 5.0–5.2 ms(<code>ec_read</code> 1.8 + hook 2.4 + sleep 0.4),三個時鐘的分歧與後果量在 <a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1。</p>
+<p><strong>編碼器注入 <code>--enc hook|gpio|cnt|can</code></strong>(<code>auto</code>:calib <code>tim</code> 時 lockstep → <code>hook</code>、realtime → <code>cnt</code>;<code>can</code> 是第一版的訊框路):<code>hook</code> 一筆紀錄帶左右 Δtick,hook 端交給 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/hil_quadrature.cs"><code>renode/hil_quadrature.cs</code></a>——一個 .NET 類,把 Δtick 走成 A/B 相位序列、對 timer 的 <code>OnGPIO(0/1)</code> 打邊緣。為什麼是 .NET 不是 Python:機器在跑時這段工作要排進時間域、在模擬執行緒上執行,用 Python lambda 排進去會在 hook 執行緒還在 Python 裡時把模擬卡死(Renode 時間停在 0.535 s,量到的);.NET 方法沒有這個問題。<code>i @file.cs</code> 動態編譯的型別 IronPython <code>import</code> 不到,要從 <code>AppDomain</code> 的組件用反射拿。每步成本 lockstep:hook 2.9 ms、gpio 4.2 ms(約 40 個 RPC)、cnt 2.8 ms。C8 在 TIM 模式改驗兩個等式:<code>CNT == 受控體 tick mod 2^16</code>(注入沒掉)、韌體累計 == 前一步的 tick(一步延遲)。</p>
 <p><strong>上位出口 <code>--upper tcp-listen:ADDR</code></strong>(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/bridge-rs/src/upper.rs"><code>src/upper.rs</code></a>):外部上位(ROS 2 節點)連進來,橋接在這一側只當序列線——每步開頭把收到的 byte 全部注入 USART1、等 ack;MCU 吐出的 byte 原樣送回。它不解語意,只用同一個 <code>Parser</code> 數框包(C7)、記最後一個命令進 CSV。內建腳本與外部上位送到韌體的 byte 完全相同,韌體分不出來——這是拓撲那張表「每個行程只認一種語言」的實作。</p>
 <h2 id="6-受控體介面">6. 受控體介面</h2>
 <p>橋接對受控體只暴露兩個結構:</p>

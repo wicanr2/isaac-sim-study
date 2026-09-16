@@ -15,6 +15,7 @@
 #define PI_KP_Q8                 128
 #define PI_KI_Q8                 13
 #define PI_INTEGRAL_LIMIT        20000
+#define ENC_SOURCE_TIM           1  /* 1: TIM2/TIM4 encoder mode 讀 CNT;0: CAN 0x181 訊框 */
 #define CAN_ID_ENCODER           0x181
 #define CAN_ID_MOTOR_STATUS      0x201
 

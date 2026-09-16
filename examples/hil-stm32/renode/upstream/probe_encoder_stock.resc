@@ -1,0 +1,4 @@
+using sysbus
+mach create "enc"
+machine LoadPlatformDescription @/w/renode/hilctl.repl
+include @/w/renode/upstream/probe_encoder.resc

@@ -21,6 +21,7 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 
 | 路徑 | 內容 | 驗證 |
 |---|---|---|
+| `calib.json`(`encoder_source`) | `tim`:韌體從 TIM2/TIM4 encoder mode 讀 CNT(預設);`can`:第一版的 CAN 0x181 訊框。`ENC=hook\|gpio\|cnt` 選注入法 | 三種 lockstep 末端逐字相同 |
 | `calib.json` | 韌體、橋接、受控體共用的唯一參數來源;`tools/gen_calib.py` 產 `firmware/calib.h`。`pwm_prescaler` 0 = 10 kHz 載波(Renode 自由跑 0.46×)、9 = 1 kHz(1.0×);不影響 lockstep 結果 | — |
 | `firmware/` | 裸機 STM32F4 韌體(C,無 HAL / libc):USART1 框包 + CRC16(中斷收訊)、TIM3 PWM、方向/致能 GPIO、PC13 急停、bxCAN 編碼器與狀態、5 ms PI、20 ms odom、WFI | Renode 1.16.1 實測 |
 | `firmware-freertos/` | 同一台車的 FreeRTOS V11.3.1 版(三個 task + USART1 ISR;kernel 最小子集 vendor 在 `kernel/`,MIT);`FW=freertos ./run_loop.sh` | Renode 實測 ALL PASS |
@@ -57,6 +58,7 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 - 兩次跑 CSV 逐 byte 相同;`--negative bad-crc` → `bad_crc=300`、位移 0、C2 紅
 - 韌體 text 4732 B;WFI 讓 1 s 虛擬時間從 13.4 s 降到 1.83 s
 - Isaac 6.0.1 受控體(遠端,`ssh -L`):每步 52 ms;odom 對真值 3.4 / 2.0 mm、0.028 rad;滑移 3.1%;兩次 CSV 逐 byte 相同(CPU 求解)
+- 編碼器走 TIM encoder mode:注入 hook 2.9 / gpio 4.2 / cnt 2.8 ms/步;負對照 `--negative enc-swap` C3 紅;realtime 末端 = lockstep × Renode/牆鐘比(三次誤差 < 1%)
 - CAN 走 vcan(`CAN=socketcan`):1.16.1 原版 `CANHub` lockstep 下 14/399 訊框到韌體;修正版 399/399、ALL PASS、末端與 hook 路逐字相同、兩次 CSV 相同、每步 10 ms
 - ROS 2 方形閉環(0.6 m 邊、里程計判段):lockstep 閉合 35 mm / 0.075 rad、realtime 70 mm / 0.141 rad;odom 對真值 4 mm / 1 mrad;兩者 ALL PASS
 - `--mode realtime`(主機閒時):每步 5.0 ms 牆鐘;`pwm_prescaler` 0 → Renode 0.46× 實時、車只走 1/3(ALL PASS + `[warn]`);9 → 1.01×,末端對 lockstep 差 17–31 mm / 0.03–0.06 rad,兩次跑不同

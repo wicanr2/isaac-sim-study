@@ -28,9 +28,11 @@
 | C5 | odom 回報數 ≥ 90% 期望 | UART 出口掉資料 | 305 / 300 |
 | C6 | 韌體 `bad_crc` == 橋接送壞的數 | CRC 檢查沒在跑 | 0 vs 0 |
 | C7 | 韌體收到的 cmd == 送出且未壞的數 | UART 入口掉資料 | 300 vs 300 |
-| C8 | 韌體收到的編碼器訊框 == steps − 1 | CAN 入口掉資料;一步延遲 | 1199 vs 1199 |
+| C8 | TIM 模式:CNT == 受控體 tick(mod 2^16)且韌體累計 == 前一步 tick;CAN 模式:收到的訊框 == steps − 1 | 編碼器注入掉資料;一步延遲 | CNT 9996/13523 == plant;fw == 前一步 |
 
 任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 [30 篇](../../common/30-acceptance-probes-and-preregistration/README.md)。
+
+負對照多一個 `--negative enc-swap`(編碼器 A/B 對調):韌體量到負速度,PI 正回饋把車推到 5.4 m,C3 與 C8 紅。
 
 `--mode realtime` 下三項換成一致性版本:C1「0 < Renode 時間 ≤ 牆鐘 + 5%」(Renode 追牆鐘的節拍以量子為單位,量到領先最多 +1.8%)、C5 的期望值用 Renode 時間除以 20 ms(odom 是韌體按它的時間送的)、C8「≥ 90% steps」(沒有 `run_for`,一步延遲的等式不成立)。realtime 下八項全綠**不代表**車走對了——Renode 跑不到實時時,閉環速度會安靜地低到 ratio 倍,判準抓不到,見 [35 篇](../35-hil-what-and-why/README.md) §5.1。
 

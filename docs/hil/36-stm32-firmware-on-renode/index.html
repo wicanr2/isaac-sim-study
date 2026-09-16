@@ -13,7 +13,7 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/" class="on"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-韌體的形狀">1. 韌體的形狀</a></li><li class="l2"><a href="#2-平台描述vendor-一份拿掉一行">2. 平台描述:vendor 一份,拿掉一行</a></li><li class="l2"><a href="#3-逐項盤點有是什麼意思">3. 逐項盤點:「有」是什麼意思</a></li><li class="l2"><a href="#4-兩條觀測管道">4. 兩條觀測管道</a></li><li class="l2"><a href="#5-速度瓶頸是-mmio-輪詢解法是-wfi">5. 速度:瓶頸是 MMIO 輪詢,解法是 WFI</a></li><li class="l3"><a href="#51-第二個瓶頸timer-事件一個-50100-µs">5.1 第二個瓶頸:timer 事件,一個 50–100 µs</a></li><li class="l2"><a href="#6-驗收五項一項是負對照">6. 驗收:五項,一項是負對照</a></li><li class="l2"><a href="#7-monitor-與-ironpython-的坑">7. monitor 與 IronPython 的坑</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/" class="on"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-韌體的形狀">1. 韌體的形狀</a></li><li class="l2"><a href="#2-平台描述vendor-一份拿掉一行">2. 平台描述:vendor 一份,拿掉一行</a></li><li class="l2"><a href="#3-逐項盤點有是什麼意思">3. 逐項盤點:「有」是什麼意思</a></li><li class="l3"><a href="#31-編碼器從-can-訊框改成-tim-encoder-mode">3.1 編碼器:從 CAN 訊框改成 TIM encoder mode</a></li><li class="l2"><a href="#4-兩條觀測管道">4. 兩條觀測管道</a></li><li class="l2"><a href="#5-速度瓶頸是-mmio-輪詢解法是-wfi">5. 速度:瓶頸是 MMIO 輪詢,解法是 WFI</a></li><li class="l3"><a href="#51-第二個瓶頸timer-事件一個-50100-µs">5.1 第二個瓶頸:timer 事件,一個 50–100 µs</a></li><li class="l2"><a href="#6-驗收五項一項是負對照">6. 驗收:五項,一項是負對照</a></li><li class="l2"><a href="#7-monitor-與-ironpython-的坑">7. monitor 與 IronPython 的坑</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="36-stm32f4-韌體在-renode-上開機型別存在不等於夠用">36 · STM32F4 韌體在 Renode 上開機:「型別存在」不等於「夠用」</h1>
 <p>把一支韌體放進 Renode,第一個問題不是「跑不跑得起來」,是<strong>「它跑起來之後,你怎麼知道它在跑」</strong>。第二個問題是,平台描述裡列了 USART、TIM、CAN,這些模型對你的韌體夠不夠用——而這件事只能逐個暫存器驗,型別名稱不會告訴你。</p>
@@ -24,7 +24,7 @@
 <h2 id="1-韌體的形狀">1. 韌體的形狀</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/firmware/main.c"><code>firmware/main.c</code></a> 約 400 行,做真實下位機做的事:</p>
 <pre><code>USART1 收 cmd_vel 框包(CRC16)→ 兩輪速度設定點
-CAN 0x181 收編碼器累計 tick    → 輪速量測 + 里程計
+TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_source`;舊路 CAN 0x181 訊框仍在)
 每 5 ms:輪速(Δtick ÷ 收到的訊框數 × 5 ms)→ PI → TIM3 PWM(CCR1/CCR2)+ 方向腳 PB8/PB9 + 致能腳 PB10
 每 20 ms:USART1 回 odom、CAN 0x201 回馬達狀態
 安全:500 ms 沒命令 → 停;PC13 急停拉高 → 停
@@ -74,6 +74,12 @@ CAN 0x181 收編碼器累計 tick    → 輪速量測 + 里程計
 <td>5 ms 一步的閉環看不到(第一次溢位在 10 µs 內);已修,同上</td>
 </tr>
 <tr>
+<td>同上,<strong>encoder mode</strong>(TIM2/TIM4)</td>
+<td>SMCR.SMS=011、CCMR1 CC1S/CC2S=01、CCER、CNT、CR1.DIR</td>
+<td><strong>1.16.1 沒有</strong>:SMS 是 tagged flag,灌正交脈衝 CNT 永遠 0(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/upstream/probe_encoder.resc"><code>upstream/probe_encoder.resc</code></a>)。上游 <code>master</code> 有 encoder mode,但 0 往下數會丟 <code>Value cannot be larger than limit</code>、DIR 不動;修正版(繞回 0↔ARR、DIR 跟計數方向、週期 ARR+1)NUnit 5/5、原版 1/5</td>
+<td>執行期載入 master 版 timer 只換 TIM2/TIM4(<code>upstream/STM32_Timer_Master.cs</code>、<code>stm32f4-encoder.repl</code>);TIM3 仍是原版</td>
+</tr>
+<tr>
 <td>同上,執行成本</td>
 <td>ARR、CCR(事件率)</td>
 <td>10 kHz 載波 × 3 個 <code>LimitTimer</code> = 每秒 3 萬個 C# 事件,自由跑只到 0.55×;ARR 拉到 152 Hz 就 1.17×(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1)</td>
@@ -107,6 +113,13 @@ CAN 0x181 收編碼器累計 tick    → 輪速量測 + 里程計
 </table></div>
 <p>CAN 濾波器的坑:<code>FMR</code> 的重置值是 <code>0x2A1C0E01</code>,其中 <code>CAN2SB</code>(bit 13:8)= 14,意思是 bank 0–13 屬於 CAN1。探針一開始寫 <code>FMR = 1</code>(只想設 FINIT),把 <code>CAN2SB</code> 清成 0——bank 0 從此屬於 CAN2,CAN1 的接收路徑對它 <code>Where(BelongsToMaster)</code> 一濾,訊框<strong>靜默丟掉</strong>:<code>OnFrameReceived()</code> 呼叫成功、<code>FrameReceived</code> 事件照樣觸發,FIFO 就是空的。真硬體的 HAL 用讀-改-寫所以不會踩到;自己寫暫存器的人會。韌體的 <code>can_init()</code> 因此全部用 <code>|=</code> / <code>&amp;=</code>。</p>
 <p>另一個與既有紀錄不一致的點要誠實寫:既有內部專案的結論是「<code>STMCAN</code> 沒實作 <code>HAL_CAN_Init()</code> 要的 MCR/MSR 交握」,本篇探針從匯流排直接寫 INRQ 卻看到 INAK 正確回應。兩者可能都對——HAL 的序列多了 <code>SLEEP</code> 清除與逾時計算,那條路徑本篇沒有走。<strong>這裡只能說「自己寫的序列交握有回應」,不能說「既有紀錄錯了」。</strong></p>
+<h3 id="31-編碼器從-can-訊框改成-tim-encoder-mode">3.1 編碼器:從 CAN 訊框改成 TIM encoder mode</h3>
+<p>第一版的編碼器是受控體每 5 ms 送一筆 CAN 累計 tick——方便,但時間基準在橋接手上:realtime 模式下橋接守不住 5 ms 節拍,韌體每筆訊框都當 5 ms 算,閉環速度就跟著橋接的節拍掉(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1)。真板的做法是 <strong>TIM 的 encoder mode</strong>(RM0090 §18.3.12):兩路正交輸入接到 TI1/TI2,硬體自己加減 CNT,韌體在自己的 5 ms tick 讀 CNT 差。改成這樣之後,時間基準是韌體的 SysTick,受控體與橋接的節拍只影響 CNT 在什麼時候跳,不影響「5 ms」是多長。</p>
+<p align="center"><img src="../../img/hil-encoder-mode-injection.svg" width="860" alt="正交訊號與 encoder mode 的計數規則、韌體讀 CNT、三種注入法的成本"></p>
+
+<p>韌體(兩版同):TIM2(PA0/PA1 AF1)左輪、TIM4(PB6/PB7 AF2)右輪,<code>ARR=0xFFFF</code>、<code>CC1S/CC2S=01</code>、<code>CCER</code> 兩通道、<code>SMS=011</code>、<code>CEN</code>;控制步 <code>dl = (int16)(CNT − 上次)</code>,累計進里程計。<code>calib.json</code> 的 <code>encoder_source</code> 切換(<code>tim</code> / <code>can</code>),<code>ENC_SOURCE_TIM</code> 進 <code>calib.h</code>;CAN 0x181 收到只計數不採用。</p>
+<p>受控體的 tick 進 CNT 有三種注入法(橋接 <code>--enc</code>,37 篇 §5):<code>hook</code>(一筆紀錄,Renode 裡的 .NET <code>QuadratureFeeder</code> 對 TI1/TI2 打邊緣,走 encoder mode 本身)、<code>gpio</code>(每個邊緣一個 External Control RPC)、<code>cnt</code>(直接寫 CNT)。lockstep 三種末端逐字相同(902.0, −0.9, 0.9019),每步 2.9 / 4.2 / 2.8 ms(load 8–10);負對照 A/B 對調 → 韌體量到負速度、正回饋跑掉 5.4 m、C3 紅。realtime 下每個邊緣在模型裡是一次 <code>LimitTimer.Value</code> 寫入(§5.1 的 50–100 µs),8k 邊緣/s 會把模擬執行緒吃掉,所以 realtime 預設 <code>cnt</code>。</p>
+<p>realtime 同腳本三次的末端:x = 902 × 驅動段的 Renode/牆鐘比(預測 883 / 771 / 665,實測 876 / 766 / 668)、θ = 0.9019 × 轉向段的比(0.620 / 0.682 / 0.598 vs 0.611 / 0.689 / 0.598)——<strong>差全部在時鐘比裡</strong>,一個數字解釋完。這就是 35 篇 §5.1 留下的開放項的結論。</p>
 <h2 id="4-兩條觀測管道">4. 兩條觀測管道</h2>
 <p><strong>printer</strong>:USART2 接檔案後端(<code>usart2 CreateFileBackend @path true</code>;headless 下 <code>showAnalyzer</code> 沒用),韌體開機吐三行:</p>
 <pre><code>hilctl boot fw 0.1
@@ -219,8 +232,13 @@ main loop
 </tr>
 <tr>
 <td>C 編碼器</td>
-<td>兩筆 CAN 0x181 各 +20 tick,間隔 5 ms</td>
+<td>兩筆 CAN 0x181 各 +20 tick,間隔 5 ms(<code>encoder_source: can</code> 的韌體)</td>
 <td><code>enc_frames</code> 2、<code>meas_l</code> 306 mm/s(理論 20 × 314159 / 4096 / 5 = 306.8)</td>
+</tr>
+<tr>
+<td>C′ 編碼器(TIM)</td>
+<td><code>probe_encoder.resc</code>:SMS=011,灌一個正向、兩個反向正交週期</td>
+<td>原版 CNT 永遠 0;master 修正版 4 → 0 → 0xFFFC、DIR=1</td>
 </tr>
 <tr>
 <td>D 急停</td>

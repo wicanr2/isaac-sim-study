@@ -12,7 +12,7 @@
 
 ```
 USART1 收 cmd_vel 框包(CRC16)→ 兩輪速度設定點
-CAN 0x181 收編碼器累計 tick    → 輪速量測 + 里程計
+TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_source`;舊路 CAN 0x181 訊框仍在)
 每 5 ms:輪速(Δtick ÷ 收到的訊框數 × 5 ms)→ PI → TIM3 PWM(CCR1/CCR2)+ 方向腳 PB8/PB9 + 致能腳 PB10
 每 20 ms:USART1 回 odom、CAN 0x201 回馬達狀態
 安全:500 ms 沒命令 → 停;PC13 急停拉高 → 停
@@ -49,6 +49,7 @@ Renode 內建的 `platforms/cpus/stm32f4.repl` 對這支韌體夠用——記憶
 | `STM32_Timer`(TIM3) | ARR、CCR1/2、CCMR1(OC1M)、CCER、CR1、CNT | 全部寫入後讀得回;**OC1PE / OC2PE 未實作**(warning);PWM 通道輸出是真的 GPIO 線:PWM1 模式下 `timer.Connections[0].IsSet` 在 CNT < CCR 時為 True | 夠用。橋接讀 CCR 算 duty |
 | 同上,計數週期 | ARR | **週期是 ARR,硬體是 ARR+1**。兩組量測:ARR=999、10 MHz 跑 1 ms → CNT=10(=10000 mod 999);ARR=99 → CNT=1(=10000 mod 99) | PWM 頻率差 0.1%,無感。已修,見 [37 篇](../37-bus-signal-bridging/README.md) §4 |
 | 同上,PWM 腳位初值 | CEN、EGR.UG | 致能後、第一次溢位前腳位不動(CNT=200 < CCR=500 時讀到 False);硬體的 OCxREF 是持續比較 | 5 ms 一步的閉環看不到(第一次溢位在 10 µs 內);已修,同上 |
+| 同上,**encoder mode**(TIM2/TIM4) | SMCR.SMS=011、CCMR1 CC1S/CC2S=01、CCER、CNT、CR1.DIR | **1.16.1 沒有**:SMS 是 tagged flag,灌正交脈衝 CNT 永遠 0([`upstream/probe_encoder.resc`](../../../examples/hil-stm32/renode/upstream/probe_encoder.resc))。上游 `master` 有 encoder mode,但 0 往下數會丟 `Value cannot be larger than limit`、DIR 不動;修正版(繞回 0↔ARR、DIR 跟計數方向、週期 ARR+1)NUnit 5/5、原版 1/5 | 執行期載入 master 版 timer 只換 TIM2/TIM4(`upstream/STM32_Timer_Master.cs`、`stm32f4-encoder.repl`);TIM3 仍是原版 |
 | 同上,執行成本 | ARR、CCR(事件率) | 10 kHz 載波 × 3 個 `LimitTimer` = 每秒 3 萬個 C# 事件,自由跑只到 0.55×;ARR 拉到 152 Hz 就 1.17×([35 篇](../35-hil-what-and-why/README.md) §5.1) | lockstep 無感;realtime 模式跟不上牆鐘。每個事件 50–100 µs 且與回呼內容無關(§5.1),`calib.json` 的 `pwm_prescaler` 是旋鈕,模型裡沒有不改可觀測行為的修法 |
 | `STM32_UART`(USART1/2) | SR(RXNE/TXE/TC)、DR、BRR、CR1 | TXE 恆為 1;RX 有佇列。**TC 在 CPU 寫 DR 後正常設回、TCIE 拉中斷**(本篇探針);既有內部專案在 DMA 傳送下量到「TC 永不重設」,那條路徑本篇沒走,兩者不衝突 | 韌體輪詢 TXE、不等 TC。真硬體同樣正確 |
 | `STMCAN`(CAN1) | MCR/MSR、BTR、TSR、TI0R/TDT0R/TDL0R/TDH0R、RF0R、RI0R/RDT0R/RDL0R/RDH0R、FMR/FM1R/FS1R/FFA1R/FA1R/F0R1/F0R2 | MCR.INRQ=1 → MSR 0xC01(INAK=1,SLAK 清);mailbox 寫入 TXRQ 後 `FrameSent` 立刻觸發;`OnFrameReceived()` 注入的訊框進 FIFO0(FMP0=1、RI0R 帶 STID) | 夠用,**但濾波器有一個坑**(下一段) |
@@ -58,6 +59,18 @@ Renode 內建的 `platforms/cpus/stm32f4.repl` 對這支韌體夠用——記憶
 CAN 濾波器的坑:`FMR` 的重置值是 `0x2A1C0E01`,其中 `CAN2SB`(bit 13:8)= 14,意思是 bank 0–13 屬於 CAN1。探針一開始寫 `FMR = 1`(只想設 FINIT),把 `CAN2SB` 清成 0——bank 0 從此屬於 CAN2,CAN1 的接收路徑對它 `Where(BelongsToMaster)` 一濾,訊框**靜默丟掉**:`OnFrameReceived()` 呼叫成功、`FrameReceived` 事件照樣觸發,FIFO 就是空的。真硬體的 HAL 用讀-改-寫所以不會踩到;自己寫暫存器的人會。韌體的 `can_init()` 因此全部用 `|=` / `&=`。
 
 另一個與既有紀錄不一致的點要誠實寫:既有內部專案的結論是「`STMCAN` 沒實作 `HAL_CAN_Init()` 要的 MCR/MSR 交握」,本篇探針從匯流排直接寫 INRQ 卻看到 INAK 正確回應。兩者可能都對——HAL 的序列多了 `SLEEP` 清除與逾時計算,那條路徑本篇沒有走。**這裡只能說「自己寫的序列交握有回應」,不能說「既有紀錄錯了」。**
+
+### 3.1 編碼器:從 CAN 訊框改成 TIM encoder mode
+
+第一版的編碼器是受控體每 5 ms 送一筆 CAN 累計 tick——方便,但時間基準在橋接手上:realtime 模式下橋接守不住 5 ms 節拍,韌體每筆訊框都當 5 ms 算,閉環速度就跟著橋接的節拍掉([35 篇](../35-hil-what-and-why/README.md) §5.1)。真板的做法是 **TIM 的 encoder mode**(RM0090 §18.3.12):兩路正交輸入接到 TI1/TI2,硬體自己加減 CNT,韌體在自己的 5 ms tick 讀 CNT 差。改成這樣之後,時間基準是韌體的 SysTick,受控體與橋接的節拍只影響 CNT 在什麼時候跳,不影響「5 ms」是多長。
+
+<p align="center"><img src="../../img/hil-encoder-mode-injection.svg" width="860" alt="正交訊號與 encoder mode 的計數規則、韌體讀 CNT、三種注入法的成本"></p>
+
+韌體(兩版同):TIM2(PA0/PA1 AF1)左輪、TIM4(PB6/PB7 AF2)右輪,`ARR=0xFFFF`、`CC1S/CC2S=01`、`CCER` 兩通道、`SMS=011`、`CEN`;控制步 `dl = (int16)(CNT − 上次)`,累計進里程計。`calib.json` 的 `encoder_source` 切換(`tim` / `can`),`ENC_SOURCE_TIM` 進 `calib.h`;CAN 0x181 收到只計數不採用。
+
+受控體的 tick 進 CNT 有三種注入法(橋接 `--enc`,37 篇 §5):`hook`(一筆紀錄,Renode 裡的 .NET `QuadratureFeeder` 對 TI1/TI2 打邊緣,走 encoder mode 本身)、`gpio`(每個邊緣一個 External Control RPC)、`cnt`(直接寫 CNT)。lockstep 三種末端逐字相同(902.0, −0.9, 0.9019),每步 2.9 / 4.2 / 2.8 ms(load 8–10);負對照 A/B 對調 → 韌體量到負速度、正回饋跑掉 5.4 m、C3 紅。realtime 下每個邊緣在模型裡是一次 `LimitTimer.Value` 寫入(§5.1 的 50–100 µs),8k 邊緣/s 會把模擬執行緒吃掉,所以 realtime 預設 `cnt`。
+
+realtime 同腳本三次的末端:x = 902 × 驅動段的 Renode/牆鐘比(預測 883 / 771 / 665,實測 876 / 766 / 668)、θ = 0.9019 × 轉向段的比(0.620 / 0.682 / 0.598 vs 0.611 / 0.689 / 0.598)——**差全部在時鐘比裡**,一個數字解釋完。這就是 35 篇 §5.1 留下的開放項的結論。
 
 ## 4. 兩條觀測管道
 
@@ -116,7 +129,8 @@ CPU 停住時模擬器只在事件之間跳,152 Hz 能跑到 14–20 倍實時;1
 |---|---|---|
 | A 壞 CRC | 餵一個最後一 byte 反相的 CMD_VEL | `bad_crc` 1、`cmd_frames` 0 |
 | B 正確 CMD_VEL v=300 | 30 ms 後讀 | 設定點 300/300、flags ENABLED、duty 526、**CCR1 = 526**、GPIOB ODR = `0x700`(PB8/9/10 高) |
-| C 編碼器 | 兩筆 CAN 0x181 各 +20 tick,間隔 5 ms | `enc_frames` 2、`meas_l` 306 mm/s(理論 20 × 314159 / 4096 / 5 = 306.8) |
+| C 編碼器 | 兩筆 CAN 0x181 各 +20 tick,間隔 5 ms(`encoder_source: can` 的韌體) | `enc_frames` 2、`meas_l` 306 mm/s(理論 20 × 314159 / 4096 / 5 = 306.8) |
+| C′ 編碼器(TIM) | `probe_encoder.resc`:SMS=011,灌一個正向、兩個反向正交週期 | 原版 CNT 永遠 0;master 修正版 4 → 0 → 0xFFFC、DIR=1 |
 | D 急停 | `gpioPortC OnGPIO 13 true` | flags ESTOP、duty 0、ODR `0x300`(PB10 低,方向腳不動) |
 | E 命令逾時 | 放開急停、600 ms 不送命令 | flags CMD_STALE;`rx_overflow` 0 |
 

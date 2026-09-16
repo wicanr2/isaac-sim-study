@@ -1,0 +1,5 @@
+using sysbus
+mach create "enc"
+i @/w/renode/upstream/STM32_Timer_Master.cs
+machine LoadPlatformDescription @/w/renode/upstream/stm32f4-encoder.repl
+include @/w/renode/upstream/probe_encoder.resc

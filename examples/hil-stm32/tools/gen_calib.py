@@ -32,6 +32,7 @@ lines = [
     f"#define PI_KP_Q8                 {c['pi_kp_q8']}",
     f"#define PI_KI_Q8                 {c['pi_ki_q8']}",
     f"#define PI_INTEGRAL_LIMIT        {c['pi_integral_limit']}",
+    f"#define ENC_SOURCE_TIM           {1 if c.get('encoder_source', 'can') == 'tim' else 0}  /* 1: TIM2/TIM4 encoder mode 讀 CNT;0: CAN 0x181 訊框 */",
     f"#define CAN_ID_ENCODER           0x{c['can_id_encoder']:X}",
     f"#define CAN_ID_MOTOR_STATUS      0x{c['can_id_motor_status']:X}",
     "",

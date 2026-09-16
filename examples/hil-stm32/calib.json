@@ -13,6 +13,7 @@
   "pi_kp_q8": 128,
   "pi_ki_q8": 13,
   "pi_integral_limit": 20000,
+  "encoder_source": "tim",
   "can_id_encoder": 385,
   "can_id_motor_status": 513
 }

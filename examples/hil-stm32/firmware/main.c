@@ -181,7 +181,37 @@ static void gpio_init(void)
 
     /* PC13 急停 → 輸入(MODER 00,重置值就是) */
     GPIO_MODER(GPIOC_BASE) &= ~(3u << 26);
+
+#if ENC_SOURCE_TIM
+    /* PA0/PA1 → AF1(TIM2_CH1/CH2)左輪編碼器;PB6/PB7 → AF2(TIM4_CH1/CH2)右輪 */
+    GPIO_MODER(GPIOA_BASE) = (GPIO_MODER(GPIOA_BASE) & ~((3u << 0) | (3u << 2))) | (2u << 0) | (2u << 2);
+    GPIO_AFRL(GPIOA_BASE)  = (GPIO_AFRL(GPIOA_BASE) & ~((0xFu << 0) | (0xFu << 4))) | (1u << 0) | (1u << 4);
+    GPIO_MODER(GPIOB_BASE) = (GPIO_MODER(GPIOB_BASE) & ~((3u << 12) | (3u << 14))) | (2u << 12) | (2u << 14);
+    GPIO_AFRL(GPIOB_BASE)  = (GPIO_AFRL(GPIOB_BASE) & ~((0xFu << 24) | (0xFu << 28))) | (2u << 24) | (2u << 28);
+#endif
 }
+
+#if ENC_SOURCE_TIM
+/* 編碼器:TIM encoder mode(RM0090 §18.3.12)。CC1S/CC2S=01 把 TI1/TI2 當輸入,SMS=011 兩路邊緣都計數,
+ * 16 位元計數器 0..0xFFFF 繞回;控制步讀 CNT 差(int16)。 */
+static void encoder_tim_init(uint32_t base)
+{
+    TIM_CR1(base)   = 0;
+    TIM_ARR(base)   = 0xFFFF;
+    TIM_CCMR1(base) = TIM_CCMR1_CC1S_TI1 | TIM_CCMR1_CC2S_TI2;
+    TIM_CCER(base)  = TIM_CCER_CC1E | TIM_CCER_CC2E;
+    TIM_SMCR(base)  = TIM_SMCR_SMS_ENCODER3;
+    TIM_CNT(base)   = 0;
+    TIM_CR1(base)   = TIM_CR1_CEN;
+}
+
+static void encoder_init(void)
+{
+    RCC_APB1ENR |= RCC_APB1ENR_TIM2 | RCC_APB1ENR_TIM4;
+    encoder_tim_init(TIM2_BASE);
+    encoder_tim_init(TIM4_BASE);
+}
+#endif
 
 static void pwm_init(void)
 {
@@ -287,8 +317,13 @@ static int can_recv(uint32_t *out_id, uint8_t *out_d, uint8_t *out_dlc)
 static int32_t s_sp_l, s_sp_r;            /* 設定點 mm/s */
 static int32_t s_integ_l, s_integ_r;
 static int32_t s_enc_l, s_enc_r;          /* 最新累計 tick */
+#if !ENC_SOURCE_TIM
 static int32_t s_enc_prev_l, s_enc_prev_r;
-static uint32_t s_enc_new;                /* 上次量測之後收到的編碼器訊框數 */
+#endif
+static uint32_t s_enc_new;                /* 上次量測之後收到的編碼器訊框數(TIM 來源恆為 1) */
+#if ENC_SOURCE_TIM
+static uint16_t s_cnt_prev_l, s_cnt_prev_r;
+#endif
 static int32_t s_meas_l, s_meas_r;        /* mm/s */
 static int32_t s_duty_l, s_duty_r;
 static uint32_t s_last_cmd_ms;
@@ -330,8 +365,18 @@ static void control_step(void)
      * 所以時間基準用「收到幾筆訊框」而不是「過了幾個控制週期」:匯流排抖動讓某個週期
      * 收到 0 筆或 2 筆時,量測不會變成 0 或兩倍。0 筆就沿用上一次的量測(dl=dr=0,里程計不動)。
      * mm/s = dticks * 周長(um) / TPR / (週期(ms) * 訊框數)  (um/ms == mm/s) */
+#if ENC_SOURCE_TIM
+    /* 讀 CNT:16 位元差,繞回由 int16 轉型處理;累計進 s_enc_* 給里程計與 g_dbg */
+    uint16_t cl = (uint16_t)TIM_CNT(TIM2_BASE), cr = (uint16_t)TIM_CNT(TIM4_BASE);
+    int32_t dl = (int16_t)(cl - s_cnt_prev_l), dr = (int16_t)(cr - s_cnt_prev_r);
+    s_cnt_prev_l = cl; s_cnt_prev_r = cr;
+    s_enc_l += dl; s_enc_r += dr;
+    g_dbg.enc_l = s_enc_l; g_dbg.enc_r = s_enc_r;
+    s_enc_new = 1;   /* 時間基準就是控制週期:CNT 在韌體自己的 tick 取樣 */
+#else
     int32_t dl = s_enc_l - s_enc_prev_l, dr = s_enc_r - s_enc_prev_r;
     s_enc_prev_l = s_enc_l; s_enc_prev_r = s_enc_r;
+#endif
     if (s_enc_new) {
         s_meas_l = (int32_t)((int64_t)dl * WHEEL_CIRC_UM / ENC_TICKS_PER_REV / (CONTROL_PERIOD_MS * (int32_t)s_enc_new));
         s_meas_r = (int32_t)((int64_t)dr * WHEEL_CIRC_UM / ENC_TICKS_PER_REV / (CONTROL_PERIOD_MS * (int32_t)s_enc_new));
@@ -427,6 +472,9 @@ int main(void)
     dbg_put_u32(FW_VERSION_MAJOR); dbg_puts("."); dbg_put_u32(FW_VERSION_MINOR); dbg_puts("\r\n");
 
     gpio_init();
+#if ENC_SOURCE_TIM
+    encoder_init();
+#endif
     pwm_init();
     if (can_init() == 0) dbg_puts("can1 ready\r\n");
     else { dbg_puts("can1 init FAILED step "); dbg_put_u32(g_dbg.init_err); dbg_puts("\r\n"); }
@@ -455,11 +503,13 @@ int main(void)
         uint32_t id; uint8_t d[8]; uint8_t dlc;
         while (can_recv(&id, d, &dlc)) {
             if (id == CAN_ID_ENCODER && dlc == 8) {
+                g_dbg.enc_frames++;
+#if !ENC_SOURCE_TIM
                 s_enc_l = (int32_t)((uint32_t)d[0] | ((uint32_t)d[1] << 8) | ((uint32_t)d[2] << 16) | ((uint32_t)d[3] << 24));
                 s_enc_r = (int32_t)((uint32_t)d[4] | ((uint32_t)d[5] << 8) | ((uint32_t)d[6] << 16) | ((uint32_t)d[7] << 24));
                 g_dbg.enc_l = s_enc_l; g_dbg.enc_r = s_enc_r;
-                g_dbg.enc_frames++;
                 s_enc_new++;
+#endif
             }
         }
 

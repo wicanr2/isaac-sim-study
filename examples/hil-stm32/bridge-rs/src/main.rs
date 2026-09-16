@@ -41,6 +41,7 @@ struct Args {
     mode: String,
     upper: String,
     can: String,
+    enc: String,
 }
 
 fn parse_args() -> Args {
@@ -61,6 +62,7 @@ fn parse_args() -> Args {
         mode: "lockstep".into(),
         upper: "script".into(),
         can: "hook".into(),
+        enc: "auto".into(),
     };
     let v: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -88,6 +90,9 @@ fn parse_args() -> Args {
             "--upper" => a.upper = val,
             // CAN 走哪條路:hook(預設,每筆注入有 ack)或 socketcan:IFACE(Renode SocketCANBridge + vcan,沒有 ack)
             "--can" => a.can = val,
+            // 編碼器注入法:auto(calib tim → hook;can → can)、hook(一筆紀錄,hook 在 Renode 裡打正交脈衝)、
+            // gpio(每個邊緣一個 External Control gpio_set)、cnt(External Control 直接寫 TIM CNT)、can(0x181 訊框)
+            "--enc" => a.enc = val,
             other => {
                 eprintln!("未知參數 {other}");
                 std::process::exit(2);
@@ -135,6 +140,8 @@ mod dbg {
     pub const MEAS_R: u64 = 6;
     pub const DUTY_L: u64 = 7;
     pub const DUTY_R: u64 = 8;
+    pub const ENC_L: u64 = 9;
+    pub const ENC_R: u64 = 10;
     pub const ENC_FRAMES: u64 = 11;
     pub const CMD_FRAMES: u64 = 12;
     pub const BAD_CRC: u64 = 13;
@@ -145,6 +152,8 @@ mod dbg {
     pub const WORDS: u32 = 17;
 }
 
+const TIM2_CNT: u64 = 0x4000_0000 + 0x24;
+const TIM4_CNT: u64 = 0x4000_0800 + 0x24;
 const TIM3_BASE: u64 = 0x4000_0400;
 const TIM3_CCR1: u64 = TIM3_BASE + 0x34;
 const TIM3_ARR: u64 = TIM3_BASE + 0x2C;
@@ -175,6 +184,20 @@ fn main() {
         .or_else(|_| ec.gpio(m, "gpioPortB"))
         .expect("gpioPortB");
     let mut hk = hook::Hook::connect_retry(a.hook.as_str(), Duration::from_secs(90)).expect("連 hil_hook");
+    // auto:lockstep 走 hook(正交脈衝經 encoder mode,驗的是模型);realtime 走 cnt——每個邊緣在模型裡是一次
+    // LimitTimer.Value 寫入(50–100 µs,同 36 篇 §5.1 的事件成本),8k 邊緣/s 會吃掉模擬執行緒
+    let enc_mode = if a.enc == "auto" { if !c.encoder_tim { "can" } else if a.mode == "realtime" { "cnt" } else { "hook" } } else { a.enc.as_str() }.to_string();
+    if c.encoder_tim && enc_mode == "can" { eprintln!("calib encoder_source=tim 但 --enc can:韌體不會讀 CAN 編碼器"); }
+    if !c.encoder_tim && enc_mode != "can" { eprintln!("calib encoder_source=can 但 --enc {enc_mode}:韌體不會讀 TIM"); }
+    let (tim_l, tim_r) = if enc_mode == "gpio" {
+        (Some(ec.gpio(m, "sysbus.timer2").expect("timer2")), Some(ec.gpio(m, "sysbus.timer4").expect("timer4")))
+    } else { (None, None) };
+    // gpio 模式的正交相位(A, B):00 → 10 → 11 → 01,一步一個邊緣
+    const QUAD: [(bool, bool); 4] = [(false, false), (true, false), (true, true), (false, true)];
+    let mut quad_phase = [0usize; 2];
+    let mut enc_prev_ticks = [0i32; 2];
+    let mut ticks_before_last = [0i32; 2];
+    println!("[effect] encoder: calib={} inject={}", if c.encoder_tim { "tim" } else { "can" }, enc_mode);
 
     let mut pl: Box<dyn Plant> = if a.plant == "fake" {
         Box::new(plant::Fake::new(c))
@@ -413,14 +436,49 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         last_plant = out;
         t_plant += ph.elapsed();
         let ph = Instant::now();
-        let mut enc = [0u8; 8];
-        enc[..4].copy_from_slice(&out.ticks_l.to_le_bytes());
-        enc[4..].copy_from_slice(&out.ticks_r.to_le_bytes());
-        if let Some(s) = sc.as_mut() {
-            s.send(c.can_id_encoder, &enc).unwrap();
-        } else {
-            hk.can_send(c.can_id_encoder, &enc).unwrap();
-            hk.wait_acks().unwrap();
+        let mut dl = out.ticks_l.wrapping_sub(enc_prev_ticks[0]);
+        let mut dr = out.ticks_r.wrapping_sub(enc_prev_ticks[1]);
+        if a.negative == "enc-swap" {
+            // 負對照:A/B 兩路對調 = 計數方向反過來;韌體會量到負速度,里程計往反方向走 → C3 必須紅
+            dl = -dl;
+            dr = -dr;
+        }
+        ticks_before_last = enc_prev_ticks;
+        enc_prev_ticks = [out.ticks_l, out.ticks_r];
+        match enc_mode.as_str() {
+            "hook" => {
+                hk.encoder_steps(dl, dr).unwrap();
+                hk.wait_acks().unwrap();
+            }
+            "gpio" => {
+                for (w, d) in [(0usize, dl), (1usize, dr)] {
+                    let g = if w == 0 { tim_l.unwrap() } else { tim_r.unwrap() };
+                    let step: isize = if d > 0 { 1 } else { 3 };
+                    for _ in 0..d.unsigned_abs() {
+                        let old = QUAD[quad_phase[w]];
+                        quad_phase[w] = (quad_phase[w] + step as usize) % 4;
+                        let new = QUAD[quad_phase[w]];
+                        let ch = if old.0 != new.0 { 0 } else { 1 };
+                        ec.gpio_set(g, ch, if ch == 0 { new.0 } else { new.1 }).unwrap();
+                    }
+                }
+            }
+            "cnt" => {
+                let sgn: i32 = if a.negative == "enc-swap" { -1 } else { 1 };
+                ec.write_u32_at(bus, TIM2_CNT, (out.ticks_l.wrapping_mul(sgn)) as u32 & 0xFFFF).unwrap();
+                ec.write_u32_at(bus, TIM4_CNT, (out.ticks_r.wrapping_mul(sgn)) as u32 & 0xFFFF).unwrap();
+            }
+            _ => {
+                let mut enc = [0u8; 8];
+                enc[..4].copy_from_slice(&out.ticks_l.to_le_bytes());
+                enc[4..].copy_from_slice(&out.ticks_r.to_le_bytes());
+                if let Some(s) = sc.as_mut() {
+                    s.send(c.can_id_encoder, &enc).unwrap();
+                } else {
+                    hk.can_send(c.can_id_encoder, &enc).unwrap();
+                    hk.wait_acks().unwrap();
+                }
+            }
         }
         t_hook += ph.elapsed();
 
@@ -445,6 +503,14 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let bad_crc = ec.read_u32_at(bus, dbg_base + 4 * dbg::BAD_CRC).unwrap();
     let cmd_frames = ec.read_u32_at(bus, dbg_base + 4 * dbg::CMD_FRAMES).unwrap();
     let enc_frames = ec.read_u32_at(bus, dbg_base + 4 * dbg::ENC_FRAMES).unwrap();
+    let fw_enc_l = ec.read_u32_at(bus, dbg_base + 4 * dbg::ENC_L).unwrap() as i32;
+    let fw_enc_r = ec.read_u32_at(bus, dbg_base + 4 * dbg::ENC_R).unwrap() as i32;
+    // TIM 模式的兩個等式:CNT 暫存器 == 受控體 tick(mod 2^16,注入沒掉);韌體累計 == 前一步的受控體 tick(一步延遲)
+    let (cnt_l, cnt_r) = if enc_mode != "can" {
+        (ec.read_u32_at(bus, TIM2_CNT).unwrap(), ec.read_u32_at(bus, TIM4_CNT).unwrap())
+    } else { (0, 0) };
+    let tim_ok = enc_mode == "can" || (cnt_l == last_plant.ticks_l as u32 & 0xFFFF && cnt_r == last_plant.ticks_r as u32 & 0xFFFF
+        && fw_enc_l == ticks_before_last[0] && fw_enc_r == ticks_before_last[1]);
     let ctrl_steps = ec.read_u32_at(bus, dbg_base + 4 * dbg::CTRL_STEPS).unwrap();
     let rx_overflow = ec.read_u32_at(bus, dbg_base + 4 * dbg::RX_OVERFLOW).unwrap();
     let tick_ms = ec.read_u32_at(bus, dbg_base + 4 * dbg::TICK_MS).unwrap();
@@ -525,9 +591,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         Check { name: "C7 韌體收到的 cmd == 送出且未壞的數", pass: cmd_frames == sent_cmds - corrupted,
             detail: format!("{cmd_frames} vs {}", sent_cmds - corrupted) },
         // 最後一步注入的訊框要下一個 run_for 才被讀到:lockstep 固有的一步延遲
-        Check { name: if realtime { "C8 (realtime) 韌體收到的編碼器訊框 ≥ 90% steps" } else { "C8 韌體收到的編碼器訊框 == steps-1(一步延遲)" },
-            pass: if realtime { enc_frames as f64 >= 0.9 * steps as f64 } else { enc_frames == steps - 1 },
-            detail: format!("{enc_frames} vs {}", if realtime { steps } else { steps - 1 }) },
+        Check { name: if enc_mode != "can" { if realtime { "C8 (TIM, realtime) TIM CNT == 受控體 tick mod 2^16" } else { "C8 (TIM) TIM CNT == 受控體 tick;韌體累計 == 前一步 tick(一步延遲)" } } else if realtime { "C8 (realtime) 韌體收到的編碼器訊框 ≥ 90% steps" } else { "C8 韌體收到的編碼器訊框 == steps-1(一步延遲)" },
+            pass: if enc_mode != "can" { if realtime { cnt_l == last_plant.ticks_l as u32 & 0xFFFF && cnt_r == last_plant.ticks_r as u32 & 0xFFFF } else { tim_ok } } else if realtime { enc_frames as f64 >= 0.9 * steps as f64 } else { enc_frames == steps - 1 },
+            detail: if enc_mode != "can" { format!("CNT {cnt_l}/{cnt_r} vs plant {}/{};fw {fw_enc_l}/{fw_enc_r} vs 前一步 {}/{}", last_plant.ticks_l as u32 & 0xFFFF, last_plant.ticks_r as u32 & 0xFFFF, ticks_before_last[0], ticks_before_last[1]) } else { format!("{enc_frames} vs {}", if realtime { steps } else { steps - 1 }) } },
     ];
     let mut all = true;
     for ch in &checks {

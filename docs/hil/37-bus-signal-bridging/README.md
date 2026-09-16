@@ -17,6 +17,7 @@
 | 韌體內部狀態 | MCU → 橋接 | External Control `sysbus_read` `g_dbg`(17 個字一次讀) | 生效證明與驗收用 |
 | UART(上位協定) | 雙向 | IronPython hook(`usart1.WriteChar` / `CharReceived`) | 要 ack(§3);Renode 內建的 socket terminal 也能用但沒有 ack |
 | CAN | 雙向 | IronPython hook(`can1.OnFrameReceived` / `FrameSent`) | 不碰核心;三條路的取捨在 §4 |
+| 編碼器 tick | 受控體 → MCU | hook 一筆 `0xFFFF0020`(Δtick 左/右)→ Renode 裡的 .NET `QuadratureFeeder` 對 TIM2/TIM4 的 TI1/TI2 打正交邊緣;或 External Control 寫 CNT | lockstep 走邊緣(驗 encoder mode),realtime 寫 CNT(每個邊緣 50–100 µs);36 篇 §3.1 |
 
 兩個 TCP 埠:3500(External Control)、3600(hook)。3456 的 socket terminal 留著當對照。
 
@@ -125,6 +126,8 @@ Renode 1.16.1 把 CAN 訊框送到模擬器外面的**官方**管道只有 `Crea
 **每步成本**:主機閒時 8–13 ms(分段:`run_for` 9.3 ms、hook 2.2 ms、`ec_read` 1.0 ms),主機另有負載時 29.6 ms——橋接每步印 `[run] per-step wall: ec_read/hook/plant/run_for` 四段,看數字不用猜。要更快的話,順序是:把 drain 換成「等一個明確的 end-of-step 紀錄」(省 1 ms)、把 GPIO 三次讀合併成一次 `ODR` 匯流排讀(省 2 RPC)、最後才是把 `run_for` 拉長。
 
 `--mode realtime` 用同一個迴圈,只換第 2 步:開跑前經 hook 送 `START`(`0xFFFF0010`,hook 呼叫 `StartAll()` 後 ack),每步不再 `run_for`,改 sleep 到下一個 5 ms 牆鐘刻度;受控體的 dt 用實際過了多久;跑完送 `PAUSE`(`0xFFFF0011`)。每步 5.0–5.2 ms(`ec_read` 1.8 + hook 2.4 + sleep 0.4),三個時鐘的分歧與後果量在 [35 篇](../35-hil-what-and-why/README.md) §5.1。
+
+**編碼器注入 `--enc hook|gpio|cnt|can`**(`auto`:calib `tim` 時 lockstep → `hook`、realtime → `cnt`;`can` 是第一版的訊框路):`hook` 一筆紀錄帶左右 Δtick,hook 端交給 [`renode/hil_quadrature.cs`](../../../examples/hil-stm32/renode/hil_quadrature.cs)——一個 .NET 類,把 Δtick 走成 A/B 相位序列、對 timer 的 `OnGPIO(0/1)` 打邊緣。為什麼是 .NET 不是 Python:機器在跑時這段工作要排進時間域、在模擬執行緒上執行,用 Python lambda 排進去會在 hook 執行緒還在 Python 裡時把模擬卡死(Renode 時間停在 0.535 s,量到的);.NET 方法沒有這個問題。`i @file.cs` 動態編譯的型別 IronPython `import` 不到,要從 `AppDomain` 的組件用反射拿。每步成本 lockstep:hook 2.9 ms、gpio 4.2 ms(約 40 個 RPC)、cnt 2.8 ms。C8 在 TIM 模式改驗兩個等式:`CNT == 受控體 tick mod 2^16`(注入沒掉)、韌體累計 == 前一步的 tick(一步延遲)。
 
 **上位出口 `--upper tcp-listen:ADDR`**([`src/upper.rs`](../../../examples/hil-stm32/bridge-rs/src/upper.rs)):外部上位(ROS 2 節點)連進來,橋接在這一側只當序列線——每步開頭把收到的 byte 全部注入 USART1、等 ack;MCU 吐出的 byte 原樣送回。它不解語意,只用同一個 `Parser` 數框包(C7)、記最後一個命令進 CSV。內建腳本與外部上位送到韌體的 byte 完全相同,韌體分不出來——這是拓撲那張表「每個行程只認一種語言」的實作。
 

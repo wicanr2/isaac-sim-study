@@ -18,7 +18,9 @@
 #define RCC_AHB1ENR_GPIOA  (1u << 0)
 #define RCC_AHB1ENR_GPIOB  (1u << 1)
 #define RCC_AHB1ENR_GPIOC  (1u << 2)
+#define RCC_APB1ENR_TIM2   (1u << 0)
 #define RCC_APB1ENR_TIM3   (1u << 1)
+#define RCC_APB1ENR_TIM4   (1u << 2)
 #define RCC_APB1ENR_USART2 (1u << 17)
 #define RCC_APB1ENR_CAN1   (1u << 25)
 #define RCC_APB2ENR_USART1 (1u << 4)
@@ -53,6 +55,19 @@
 #define TIM3_ARR      REG(TIM3_BASE + 0x2C)
 #define TIM3_CCR1     REG(TIM3_BASE + 0x34)
 #define TIM3_CCR2     REG(TIM3_BASE + 0x38)
+
+/* TIM2(PA0/PA1 AF1)與 TIM4(PB6/PB7 AF2)當編碼器介面:RM0090 §18.3.12 encoder mode */
+#define TIM2_BASE     0x40000000u
+#define TIM4_BASE     0x40000800u
+#define TIM_CR1(b)    REG((b) + 0x00)
+#define TIM_SMCR(b)   REG((b) + 0x08)
+#define TIM_CCMR1(b)  REG((b) + 0x18)
+#define TIM_CCER(b)   REG((b) + 0x20)
+#define TIM_CNT(b)    REG((b) + 0x24)
+#define TIM_ARR(b)    REG((b) + 0x2C)
+#define TIM_SMCR_SMS_ENCODER3  3u          /* TI1 與 TI2 的邊緣都計數 */
+#define TIM_CCMR1_CC1S_TI1     (1u << 0)
+#define TIM_CCMR1_CC2S_TI2     (1u << 8)
 #define TIM_CR1_CEN        (1u << 0)
 #define TIM_CR1_ARPE       (1u << 7)
 #define TIM_EGR_UG         (1u << 0)

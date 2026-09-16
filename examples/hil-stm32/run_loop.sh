@@ -29,6 +29,15 @@ UPPER="${UPPER:-script}"
 PLANT="${PLANT:-fake}"
 RESC=hilctl; [ "${TIMERFIX:-0}" = 1 ] && RESC=hilctl-timerfix
 CAN="${CAN:-hook}"
+# 編碼器:calib.json 的 encoder_source 決定韌體讀 TIM 還是 CAN;tim 時平台的 TIM2/TIM4 換成 upstream master 的
+# timer(1.16.1 沒有 encoder mode),注入法由 ENC=hook|gpio|cnt 選(預設 hook)
+ENC_SRC=$(python3 -c "import json;print(json.load(open('calib.json')).get('encoder_source','can'))")
+ENC_PRE=()
+if [ "$ENC_SRC" = tim ]; then
+  [ "${TIMERFIX:-0}" = 1 ] && { echo "TIMERFIX=1 與 encoder_source=tim 目前不同時用(兩份平台描述)"; exit 2; }
+  ENC_PRE=(-e "i @/w/renode/upstream/STM32_Timer_Master.cs" -e "i @/w/renode/hil_quadrature.cs" -e '$repl=@/w/renode/upstream/stm32f4-encoder.repl')
+fi
+ENC_ARG=(); [ -n "${ENC:-}" ] && ENC_ARG=(--enc "$ENC")
 [ "$CAN" = socketcan ] && { [ "$RESC" = hilctl ] || { echo "CAN=socketcan 與 TIMERFIX 不同時用"; exit 2; }; RESC=hilctl-socketcan; }
 # CANHUBFIX=1:CANHub 換成 renode/upstream/CANHub_Fixed.cs(暫停時把主機來的訊框排隊,不丟;lockstep 才收得齊)
 [ "$CAN" = socketcan ] && [ "${CANHUBFIX:-0}" = 1 ] && RESC=hilctl-socketcan-fixed
@@ -83,7 +92,7 @@ WAIT_VCAN=""; [ "$CAN" = socketcan ] && WAIT_VCAN='while [ ! -e /sys/class/net/v
 docker run -d -i --name "$NAME" --network "$RENODE_NET" --cpus "$CPUS" --memory 2g --pids-limit 256 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w "$RENODE_IMAGE" \
-  sh -c "${WAIT_VCAN}exec renode --disable-xwt --console -e '\$bin=@$ELF' -e '\$quantum=\"${QUANTUM:-0.0001}\"' -e 'include @/w/renode/${RESC:-hilctl}.resc'" >/dev/null
+  sh -c "${WAIT_VCAN}exec renode --disable-xwt --console -e '\$bin=@$ELF' -e '\$quantum=\"${QUANTUM:-0.0001}\"' $(printf "%q " "${ENC_PRE[@]}") -e 'include @/w/renode/${RESC:-hilctl}.resc'" >/dev/null
 if [ "$CAN" = socketcan ]; then
   # 建 vcan 要 CAP_NET_ADMIN 而且要是容器內的 root(非 root 行程拿不到 ambient capability)。
   # 只做這一件事:--rm、--read-only、只掛 tools/ 唯讀、netns 是 Renode 那個(--network none 的隔離 netns)。
@@ -140,7 +149,7 @@ set +e
 docker run --rm --network "container:$NAME" --cpus "$CPUS" --memory 1g --pids-limit 128 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w -w /w "$RUST_IMAGE" \
-  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "${UPPER_ARG[@]}" "${CAN_ARG[@]}" "$@"
+  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "${UPPER_ARG[@]}" "${CAN_ARG[@]}" "${ENC_ARG[@]}" "$@"
 rc=$?
 set -e
 docker logs "$NAME" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > out/renode.log || true

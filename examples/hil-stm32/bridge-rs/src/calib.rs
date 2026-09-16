@@ -16,6 +16,8 @@ pub struct Calib {
     pub wheel_speed_full_mm_s: f64,
     pub can_id_encoder: u32,
     pub can_id_motor_status: u32,
+    /// 韌體的編碼器來源:true = TIM2/TIM4 encoder mode(calib "encoder_source": "tim"),false = CAN 0x181
+    pub encoder_tim: bool,
 }
 
 fn num(text: &str, key: &str) -> io::Result<f64> {
@@ -31,6 +33,7 @@ impl Calib {
     pub fn load(path: &str) -> io::Result<Calib> {
         let t = fs::read_to_string(path)?;
         let r = num(&t, "wheel_radius_mm")?;
+        let encoder_tim = t.contains("\"encoder_source\": \"tim\"");
         Ok(Calib {
             wheel_circ_um: (2.0 * std::f64::consts::PI * r * 1000.0).round(),
             track_mm: num(&t, "track_mm")?,
@@ -42,6 +45,7 @@ impl Calib {
             wheel_speed_full_mm_s: num(&t, "wheel_speed_at_full_duty_mm_s")?,
             can_id_encoder: num(&t, "can_id_encoder")? as u32,
             can_id_motor_status: num(&t, "can_id_motor_status")? as u32,
+            encoder_tim,
         })
     }
 }

@@ -15,6 +15,16 @@
 | `STM32_TimerTests.cs` | 上游 `PeripheralsTests` 樣式的 NUnit 測試(仿 `Cadence_TTCTests`),進 fork 的 commit |
 | `dotnet-verify/` | 不建整個 Renode 的驗證:上游版檔案對 1.16.1 組件編譯 0 warning;NUnit 修正版 4/4 綠、原版 4/4 紅 |
 
+| 檔案(encoder mode) | 用途 |
+|---|---|
+| `STM32_Timer.master-47a4e12.cs` | 上游 master(2026-09-09)的 `STM32_Timer.cs` 逐字副本——有 encoder mode 與輸入擷取,1.16.1 沒有 |
+| `STM32_Timer_Master.cs` | 同一份改名 `STM32_Timer_Master`、去掉 1.16.1 沒有的 `silent:` 參數,**再加**繞回 0↔ARR、DIR、週期 ARR+1 的修正;`i @` 執行期載入,平台只換 TIM2/TIM4 |
+| `stm32f4-encoder.repl` | vendor 平台,TIM2/TIM4 → `STM32_Timer_Master` |
+| `probe_encoder*.resc` | 原版 CNT 永遠 0;master 修正版 4 → 0 → 0xFFFC、DIR=1 |
+| `STM32_TimerEncoderTests.cs` | 五條 NUnit(四計數/週期、反向 DIR、下繞、上繞、時脈週期);master 原版 1/5、修正版 5/5 |
+
+fork 分支 `stm32-timer-encoder-wrap`(基於 upstream master 47a4e12)commit `7901f78`:encoder 繞回 + DIR + 週期 ARR+1;還沒送 PR(與 renode#1003 的週期項重疊,送前問)。
+
 上游狀態(2026-09-16):`CANHub` 修正 rebase 到 `master` 的分支 `canhub-queue-while-paused` → [renode-infrastructure PR #250](https://github.com/renode/renode-infrastructure/pull/250);timer 與 SysTick 因 `master` 已重寫,開 issue [renode#1003](https://github.com/renode/renode/issues/1003)、[renode#1004](https://github.com/renode/renode/issues/1004) 附這裡的 patch。
 
 fork:`wicanr2/renode-infrastructure` 分支 `stm32-timer-period-preload-fixes`(基於 1.16.1 的 commit),三個 commit(訊息英文):`STM32_Timer.cs` + `STM32_TimerTests.cs`;`NVIC.cs` + `NVIC_SysTickTests.cs`;`CANHub.cs` + `CANHubTests.cs`。

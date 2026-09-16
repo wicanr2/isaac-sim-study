@@ -10,6 +10,7 @@ pub const ID_UART_FROM_MCU: u32 = 0xFFFF_0002;
 pub const ID_BUS_SNAPSHOT: u32 = 0xFFFF_0003;
 pub const ID_START: u32 = 0xFFFF_0010;
 pub const ID_PAUSE: u32 = 0xFFFF_0011;
+pub const ID_ENCODER_STEPS: u32 = 0xFFFF_0020;
 pub const ID_ACK: u32 = 0xFFFF_00AC;
 
 #[derive(Debug, Clone)]
@@ -58,6 +59,16 @@ impl Hook {
     /// 注入一個 CAN 訊框(受控體 → MCU)。
     pub fn can_send(&mut self, id: u32, data: &[u8]) -> io::Result<()> {
         self.write_rec(id, data)?;
+        self.pending_acks += 1;
+        Ok(())
+    }
+
+    /// 編碼器計數差(左、右)→ hook 在 Renode 裡對 TIM2/TIM4 的輸入腳打正交脈衝,一筆一 ack。
+    pub fn encoder_steps(&mut self, dl: i32, dr: i32) -> io::Result<()> {
+        let mut d = [0u8; 8];
+        d[..4].copy_from_slice(&dl.to_le_bytes());
+        d[4..].copy_from_slice(&dr.to_le_bytes());
+        self.write_rec(ID_ENCODER_STEPS, &d)?;
         self.pending_acks += 1;
         Ok(())
     }
