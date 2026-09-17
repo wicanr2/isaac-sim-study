@@ -23,7 +23,7 @@
 | `probe_encoder*.resc` | 原版 CNT 永遠 0;master 修正版 4 → 0 → 0xFFFC、DIR=1 |
 | `STM32_TimerEncoderTests.cs` | 五條 NUnit(四計數/週期、反向 DIR、下繞、上繞、時脈週期);master 原版 1/5、修正版 5/5 |
 
-fork 分支 `stm32-timer-encoder-wrap`(基於 upstream master 47a4e12)commit `7901f78`:encoder 繞回 + DIR + 週期 ARR+1;還沒送 PR(與 renode#1003 的週期項重疊;英文稿已備、送出與否待定,2026-09-17)。
+fork 分支 `stm32-timer-encoder-wrap` commit `a8e98b0`(2026-09-17 rebase 到上游 `master` 0ab5d08;上游在 47a4e12 之後沒動 `STM32_Timer.cs`):encoder 繞回 + DIR + 週期 ARR+1 → [renode-infrastructure PR #252](https://github.com/renode/renode-infrastructure/pull/252)(週期項是 renode#1003 的週期那一半)。NUnit 要用改名版跑:`STM32_TimerEncoderTests.cs` 是上游形式(`new STM32_Timer(`),直接對 1.16.1 組件編譯吃到的是組件裡的原版類別,5/5 全紅;測試類與建構改成 `STM32_Timer_Master` 才是量修正版。
 
 上游狀態(2026-09-16):`CANHub` 修正 rebase 到 `master` 的分支 `canhub-queue-while-paused` → [renode-infrastructure PR #250](https://github.com/renode/renode-infrastructure/pull/250);timer 與 SysTick 因 `master` 已重寫,開 issue [renode#1003](https://github.com/renode/renode/issues/1003)、[renode#1004](https://github.com/renode/renode/issues/1004) 附這裡的 patch。
 
