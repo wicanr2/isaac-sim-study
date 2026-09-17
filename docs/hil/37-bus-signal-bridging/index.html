@@ -75,9 +75,15 @@
 <td>橋接腳本模式自己送;ROS driver 也送;300 ms 沒收到韌體降速到 0</td>
 </tr>
 <tr>
+<td>陀螺儀角速度</td>
+<td>受控體 → MCU(經 I2C 感測器)</td>
+<td>橋接每步用受控體真值位姿差分算 yaw rate → hook 一筆 <code>0xFFFF0024</code>(milli-dps)→ .NET <code>AngularRateFeeder</code> 寫 <code>sysbus.i2c3.gyro</code> 的 <code>AngularRateZ</code>;韌體自己經 I2C3 讀 OUT_Z</td>
+<td>三個受控體同一份公式(橋接算,不經受控體協定);韌體走真板的 I2C 路徑(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.3)</td>
+</tr>
+<tr>
 <td>韌體內部狀態</td>
 <td>MCU → 橋接</td>
-<td>External Control <code>sysbus_read</code> <code>g_dbg</code>(17 個字一次讀)</td>
+<td>External Control <code>sysbus_read</code> <code>g_dbg</code>(23 個字一次讀)</td>
 <td>生效證明與驗收用</td>
 </tr>
 <tr>

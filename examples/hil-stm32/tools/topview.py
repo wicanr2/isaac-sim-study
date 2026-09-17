@@ -50,6 +50,7 @@ def load_csv(path):
         "ox": col("odom_x") / 1000.0, "oy": col("odom_y") / 1000.0, "oth": col("odom_th") / 1000.0,   # odom_th 是 mrad
         "collided": col("collided", int) if "collided" in rows[0] else np.zeros(n, dtype=int),
         "en": col("en", lambda s: int(s == "true" or s == "1")),
+        "oseq": col("odom_seq", int),
     }
     # 受控體時間:lockstep = 步數 × dt;realtime = wall_ms
     if d["wall"] is not None:
@@ -70,6 +71,20 @@ def load_scans(path):
             continue
         out[int(f[1])] = np.array([float(x) for x in f[3:3 + int(f[2])]])
     return out
+
+
+def load_plans(path):
+    """driver 的 plan_log:每行 `PLAN <odom_seq> <n> x0 y0 x1 y1 ...`(map 座標,m);odom_seq = 收到這條路徑時 driver 手上最新的 odom 序號。
+    跟 CSV 的 odom_seq 欄對齊:不必讓 ROS 的牆鐘與 Renode 時間互相換算。"""
+    plans = []
+    for line in open(path, encoding="utf-8"):
+        f = line.split()
+        if len(f) < 3 or f[0] != "PLAN":
+            continue
+        n = int(f[2]); xy = np.array([float(v) for v in f[3:3 + 2 * n]]).reshape(-1, 2)
+        plans.append((int(f[1]), xy))
+    plans.sort(key=lambda p: p[0])
+    return plans
 
 
 def robot_patches(ax, color, alpha, ls="-"):
@@ -110,6 +125,7 @@ def main():
     ap.add_argument("--gif-scale", type=float, default=None, help="預設:≤ 30 s 的跑 0.5,更長的 0.4")
     ap.add_argument("--max-frames", type=int, default=2000)
     ap.add_argument("--vline", action="append", default=[], help="x:標籤,畫一條垂直虛線(例如 --fault bumper 的 500 mm 牆)")
+    ap.add_argument("--plan", default=None, help="driver 的 plan_log(Nav2 /plan);畫出當下最新的一條全域路徑")
     ap.add_argument("--no-recompute", action="store_true", help="沒有 scan 檔時不要從 world 重算雷射(blind-scan 之類的紀錄不在時用)")
     a = ap.parse_args()
 
@@ -121,6 +137,8 @@ def main():
         from world import World
         world = World(a.world)
     scans = load_scans(a.scan) if a.scan and pathlib.Path(a.scan).exists() else None
+    plans = load_plans(a.plan) if a.plan and pathlib.Path(a.plan).exists() else None
+    plan_seqs = np.array([p[0] for p in plans]) if plans else None
     scan_src = "紀錄" if scans else ("重算(world.py)" if world and not a.no_recompute else None)
 
     # ---- 版面:左 俯視圖,右 三張時間圖 ----
@@ -156,6 +174,7 @@ def main():
     trail_t, = axm.plot([], [], color="#1565c0", lw=1.6, zorder=4, label="真值")
     trail_o, = axm.plot([], [], color="#ef6c00", lw=1.2, ls="--", zorder=4, label="odom")
     scan_pts = axm.scatter([], [], s=5, color="#ff7043", zorder=3, label="雷射")
+    plan_line, = axm.plot([], [], color="#2e7d32", lw=1.4, ls="-.", zorder=3, label="Nav2 /plan" if plans else None)
     coll_pts, = axm.plot([], [], ls="", marker="x", ms=9, mew=2, color="#d32f2f", zorder=8, label="碰撞")
     bound = Circle((0, 0), 0.2, fill=False, ec="#1565c0", ls=":", lw=0.8, alpha=0.6, zorder=4)
     axm.add_patch(bound)
@@ -223,6 +242,10 @@ def main():
             hit = rs < world.range_max - 1e-3
             pts = np.c_[d["px"][i] + rs * np.cos(ang), d["py"][i] + rs * np.sin(ang)][hit]
             scan_pts.set_offsets(pts if len(pts) else np.zeros((0, 2)))
+        if plans and d["oseq"] is not None:
+            j = int(np.searchsorted(plan_seqs, d["oseq"][i], side="right")) - 1
+            if j >= 0:
+                plan_line.set_data(plans[j][1][:, 0], plans[j][1][:, 1])
         fl = d["flags"][i]
         names = [FLAG_NAMES[b] for b in range(1, 8) if (fl >> b) & 1]
         txt.set_text(f"t = {t[i]:.2f} s(step {d['step'][i]})    真值 ({d['px'][i]*1000:.0f}, {d['py'][i]*1000:.0f}) mm θ {d['pth'][i]:.3f}    "
@@ -260,7 +283,7 @@ def main():
     written += [out + "_topview.svg", out + "_topview.png"]
     i = n - 1
     print(f"[topview] {len(frame_idx)} 幀 @ {a.fps} fps;末幀 = CSV 末列 step {d['step'][i]}:真值 ({d['px'][i]*1000:.1f}, {d['py'][i]*1000:.1f}) mm θ {d['pth'][i]:.4f};"
-          f" 雷射 {scan_src or '無'};寫出 " + ", ".join(written))
+          f" 雷射 {scan_src or '無'};plan {len(plans) if plans else 0} 條;寫出 " + ", ".join(written))
 
 
 if __name__ == "__main__":

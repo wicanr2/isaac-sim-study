@@ -6,7 +6,7 @@
  *   report_task (優先權 1)  每 20 ms 一次:odom(USART1)、馬達狀態(CAN);最低優先,由它餵 IWDG
  *   idle hook                WFI
  *
- * 與裸機版的差別刻意只在「誰排程」:協定、暫存器、控制律、安全閘門、里程計、g_dbg 前 20 個字的版面
+ * 與裸機版的差別刻意只在「誰排程」:協定、暫存器、控制律、安全閘門、里程計、g_dbg 前 23 個字的版面
  * 全部在 ../firmware/control.c(兩版共用同一個 .c),橋接不用改就能跑。
  * g_dbg 後面多了 RTOS 才有的觀測欄位(deadline miss、stack 餘量、assert 行號)。
  *
@@ -20,7 +20,7 @@
 #include "calib.h"
 #include "control.h"
 
-/* ---- 觀測結構:前 20 個字(dbg_common_t)與裸機版逐字相同,橋接靠這個版面;後面是 RTOS 版才有的 ---- */
+/* ---- 觀測結構:前 23 個字(dbg_common_t)與裸機版逐字相同,橋接靠這個版面;後面是 RTOS 版才有的 ---- */
 typedef struct {
     dbg_common_t c;
     volatile uint32_t ctrl_missed;      /* ctrl_task 的 xTaskDelayUntil 回 pdFALSE 的次數(錯過週期) */
@@ -158,6 +158,7 @@ int main(void)
     ctl_encoder_init();
 #endif
     ctl_pwm_init();
+    ctl_imu_init();
     /* CAN 交握逾時用 tick 計,而 tick 要 scheduler 起來才走 → 給 NULL,control.c 用固定次數的輪詢 */
     ctl_can_init(0);
     dbg_puts(g_dbg.c.init_err ? "can1 init FAILED\r\n" : "can1 ready\r\n");

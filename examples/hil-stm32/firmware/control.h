@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "proto.h"
 
-/* 觀測用的全域狀態:volatile,固定版面,橋接以 sysbus 讀(bridge-rs dbg::WORDS = 20)。
+/* 觀測用的全域狀態:volatile,固定版面,橋接以 sysbus 讀(bridge-rs dbg::WORDS = 23)。
  * RTOS 版把它當第一個成員、後面接自己的欄位。 */
 typedef struct {
     volatile uint32_t magic;        /* 0x48494C31 "HIL1":橋接用來確認讀對位址 */
@@ -24,6 +24,9 @@ typedef struct {
     volatile uint32_t resets;       /* 暖重置次數(.noinit 計數;IWDG 驗收靠它) */
     volatile uint32_t boot_csr;     /* 開機時讀到的 RCC_CSR(真板 IWDGRSTF 在 bit29;Renode 讀到 0,紀錄用) */
     volatile uint32_t ping_frames;  /* 收到的 PING 數(心跳) */
+    volatile uint32_t imu_whoami;   /* 開機時讀到的 LSM330 WHO_AM_I_G(0xD4 = 有 IMU);0x100 | 錯誤碼 = I2C 沒回應 */
+    volatile int32_t  gyro_z;       /* 陀螺儀 z 軸 mrad/s(每個控制步讀一次) */
+    volatile int32_t  yaw_resid;    /* |陀螺儀 − 輪差 yaw rate| 的滑動平均 mrad/s(打滑判斷) */
 } dbg_common_t;
 
 /* 跨 reset 保留的區段:startup 不清、LoadELF 不寫。magic 對就是暖重置。 */
@@ -45,7 +48,9 @@ typedef struct {
     volatile int32_t  hb_timeout_ms;/* 心跳逾時;0 = 不驗 */
     volatile int32_t  stall_duty;   /* 堵轉判定 duty 門檻(‰) */
     volatile int32_t  stall_ms;     /* 堵轉判定持續時間 */
-    volatile uint32_t safety_mask;  /* SAFETY_*,全開 0x1F;負對照關一項 */
+    volatile uint32_t safety_mask;  /* SAFETY_*,全開 0x3F;負對照關一項 */
+    volatile int32_t  slip_mrad_s;  /* 打滑:yaw 殘差門檻 */
+    volatile int32_t  slip_ms;      /* 打滑:殘差超過門檻持續多久 */
 } cfg_t;
 
 extern cfg_t g_cfg;
@@ -59,7 +64,7 @@ typedef struct {
 } rx_t;
 
 /* 開機 */
-void ctl_bind_dbg(dbg_common_t *dbg);      /* 第一件事:g_dbg 前 20 字在哪;順便寫 magic */
+void ctl_bind_dbg(dbg_common_t *dbg);      /* 第一件事:g_dbg 前 23 字在哪;順便寫 magic */
 void ctl_uart_init(uint32_t base);
 void ctl_uart_putc(uint32_t base, uint8_t c);
 void dbg_puts(const char *s);              /* USART2 printer */
@@ -67,6 +72,7 @@ void dbg_put_u32(uint32_t v);
 void ctl_gpio_init(void);
 void ctl_encoder_init(void);               /* 只在 ENC_SOURCE_TIM */
 void ctl_pwm_init(void);
+void ctl_imu_init(void);                   /* I2C3 + LSM330 陀螺儀;沒有 IMU(I2C 沒回應)就記在 g_dbg、打滑偵測不做 */
 int  ctl_can_init(uint32_t (*now_ms)(void)); /* now_ms 給交握逾時用;NULL = 用迭代數(RTOS 版,tick 還沒走) */
 void ctl_motor_apply(int32_t duty_l, int32_t duty_r, int enable);
 void ctl_boot_detect(void);                /* RCC_CSR + .noinit → resets、boot_csr、暖重置旗標 */

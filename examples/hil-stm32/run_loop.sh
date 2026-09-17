@@ -10,6 +10,7 @@
 #   FW=freertos ./run_loop.sh           # 韌體換成 FreeRTOS 版(firmware-freertos/)
 #   RECORD=1 ./run_loop.sh --fault bumper  # 跑完多產一支俯視圖錄影 out/run.mp4(+ _topview.svg/png;RECORD_GIF=1 多 gif);issue #6
 #   ./run_loop.sh --mode realtime       # Renode 自由跑、橋接每 5 ms 牆鐘取樣;Renode 容器自動給 4 核(CPUS= 覆蓋;2 核會被 CFS 每 100 ms 凍 50 ms)
+#   IMU=1 UPPER=nav2 CONTACT=slip ./run_loop.sh --seconds 60 --negative blind-scan   # 陀螺儀打滑偵測,C13
 #   RCCFIX=1 ./run_loop.sh --fault hang # RCC/IWDG 換成修正版:看門狗重置後 RCC_CSR.IWDGRSTF = 1(docs/hil/38 §1.2)
 #   TIMERFIX=1 ./run_loop.sh            # TIM3 換成 renode/upstream/STM32_Timer_Fixed.cs(執行期載入的修正版)
 #   PLANT=remote ./run_loop.sh          # 受控體在場域 GPU 主機:自動開 ssh -L 隧道,受控體那端要先起好(埠 3700,TCP;
@@ -48,6 +49,19 @@ if [ "${RCCFIX:-0}" = 1 ]; then
            -e "i @/w/renode/upstream/STM32_IndependentWatchdog_Fixed.cs" -e "i @/w/renode/upstream/STM32F4_RCC_Fixed.cs"
            -e '$repl=@/w/renode/upstream/stm32f4-encoder-rccfix.repl')
 fi
+# IMU=1:I2C3 換上游 master 的 STM32F1_I2C、掛 LSM330 陀螺儀(修正版),含 RCCFIX;橋接每步寫真值 yaw rate、驗 C13(打滑)
+IMU_ARG=()
+if [ "${IMU:-0}" = 1 ]; then
+  [ "$ENC_SRC" = tim ] || { echo "IMU=1 目前只接 encoder_source=tim 的平台描述"; exit 2; }
+  ENC_PRE=(-e "i @/w/renode/upstream/STM32_Timer_Master.cs" -e "i @/w/renode/hil_quadrature.cs"
+           -e "i @/w/renode/upstream/STM32_IndependentWatchdog_Fixed.cs" -e "i @/w/renode/upstream/STM32F4_RCC_Fixed.cs"
+           -e "i @/w/renode/upstream/STM32F1_I2C.master-0ab5d08.cs" -e "i @/w/renode/upstream/LSM330_Gyroscope_Fixed.cs"
+           -e "\$repl=@${IMU_REPL:-/w/renode/upstream/stm32f4-encoder-imu.repl}")   # IMU_REPL:原版模型對照用
+  IMU_ARG=(--imu 1)
+fi
+# CONTACT=slip:假受控體碰撞時車體不動、輪子照轉(Isaac 上量到的形態);預設 freeze
+CONTACT_ARG=(); PLANT_CONTACT=()
+[ "${CONTACT:-freeze}" = slip ] && { CONTACT_ARG=(--contact slip); PLANT_CONTACT=(--contact slip); }
 ENC_ARG=(); [ -n "${ENC:-}" ] && ENC_ARG=(--enc "$ENC")
 [ "$CAN" = socketcan ] && { [ "$RESC" = hilctl ] || { echo "CAN=socketcan 與 TIMERFIX 不同時用"; exit 2; }; RESC=hilctl-socketcan; }
 # CANHUBFIX=1:CANHub 換成 renode/upstream/CANHub_Fixed.cs(暫停時把主機來的訊框排隊,不丟;lockstep 才收得齊)
@@ -134,7 +148,7 @@ case "$PLANT" in
     echo "[plant] 啟動 $PNAME(plant/fake_plant.py,$PLANT 3700,與 Renode 同 netns)"
     docker run -d --name "$PNAME" --network "container:$NAME" --cpus 1 --memory 512m --pids-limit 64 \
       --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
-      -v "$PWD":/w -w /w/plant "$PY_IMAGE" python3 fake_plant.py --bind 0.0.0.0:3700 --calib ../calib.json "${TCPFLAG[@]}" "${PLANT_WORLD[@]}" >/dev/null
+      -v "$PWD":/w -w /w/plant "$PY_IMAGE" python3 fake_plant.py --bind 0.0.0.0:3700 --calib ../calib.json "${TCPFLAG[@]}" "${PLANT_WORLD[@]}" "${PLANT_CONTACT[@]}" >/dev/null
     PLANT_ARG=(--plant "$PLANT:127.0.0.1:3700")
     ;;
   remote)
@@ -155,6 +169,12 @@ esac
 
 # --negative no-latch 是上位側的負對照(driver 對 WDT_RESET/STALL 不反應),橋接只印標籤;這裡把它翻成 driver 的參數
 case " $* " in *" --negative no-latch "*) FAULT_LATCH=false ;; esac
+# C14(重啟後重定位):RELOC=1 LOCALIZER=amcl;負對照 --negative static-map-odom = 同樣的解鎖重送,但 map→odom 仍是靜態 identity
+case " $* " in *" --negative static-map-odom "*) RELOC=1; LOCALIZER=static ;; esac
+RELOC_ARG=(); [ "${RELOC:-0}" = 1 ] && RELOC_ARG=(--expect-reloc 1)
+# 這一輪的 CSV 路徑(--log 可被 "$@" 覆蓋;後者贏);Nav2 的 /plan 存成同名 .plan(driver 寫,容器內路徑 /w/...)
+LOG=out/run.csv; prev=""; for x in "$@"; do [ "$prev" = "--log" ] && LOG=$x; prev=$x; done
+[ "$UPPER" = nav2 ] && PLAN_LOG="${PLAN_LOG:-/w/${LOG%.csv}.plan}"
 UPPER_ARG=()
 if [ "$UPPER" = ros ] || [ "$UPPER" = nav2 ]; then
   # ROS_SCRIPT:run_square.sh(預設,方形閉環)/ run_scan_check.sh(只驗 /scan);UPPER=nav2 → run_nav.sh 在 hil-nav2:jazzy(ros/Dockerfile.nav2)
@@ -163,7 +183,7 @@ if [ "$UPPER" = ros ] || [ "$UPPER" = nav2 ]; then
   echo "[ros] 啟動 $RNAME($ROS_IMAGE,ros/$ROS_SCRIPT,與 Renode 同 netns,$ROS_CPUS 核;log → out/ros.log)"
   docker run -d --name "$RNAME" --network "container:$NAME" --cpus "$ROS_CPUS" --memory 2g --pids-limit 256 \
     --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    -e "SIDE_M=${SIDE_M:-0.6}" -e "TIMEOUT_S=${TIMEOUT_S:-120.0}" -e "SECONDS_CHECK=${SECONDS_CHECK:-8.0}" -e "FAULT_LATCH=${FAULT_LATCH:-true}" \
+    -e "SIDE_M=${SIDE_M:-0.6}" -e "TIMEOUT_S=${TIMEOUT_S:-120.0}" -e "SECONDS_CHECK=${SECONDS_CHECK:-8.0}" -e "FAULT_LATCH=${FAULT_LATCH:-true}" -e "LOCALIZER=${LOCALIZER:-static}" -e "RELOC=${RELOC:-0}" -e "PLAN_LOG=${PLAN_LOG:-}" -e "CONTROLLER=${CONTROLLER:-dwb}" \
     -v "$PWD":/w -w /w/ros "$ROS_IMAGE" bash "./$ROS_SCRIPT" >/dev/null
   UPPER_ARG=(--upper tcp-listen:0.0.0.0:3800)
   [ "$UPPER" = nav2 ] && UPPER_ARG+=(--expect-goal 1)
@@ -171,8 +191,7 @@ elif [ "$UPPER" != script ]; then
   echo "UPPER 只接受 script、ros 或 nav2"; exit 2
 fi
 
-# 這一輪的 CSV 路徑(--log 可被 "$@" 覆蓋;後者贏);有世界時雷射也存檔(給 tools/topview.py)
-LOG=out/run.csv; prev=""; for x in "$@"; do [ "$prev" = "--log" ] && LOG=$x; prev=$x; done
+# 有世界時雷射也存檔(給 tools/topview.py)
 SCAN_ARG=(); [ ${#WORLD_ARG[@]} -gt 0 ] && SCAN_ARG=(--scan-log "${LOG%.csv}.scan")
 LOAD_AT_START=$(cut -d' ' -f1 /proc/loadavg)
 echo "[bridge] 開跑:${PLANT_ARG[*]} ${UPPER_ARG[*]} $*  (load $LOAD_AT_START)"
@@ -180,7 +199,7 @@ set +e
 docker run --rm --network "container:$NAME" --cpus "$CPUS" --memory 1g --pids-limit 128 \
   --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD":/w -w /w "$RUST_IMAGE" \
-  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "${UPPER_ARG[@]}" "${CAN_ARG[@]}" "${ENC_ARG[@]}" "${WORLD_ARG[@]}" "${SCAN_ARG[@]}" "$@"
+  ./bridge-rs/target/release/hil-bridge --log out/run.csv --sym "$SYM" "${EXTRA[@]}" "${PLANT_ARG[@]}" "${UPPER_ARG[@]}" "${CAN_ARG[@]}" "${ENC_ARG[@]}" "${IMU_ARG[@]}" "${CONTACT_ARG[@]}" "${RELOC_ARG[@]}" "${WORLD_ARG[@]}" "${SCAN_ARG[@]}" "$@"
 rc=$?
 set -e
 # RECORD=1:俯視圖錄影(issue #6):tools/topview.sh → uv 容器裡的 tools/topview.py。產出 ${LOG%.csv}.mp4 / _topview.svg / _topview.png;
@@ -188,6 +207,7 @@ set -e
 if [ "${RECORD:-0}" = 1 ]; then
   TV_ARGS=(--title "$(basename "${LOG%.csv}")" --meta "commit=$(git rev-parse --short HEAD 2>/dev/null);fw=$FW;plant=$PLANT;upper=$UPPER;args=$*;load=$LOAD_AT_START")
   [ ${#WORLD_ARG[@]} -gt 0 ] && TV_ARGS+=(--world world.json --scan "${LOG%.csv}.scan")
+  [ -s "${LOG%.csv}.plan" ] && TV_ARGS+=(--plan "${LOG%.csv}.plan")
   [ "${RECORD_GIF:-0}" = 1 ] && TV_ARGS+=(--gif)
   case " $* " in *" bumper "*) TV_ARGS+=(--vline "0.5:bumper 牆");; esac
   echo "[record] tools/topview.sh $LOG"

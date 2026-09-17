@@ -8,6 +8,8 @@ R=tools/remote.sh
 WORLD_ARG=""; [ "${WORLD:-0}" = 1 ] && WORLD_ARG="--world world.json"
 # TOPVIEW=1:真實俯視相機,每 100 ms 一幀 PNG 到 ~/hil-plant/topcam/(start 前清空);fetch 把它 rsync 回 out/topcam_isaac/
 [ "${TOPVIEW:-0}" = 1 ] && WORLD_ARG="$WORLD_ARG --topview topcam"
+# CPUSET=6,7:受控體綁在這幾個核(主機共用時限 CPU;taskset 讓 Isaac 的所有執行緒只排在這些核上)
+PIN=""; [ -n "${CPUSET:-}" ] && PIN="taskset -c $CPUSET"
 case "${1:-}" in
   sync)
     for f in plant/isaac_plant.py plant/world.py calib.json world.json; do $R up "$f" '~/hil-plant/'; done
@@ -15,7 +17,7 @@ case "${1:-}" in
   start)
     [ "${TOPVIEW:-0}" = 1 ] && $R ssh 'rm -rf ~/hil-plant/topcam'
     $R ssh "cd ~/hil-plant && { [ -f isaac_plant.pid ] && kill \$(cat isaac_plant.pid) 2>/dev/null; sleep 1; } ;
-            (nohup ~/isaac-run.sh isaac_plant.py --bind 127.0.0.1:3700 --calib calib.json --tcp $WORLD_ARG > isaac_plant.log 2>&1 & echo \$! > isaac_plant.pid)"
+            (nohup $PIN ~/isaac-run.sh isaac_plant.py --bind 127.0.0.1:3700 --calib calib.json --tcp $WORLD_ARG > isaac_plant.log 2>&1 & echo \$! > isaac_plant.pid)"
     for i in $(seq 1 60); do
       $R ssh 'grep -q "isaac_plant\] listening" ~/hil-plant/isaac_plant.log' 2>/dev/null && { echo "[isaac_plant] listening"; exit 0; }
       $R ssh 'grep -q "Traceback" ~/hil-plant/isaac_plant.log' 2>/dev/null && { echo "[isaac_plant] Traceback:"; $R ssh 'grep -A12 Traceback ~/hil-plant/isaac_plant.log | cut -c1-200'; exit 1; }

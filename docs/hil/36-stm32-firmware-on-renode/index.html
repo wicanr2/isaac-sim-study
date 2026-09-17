@@ -117,6 +117,18 @@ TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_sour
 <td>低有效的腳(nFAULT、保險桿常閉接點)由橋接扮演 pull-up 拉高,重啟後再拉一次</td>
 </tr>
 <tr>
+<td><code>STM32F4_I2C</code>(I2C3,IMU 用)</td>
+<td>CR1(START/STOP/ACK/PE)、CR2、DR、SR1(SB/ADDR/BTF/RxNE/TxE/AF)、SR2</td>
+<td>第一筆交易正常(WHO_AM_I_G 讀到 0xD4),<strong>之後每一筆都錯</strong>:模型在 STOP 與 repeated START 都不呼叫從端的 <code>FinishTransmission()</code>,<code>I2CPeripheralBase</code> 停在「收資料」狀態,下一筆交易的暫存器位址被當成資料寫進上一個暫存器。閉環量到:陀螺儀讀值恆為 −1687 mrad/s、0.545 s 誤報 SLIP</td>
+<td>不夠用。上游 <code>master</code> 已換成 <code>STM32F1_I2C</code>(F1/F2/F4 同一代 I2C,commit 033ee44 修了這件事);1.16.1 執行期載入它的逐字副本(<code>IMU=1</code>,<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.3)</td>
+</tr>
+<tr>
+<td><code>LSM330_Gyroscope</code>(I2C 0x6A)</td>
+<td>WHO_AM_I_G、CTRL_REG1..4_G、OUT_Z_L/H_G</td>
+<td><strong>靈敏度錯</strong>:輸出 = 角速度 × (65536/500 − 1) = 130 digit/dps,datasheet(DocID023426 Rev 3)表 3 是 8.75 mdps/digit = 114.3 digit/dps,照 datasheet 寫的韌體讀到的角速度高 14%;超過約 252 dps 會繞回不飽和;<strong>WHO_AM_I_G、CTRL_REG1..3_G 沒定義</strong>(讀 0、寫入丟掉)。另外 <code>I2CPeripheralBase</code> 不看子位址 MSb 的自動遞增、<code>Read(count)</code> 永遠回 1 byte</td>
+<td>修在模型:<a href="https://github.com/renode/renode-infrastructure/pull/254">PR #254</a>,NUnit 修正版 5/5、原版 0/5;韌體每筆交易只讀一個暫存器(datasheet 允許),多 byte 讀取這條路沒走</td>
+</tr>
+<tr>
 <td>NVIC + SysTick</td>
 <td>ISER、SysTick CSR/RVR/CVR</td>
 <td>SysTick 頻率來自平台描述的 <code>systickFrequency: 72000000</code>,<strong>不是 RCC</strong>;USART1 IRQ 37 正常進。<strong>ENABLE 0→1 不從 RELOAD 載入</strong>——先寫 CVR 再寫 LOAD 的順序(FreeRTOS port)第一個週期跑滿 2^24 cycle</td>

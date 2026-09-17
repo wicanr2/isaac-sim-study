@@ -23,7 +23,7 @@
 #include "calib.h"
 #include "control.h"
 
-/* 裸機版的 g_dbg 就是共同的 20 字 */
+/* 裸機版的 g_dbg 就是共同的 23 字 */
 dbg_common_t g_dbg __attribute__((aligned(4)));
 
 static volatile uint32_t s_tick_ms;
@@ -89,6 +89,7 @@ int main(void)
     ctl_encoder_init();
 #endif
     ctl_pwm_init();
+    ctl_imu_init();
     if (ctl_can_init(now_ms) == 0) dbg_puts("can1 ready\r\n");
     else { dbg_puts("can1 init FAILED step "); dbg_put_u32(g_dbg.init_err); dbg_puts("\r\n"); }
 

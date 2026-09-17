@@ -177,6 +177,33 @@ behavior_server:
     min_rotational_vel: 0.2
     rotational_acc_lim: 3.0
 
+# AMCL(LOCALIZER=amcl 才起):GOAL 6 C-2,韌體重啟後重定位。地圖只有牆、180° 旋轉對稱 → 全域定位分不出真位姿與鏡像
+# (38 篇 §6.3),所以只做「從重啟前最後一個位姿接著追」:nav_client 發 /initialpose。
+# update_min_d / update_min_a = 0:車停著也每筆掃描更新(重定位時車是停的)。
+amcl:
+  ros__parameters:
+    use_sim_time: false
+    base_frame_id: base_link
+    odom_frame_id: odom
+    global_frame_id: map
+    scan_topic: scan
+    map_topic: map
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    laser_model_type: "likelihood_field"
+    laser_max_range: 5.0
+    laser_min_range: 0.05
+    max_beams: 60
+    min_particles: 500
+    max_particles: 2000
+    update_min_d: 0.0
+    update_min_a: 0.0
+    resample_interval: 1
+    transform_tolerance: 1.0
+    tf_broadcast: true
+    set_initial_pose: true
+    initial_pose: {x: 0.0, y: 0.0, z: 0.0, yaw: 0.0}
+    always_reset_initial_pose: false
+
 lifecycle_manager:
   ros__parameters:
     autostart: true

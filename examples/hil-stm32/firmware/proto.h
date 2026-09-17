@@ -30,7 +30,8 @@ typedef struct __attribute__((packed)) {
     int32_t  th_mrad;
     int16_t  vl_mm_s;     /* 量到的左輪速 */
     int16_t  vr_mm_s;
-    uint8_t  flags;       /* 見 ODOM_FLAG_*;同一個 byte 也放在 CAN 0x201 的第 5 byte */
+    uint8_t  flags;       /* 見 ODOM_FLAG_* 低 8 位;同一個 byte 也放在 CAN 0x201 的第 5 byte */
+    uint8_t  flags_hi;    /* ODOM_FLAG_* 的第 8 位之後(SLIP) */
 } odom_payload_t;
 
 #define ODOM_FLAG_ENABLED   (1u << 0)   /* 馬達致能 */
@@ -41,6 +42,7 @@ typedef struct __attribute__((packed)) {
 #define ODOM_FLAG_STALL     (1u << 5)   /* 堵轉:duty 高而輪不動 → 停,直到上位命令歸零 */
 #define ODOM_FLAG_HB_LOST   (1u << 6)   /* 心跳逾時(HB_TIMEOUT_MS 沒 PING)→ 降速到 0 */
 #define ODOM_FLAG_WDT_RESET (1u << 7)   /* 這次開機是暖重置(IWDG 或其他 reset,不是上電) */
+#define ODOM_FLAG_SLIP      (1u << 8)   /* 打滑:陀螺儀的 yaw rate 與輪差推出的 yaw rate 對不上 → 只回報(上位決定),命令歸零才解 */
 
 /* 安全功能遮罩(g_cfg.safety_mask;calib SAFETY_MASK 全開)。只給負對照用:關掉一項,對應的驗收必須紅。 */
 #define SAFETY_IWDG      (1u << 0)
@@ -48,6 +50,7 @@ typedef struct __attribute__((packed)) {
 #define SAFETY_BUMPER    (1u << 2)
 #define SAFETY_STALL     (1u << 3)
 #define SAFETY_HB        (1u << 4)
+#define SAFETY_SLIP      (1u << 5)   /* 打滑偵測(要有 IMU);slip-off 負對照關它 */
 
 /* CAN 0x181 編碼器(受控體 -> MCU):i32 左累計 tick, i32 右累計 tick
  * CAN 0x201 馬達狀態(MCU -> 受控體/橋接):i16 duty_l, i16 duty_r, u8 flags, u8 seq, u16 保留 */

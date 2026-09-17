@@ -23,7 +23,9 @@
 #define STALL_DUTY               600  /* 堵轉:|duty| ≥ 此值(‰)… */
 #define STALL_SPEED_MM_S         20  /* …且 |輪速| < 此值(要 ≥ 一個 tick 的速度量子:76.7 µm / 5 ms = 15 mm/s)… */
 #define STALL_MS                 200  /* …持續這麼久 → STALL */
-#define SAFETY_MASK              0x1F  /* 五項安全功能全開;負對照才關 */
+#define SAFETY_MASK              0x3F  /* 五項安全功能 + 打滑偵測全開;負對照才關 */
+#define SLIP_RESID_MRAD_S        45  /* 打滑:|陀螺儀 − 輪差| yaw rate 50 ms 平均的門檻 */
+#define SLIP_MS                  50  /* …持續這麼久 → SLIP */
 #define ENC_SOURCE_TIM           1  /* 1: TIM2/TIM4 encoder mode 讀 CNT;0: CAN 0x181 訊框 */
 #define CAN_ID_ENCODER           0x181
 #define CAN_ID_MOTOR_STATUS      0x201

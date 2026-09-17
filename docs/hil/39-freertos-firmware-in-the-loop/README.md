@@ -40,7 +40,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 | 餵狗 | 控制步真的跑了才餵 | 最低優先的 `report_task` 餵(高優先 task 把 CPU 吃光時它餵不到 = 該重置) |
 | 死機注入 | 主迴圈 | `ctrl_task`(最高優先,關中斷後全部餓死) |
 | CAN 交握逾時 | 給 `now_ms`(SysTick 已在走,10 ms) | 給 `NULL`(tick 要 scheduler 起來才走,用迭代數) |
-| `g_dbg` | 就是 `dbg_common_t`(20 字) | `dbg_common_t` 當第一個成員,後面接 RTOS 欄位;`ctl_bind_dbg(&g_dbg.c)` |
+| `g_dbg` | 就是 `dbg_common_t`(23 字) | `dbg_common_t` 當第一個成員,後面接 RTOS 欄位;`ctl_bind_dbg(&g_dbg.c)` |
 
 `control.c` 不知道時間怎麼來:每個要看時間的函式都收 `now_ms` 參數。判準是重構前後**每一個 lockstep CSV 逐 byte 相同**——裸機版第一次比對差了 429 個欄位,追下去是橋接步邊界與韌體控制 tick 重合的問題,不是搬錯([37 篇](../37-bus-signal-bridging/README.md) §5);邊界錯開之後兩版都逐字相同。text:裸機 5716 → 6196 B(指令間接與函式呼叫),FreeRTOS 9864 → 9496。
 
@@ -50,7 +50,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 - **週期由 `xTaskDelayUntil` 保證。** 它回 `pdFALSE` 表示「這一輪已經晚了,沒有真的睡」——那就是錯過週期,記進 `g_dbg.ctrl_missed`。裸機版的 `next_ctrl += 5` 會默默追趕,看不出來。
 - **`proto_send` 包在 critical section 裡。** USART1 只有一條 TX 線,`rx_task` 回 PONG 與 `report_task` 送 odom 可能交錯——裸機版沒有這個問題,因為只有一條執行流。
 
-`g_dbg` 第 20 字之後多了 RTOS 才有的觀測:`ctrl_missed`、`report_missed`、`rx_wakeups`、三個 task 的 stack high-water mark、`assert_line`、`stack_overflow`、`malloc_failed`。橋接用 `--dbg-extra 9` 跑完印出。
+`g_dbg` 第 23 字之後多了 RTOS 才有的觀測:`ctrl_missed`、`report_missed`、`rx_wakeups`、三個 task 的 stack high-water mark、`assert_line`、`stack_overflow`、`malloc_failed`。橋接用 `--dbg-extra 9` 跑完印出。
 
 ## 3. 閉環結果:跟裸機版比
 
@@ -103,7 +103,7 @@ ARMv7-M(B3.3.3)規定 `ENABLE` 由 0 變 1 時計數器從 `SYST_RVR` 載入。R
 ## 5. 什麼沒變
 
 - 橋接、hook、External Control、受控體、十二項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。
-- `g_dbg` 前 20 字的版面(`dbg_common_t`)。橋接靠 `magic` 確認讀對東西,靠符號表找位址;兩版的 `g_dbg` 位址不同,`--sym` 換一份就好。
+- `g_dbg` 前 23 字的版面(`dbg_common_t`)。橋接靠 `magic` 確認讀對東西,靠符號表找位址;兩版的 `g_dbg` 位址不同,`--sym` 換一份就好。
 - 三條規則(35 篇 §6):沒有模擬模式、橋接不做安全、生效證明。`[effect]` 那幾行多印了 `g_dbg` 位址與 magic。
 
 ## 6. 檢查清單

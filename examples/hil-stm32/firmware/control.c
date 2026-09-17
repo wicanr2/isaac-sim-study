@@ -4,7 +4,7 @@
  * 兩版只剩「誰排程、誰餵狗、ISR 怎麼叫醒主迴圈」在各自的 main 裡。
  *
  * 這一層不知道時間怎麼來:每個要看時間的函式都收 now_ms(裸機給 SysTick 計數、RTOS 給 xTaskGetTickCount,
- * 兩者都是 1 kHz);也不知道 g_dbg 多大:RTOS 版在 dbg_common_t 後面接自己的欄位,開機時 ctl_bind_dbg() 告訴這裡前 20 字在哪。
+ * 兩者都是 1 kHz);也不知道 g_dbg 多大:RTOS 版在 dbg_common_t 後面接自己的欄位,開機時 ctl_bind_dbg() 告訴這裡前 23 字在哪。
  */
 #include <stdint.h>
 #include "regs.h"
@@ -13,12 +13,13 @@
 #include "crc16.h"
 #include "control.h"
 
-static dbg_common_t *D;   /* g_dbg 的共同前 20 字 */
+static dbg_common_t *D;   /* g_dbg 的共同前 23 字 */
 
 noinit_t g_noinit __attribute__((section(".noinit"), aligned(4)));
 
 cfg_t g_cfg __attribute__((aligned(4))) = { 0x48494C43u, PI_KP_Q8, PI_KI_Q8, ACCEL_LIMIT_MM_S2, FF_GAIN_Q8, ALPHA_LIMIT_MRAD_S2,
-                                            IWDG_TIMEOUT_MS, 0, HB_TIMEOUT_MS, STALL_DUTY, STALL_MS, SAFETY_MASK };
+                                            IWDG_TIMEOUT_MS, 0, HB_TIMEOUT_MS, STALL_DUTY, STALL_MS, SAFETY_MASK,
+                                            SLIP_RESID_MRAD_S, SLIP_MS };
 
 void ctl_bind_dbg(dbg_common_t *dbg) { D = dbg; D->magic = 0x48494C31u; }
 
@@ -154,6 +155,105 @@ void ctl_encoder_init(void)
     encoder_tim_init(TIM4_BASE);
 }
 #endif
+
+/* ------------------------------------------------------------------------ */
+/* IMU:LSM330 陀螺儀(I2C3,7-bit 位址 0x6A = SDO_G 接地)。暫存器與靈敏度出自 LSM330 datasheet       */
+/* (DocID023426 Rev 3):WHO_AM_I_G 0x0F = 0xD4、CTRL_REG1_G 0x20、OUT_Z_L/H_G 0x2C/0x2D、±250 dps 8.75 mdps/digit */
+/* ------------------------------------------------------------------------ */
+#define IMU_ADDR          0x6A
+#define LSM330_WHO_AM_I_G 0x0F
+#define LSM330_WHO_AM_I   0xD4
+#define LSM330_CTRL_REG1  0x20
+#define LSM330_OUT_Z_L    0x2C
+#define LSM330_OUT_Z_H    0x2D
+#define I2C_SPIN          20000u     /* 每個等待的輪詢上限;沒回應就放棄,不卡控制步 */
+#define SLIP_WINDOW       10         /* 殘差滑動平均 10 個控制步 = 50 ms */
+
+static int s_imu_ok;
+
+/* 等 SR1 的某個位元;AF(沒有 ACK)或逾時就回負值 */
+static int i2c_wait(uint32_t mask)
+{
+    for (uint32_t spin = 0; spin < I2C_SPIN; spin++) {
+        uint32_t sr1 = I2C_SR1(I2C3_BASE);
+        if (sr1 & I2C_SR1_AF) { I2C_SR1(I2C3_BASE) = sr1 & ~I2C_SR1_AF; return -1; }
+        if (sr1 & mask) return 0;
+    }
+    return -2;
+}
+
+static int i2c_fail(int e)
+{
+    I2C_CR1(I2C3_BASE) |= I2C_CR1_STOP;
+    return e;
+}
+
+/* 起始 + 位址(RM0090 §27.3.3 EV5/EV6);ADDR 由讀 SR1 再讀 SR2 清(接收單 byte 時呼叫端要先清 ACK) */
+static int i2c_start_addr(uint8_t addr, int read)
+{
+    I2C_CR1(I2C3_BASE) |= I2C_CR1_START;
+    if (i2c_wait(I2C_SR1_SB)) return -3;
+    I2C_DR(I2C3_BASE) = (uint32_t)(addr << 1) | (read ? 1u : 0u);
+    int e = i2c_wait(I2C_SR1_ADDR);
+    return e ? e - 3 : 0;
+}
+
+static int i2c_write_reg(uint8_t addr, uint8_t reg, uint8_t val)
+{
+    int e = i2c_start_addr(addr, 0);
+    if (e) return i2c_fail(e);
+    (void)I2C_SR1(I2C3_BASE); (void)I2C_SR2(I2C3_BASE);
+    I2C_DR(I2C3_BASE) = reg;
+    if (i2c_wait(I2C_SR1_TXE)) return i2c_fail(-10);
+    I2C_DR(I2C3_BASE) = val;
+    if (i2c_wait(I2C_SR1_BTF)) return i2c_fail(-11);
+    I2C_CR1(I2C3_BASE) |= I2C_CR1_STOP;
+    return 0;
+}
+
+/* 讀一個暫存器:子位址 MSb = 0(不自動遞增),單 byte 接收照 RM0090 §27.3.3「Closing the communication」第 3 點:
+ * ADDR 清掉之前關 ACK,清掉之後才下 STOP */
+static int i2c_read_reg(uint8_t addr, uint8_t reg, uint8_t *val)
+{
+    int e = i2c_start_addr(addr, 0);
+    if (e) return i2c_fail(e);
+    (void)I2C_SR1(I2C3_BASE); (void)I2C_SR2(I2C3_BASE);
+    I2C_DR(I2C3_BASE) = reg;
+    if (i2c_wait(I2C_SR1_BTF)) return i2c_fail(-12);
+    e = i2c_start_addr(addr, 1);
+    if (e) return i2c_fail(e - 20);
+    I2C_CR1(I2C3_BASE) &= ~I2C_CR1_ACK;
+    (void)I2C_SR1(I2C3_BASE); (void)I2C_SR2(I2C3_BASE);
+    I2C_CR1(I2C3_BASE) |= I2C_CR1_STOP;
+    if (i2c_wait(I2C_SR1_RXNE)) return i2c_fail(-13);
+    *val = (uint8_t)I2C_DR(I2C3_BASE);
+    return 0;
+}
+
+void ctl_imu_init(void)
+{
+    RCC_APB1ENR |= RCC_APB1ENR_I2C3;
+    /* PA8 → AF4 開汲極;PC9 → AF4 開汲極(外部 pull-up 在板子上) */
+    GPIO_MODER(GPIOA_BASE)  = (GPIO_MODER(GPIOA_BASE) & ~(3u << 16)) | (2u << 16);
+    GPIO_OTYPER(GPIOA_BASE) |= 1u << 8;
+    GPIO_AFRH(GPIOA_BASE)   = (GPIO_AFRH(GPIOA_BASE) & ~0xFu) | 4u;
+    GPIO_MODER(GPIOC_BASE)  = (GPIO_MODER(GPIOC_BASE) & ~(3u << 18)) | (2u << 18);
+    GPIO_OTYPER(GPIOC_BASE) |= 1u << 9;
+    GPIO_AFRH(GPIOC_BASE)   = (GPIO_AFRH(GPIOC_BASE) & ~(0xFu << 4)) | (4u << 4);
+    /* 100 kHz 標準模式 @ APB1 42 MHz(RM0090 §27.6.2/§27.6.8/§27.6.9):FREQ 42、CCR = 42 MHz / (2 × 100 kHz) = 210、TRISE = 42 + 1 */
+    I2C_CR1(I2C3_BASE) = 0;
+    I2C_CR2(I2C3_BASE) = 42;
+    I2C_CCR(I2C3_BASE) = 210;
+    I2C_TRISE(I2C3_BASE) = 43;
+    I2C_CR1(I2C3_BASE) = I2C_CR1_PE;
+
+    uint8_t who = 0;
+    int e = i2c_read_reg(IMU_ADDR, LSM330_WHO_AM_I_G, &who);
+    if (e) { D->imu_whoami = 0x100u | (uint32_t)(-e); s_imu_ok = 0; return; }
+    D->imu_whoami = who;
+    /* CTRL_REG1_G:PD = 1(normal mode)、Zen Yen Xen = 1 */
+    s_imu_ok = who == LSM330_WHO_AM_I && i2c_write_reg(IMU_ADDR, LSM330_CTRL_REG1, 0x0F) == 0;
+}
 
 void ctl_pwm_init(void)
 {
@@ -315,6 +415,10 @@ static int s_have_ping;
 static int32_t s_stall_ms;                  /* 堵轉:連續「duty 高且輪不動」累計毫秒 */
 static int s_stalled;                       /* 堵轉鎖住,命令歸零才解 */
 static int s_warm_reset;                    /* 這次開機是暖重置 */
+static int32_t s_yaw_hist[SLIP_WINDOW];     /* 打滑:每步的(陀螺儀 − 輪差)yaw rate,mrad/s */
+static int s_yaw_idx;
+static int32_t s_slip_ms;                   /* 殘差超過門檻的累計毫秒 */
+static int s_slipped;                       /* 打滑鎖住,命令歸零才解 */
 
 /* 里程計用浮點(soft-float,由 libgcc 提供);沒有 libm,所以 sin/cos 自己寫。 */
 static float s_x_mm, s_y_mm, s_th_rad;
@@ -380,6 +484,26 @@ void ctl_control_step(uint32_t now)
     s_y_mm += ds * fsin(th_mid);
     s_th_rad += dth;
 
+    /* 打滑:陀螺儀量到的 yaw rate 對輪差推出的 yaw rate。輪子頂著障礙物打滑時編碼器照數、車體不照轉,
+     * 兩者分開;車體沒轉的打滑(正面頂住)這裡看不到(docs/hil/38 §1.2)。殘差取 SLIP_WINDOW 步的平均,
+     * 因為輪速的量子是 1 tick / 5 ms = 15 mm/s → 輪差 yaw rate 一步 50 mrad/s。 */
+    int32_t yaw_resid = 0;
+    if (s_imu_ok) {
+        uint8_t lo = 0, hi = 0;
+        if (i2c_read_reg(IMU_ADDR, LSM330_OUT_Z_L, &lo) == 0 && i2c_read_reg(IMU_ADDR, LSM330_OUT_Z_H, &hi) == 0) {
+            int16_t raw = (int16_t)(lo | (hi << 8));
+            int32_t gz = (int32_t)raw * 1527 / 10000;               /* 8.75 mdps/digit = 0.1527 mrad/s */
+            int32_t ww = (s_meas_r - s_meas_l) * 1000 / TRACK_MM;   /* mrad/s */
+            s_yaw_hist[s_yaw_idx] = gz - ww;
+            s_yaw_idx = (s_yaw_idx + 1) % SLIP_WINDOW;
+            D->gyro_z = gz;
+        }
+        int32_t sum = 0;
+        for (int i = 0; i < SLIP_WINDOW; i++) sum += s_yaw_hist[i];
+        yaw_resid = (sum < 0 ? -sum : sum) / SLIP_WINDOW;
+        D->yaw_resid = yaw_resid;
+    }
+
     /* 安全閘門。兩種處置:「切」= 致能關、duty 0、積分清(急停、命令逾時、驅動器故障、堵轉);
      * 「降」= 命令改 0 走斜坡下來,致能不關(心跳丟失、保險桿只擋前進)。 */
     uint32_t flags = s_warm_reset ? ODOM_FLAG_WDT_RESET : 0;
@@ -403,6 +527,13 @@ void ctl_control_step(uint32_t now)
         if (s_stall_ms >= g_cfg.stall_ms) s_stalled = 1;
         if (s_cmd_v == 0 && s_cmd_w == 0) { s_stalled = 0; s_stall_ms = 0; }
         if (s_stalled) { flags |= ODOM_FLAG_STALL; enable = 0; }
+    }
+    /* 打滑:只回報,不切——車頂著東西時要停還是要退是上位的決定(driver 鎖住,§6.3 的 C12 同一套) */
+    if ((mask & SAFETY_SLIP) && s_imu_ok) {
+        s_slip_ms = yaw_resid > g_cfg.slip_mrad_s ? s_slip_ms + CONTROL_PERIOD_MS : 0;
+        if (s_slip_ms >= g_cfg.slip_ms) s_slipped = 1;
+        if (s_cmd_v == 0 && s_cmd_w == 0) { s_slipped = 0; s_slip_ms = 0; }
+        if (s_slipped) flags |= ODOM_FLAG_SLIP;
     }
 
     if (enable) {
@@ -460,6 +591,7 @@ static void report_odom(uint16_t seq, uint32_t flags, uint32_t now)
     o.vl_mm_s = (int16_t)s_meas_l;
     o.vr_mm_s = (int16_t)s_meas_r;
     o.flags = (uint8_t)flags;
+    o.flags_hi = (uint8_t)(flags >> 8);
     ctl_proto_send(MSG_ODOM, (const uint8_t *)&o, sizeof o);
 }
 

@@ -134,4 +134,30 @@ namespace Antmicro.Renode.Hil
         private readonly object sync = new object();
         private double anchor, rate, err, tA, offset;
     }
+
+    // IMU gyroscope feeder (docs/hil/38 sec. 1.2, slip detection): sets AngularRateZ (dps) of an I2C gyroscope model
+    // from the bridge's milli-dps. Reflection, because the sensor type may itself be compiled at runtime.
+    public class AngularRateFeeder
+    {
+        public AngularRateFeeder(object sensor)
+        {
+            this.sensor = sensor;
+            property = sensor.GetType().GetProperty("AngularRateZ");
+            if(property == null)
+            {
+                throw new ArgumentException("sensor has no AngularRateZ property");
+            }
+        }
+
+        public void Set(int milliDps)
+        {
+            property.SetValue(sensor, (decimal)milliDps / 1000m);
+            Updates++;
+        }
+
+        public long Updates { get; private set; }
+
+        private readonly object sensor;
+        private readonly System.Reflection.PropertyInfo property;
+    }
 }

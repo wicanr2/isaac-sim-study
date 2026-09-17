@@ -13,14 +13,14 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十二項判準在開跑前寫死">1. 十二項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l3"><a href="#62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</a></li><li class="l3"><a href="#63-上位對安全旗標的反應c12">6.3 上位對安全旗標的反應:C12</a></li><li class="l3"><a href="#64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</a></li><li class="l3"><a href="#65-每個實驗一支俯視圖錄影">6.5 每個實驗一支俯視圖錄影</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十四項判準在開跑前寫死">1. 十四項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l3"><a href="#13-打滑陀螺儀-yaw-rate-對輪差-yaw-ratec13">1.3 打滑:陀螺儀 yaw rate 對輪差 yaw rate(C13)</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l3"><a href="#62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</a></li><li class="l3"><a href="#63-上位對安全旗標的反應c12">6.3 上位對安全旗標的反應:C12</a></li><li class="l3"><a href="#64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</a></li><li class="l3"><a href="#65-每個實驗一支俯視圖錄影">6.5 每個實驗一支俯視圖錄影</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="38-驗收與失敗形態先閉環再換-isaac">38 · 驗收與失敗形態:先閉環,再換 Isaac</h1>
 <p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後是把受控體換成 Isaac Sim 6.0.1 時七件事各量到什麼。</p>
 <blockquote>
 <p><strong>驗證狀態</strong>:§1–§5 在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 在場域 GPU 主機實測(Isaac Sim 6.0.1 pip 版,PhysX、CPU 求解、TGS;Renode 與橋接留在本機,受控體經 <code>ssh -L</code> 隧道,同日)。</p>
 </blockquote>
-<h2 id="1-十二項判準在開跑前寫死">1. 十二項判準,在開跑前寫死</h2>
+<h2 id="1-十四項判準在開跑前寫死">1. 十四項判準,在開跑前寫死</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/run_loop.sh"><code>run_loop.sh</code></a> 一條指令:起 Renode 容器(<code>--network none</code>)、橋接容器共用它的 netns、跑完只停自己起的那一個。橋接開頭先印生效證明:</p>
 <pre><code>[effect] encoder: calib=tim inject=hook
 [effect] renode ec=127.0.0.1:3500 hook=127.0.0.1:3600 machine=hilctl boot_ms=102 t0_us=102000
@@ -109,14 +109,26 @@
 </tr>
 <tr>
 <td>C12</td>
-<td>上位對 <code>WDT_RESET</code> 的反應:重啟 0.5 s 後車不再動(§6.3)</td>
+<td>上位對 <code>WDT_RESET</code> 的反應:重啟 0.5 s 後車不再動;有重定位時(<code>RELOC=1</code>)只驗到解鎖為止(§6.3)</td>
 <td>上位不知道底盤重啟過、照送命令</td>
 <td>只在 hang + 外部上位驗;<code>no-latch</code> 紅</td>
+</tr>
+<tr>
+<td>C13</td>
+<td>打滑(<code>IMU=1</code>):沒有接觸 → SLIP 不得亮;轉角打滑(輪差轉角比車體多 0.02 rad)開始後 500 ms 內 SLIP,外部上位時亮起 0.5 s 後輪子停;只有平移打滑 → 只報延遲不判(§1.3)</td>
+<td>車頂著障礙物打滑、上位以為到了</td>
+<td>誤報 0(四種情境);<code>slip-off</code> 紅</td>
+</tr>
+<tr>
+<td>C14</td>
+<td>重啟後重定位(<code>RELOC=1</code>):解鎖 ≥ 重啟 + 1 s、最後真值到 goal 0.1 m 內、碰撞 0(§6.3)</td>
+<td>重啟後 odom 歸零、<code>map → odom</code> 仍是 identity</td>
+<td><code>static-map-odom</code> 紅</td>
 </tr>
 </tbody>
 </table></div>
 <p>任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 <a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a>。末端位姿 x 900.8、y 0.4、θ 0.8627 是這份 calib 下的參考值,裸機與 FreeRTOS 兩版韌體、三種編碼器注入法、UDP 受控體、vcan 路都要對上它(§3、<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.1、<a href="../../hil/39-freertos-firmware-in-the-loop/">39 篇</a> §3)。</p>
-<p>負對照有八個,每一個只差一個旗標:<code>--negative bad-crc</code>(§2)、<code>--negative enc-swap</code>(編碼器 A/B 對調:韌體量到負速度,PI 正回饋把車推到 5.3 m,C3、C8、C9 紅)、<code>--negative no-ramp</code>(§1.1)、五個安全 I/O 的 <code>*-off</code>(§1.2)。</p>
+<p>負對照有十一個,每一個只差一個旗標:<code>--negative bad-crc</code>(§2)、<code>--negative enc-swap</code>(編碼器 A/B 對調:韌體量到負速度,PI 正回饋把車推到 5.3 m,C3、C8、C9 紅)、<code>--negative no-ramp</code>(§1.1)、五個安全 I/O 的 <code>*-off</code> 與 <code>noinit-off</code>(§1.2)、<code>slip-off</code>(§1.3)、<code>static-map-odom</code>(§6.3)。上位側的 <code>no-latch</code>、<code>blind-scan</code> 另計。</p>
 <h3 id="11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</h3>
 <p>第一版韌體的 PI 直接追上位的階躍,受控體的馬達是「duty 乘滿速再一階趨近」——沒有死區、沒有扭矩上限。300 mm/s 的步階在假受控體上升 40 ms、超調 15%、最大加速度 9300 mm/s²;在 Isaac 上 <code>DriveAPI</code> 直接吃 duty,超調 60%、最大加速度 91400 mm/s²,在 ±2% 帶外晃了 525 ms。這兩個數字都不是「車」的行為,是「沒有動態限制的控制器 + 沒有物理上限的馬達」的行為。改了三件事,每一件放在它該在的那一層:</p>
 <p align="center"><img src="../../img/hil-ramp-and-motor-layer.svg" width="860" alt="命令到輪速的鏈:斜坡與 PI 在韌體、馬達層在受控體;兩張步階圖是假受控體與 Isaac 的前後對照"></p>
@@ -236,6 +248,168 @@
 </ul>
 <p>負對照關掉防護的方法是改 <code>g_cfg.safety_mask</code>,而 IWDG 在 <code>main()</code> 初始化時就要決定開不開——所以 <code>g_cfg</code> 的寫入時機從「開機後寫 SRAM」改成「<strong>開機前寫 flash 裡 <code>.data</code> 的初始值</strong>」(LMA = <code>_sidata + (g_cfg − _sdata)</code>,startup 照常複製),<code>[effect]</code> 開機後從 SRAM 讀回來印。等於燒錄前改了參數區,<code>--cfg</code>、<code>--negative no-ramp</code> 也一併改走這條路,lockstep 數字逐字不變。</p>
 <p>重啟後韌體只把 <code>WDT_RESET</code> 亮在 flags 裡(到下次上電為止),上位的命令照收——要不要因為一次看門狗重啟就拒絕命令是<strong>上位的政策</strong>,做在 driver(§6.3),不在韌體。</p>
+<h3 id="13-打滑陀螺儀-yaw-rate-對輪差-yaw-ratec13">1.3 打滑:陀螺儀 yaw rate 對輪差 yaw rate(C13)</h3>
+<p>§6.4 第 4 列是 Isaac 上的失敗形態:車頂著方塊、輪子打滑、編碼器照數,韌體 odom 一路走到 goal,Nav2 回 <code>succeeded</code>,真值離 goal 2.2 m。看真值的 C11 抓得到,系統裡沒有任何一方知道。假受控體撞到就凍結編碼器,重現不了。</p>
+<p><strong>先離線選訊號。</strong> 用那一次的 Isaac CSV(90 s)在打滑段與正常段(Isaac Nav2 正對照、Isaac 預設腳本、假受控體方形)算三個候選的分離度,門檻取正常段最大值 × 1.5,理想感測器(真值差分,沒有雜訊):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>訊號</th>
+<th>正常段最大</th>
+<th>打滑段最大</th>
+<th>打滑開始後第一次超過門檻</th>
+<th>打滑期間超過門檻的比例</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(a) 陀螺儀:|輪差 yaw rate − 真值 yaw rate|,50 ms 窗</td>
+<td>0.030 rad/s</td>
+<td>0.506 rad/s</td>
+<td>+165 ms</td>
+<td>7.0%(200 ms 窗 13.3%)</td>
+</tr>
+<tr>
+<td>(b) 加速度計:|真值前進加速度 − 輪速微分|,50 ms 窗</td>
+<td>856 mm/s²</td>
+<td>5108 mm/s²</td>
+<td>+170 ms</td>
+<td>0.1%</td>
+</tr>
+<tr>
+<td>(c) 雷射對地圖:真值位姿的掃描 vs odom 位姿在只有牆的地圖上的預期掃描,逐束差中位數</td>
+<td>7 mm</td>
+<td>1.318 m</td>
+<td>+250 ms</td>
+<td>99.8%</td>
+</tr>
+</tbody>
+</table></div>
+<p>兩件事從表上讀得出來。一,(c) 最好,但 <strong>blind-scan 這個場景把雷射全改成最大距離</strong>——系統裡拿不到它;這個場景下能用的只有 (a) 與 (b)。二,(a) 只在車體與輪子的<strong>轉角</strong>分開時看得到:打滑 10 s 之後車頂住方塊不再轉(真值 θ 停在 1.571),輪子照轉、兩輪等速,陀螺儀與輪差都是 0。(b) 只抓得到撞上那一下。選 (a) 做在韌體;車體不轉的打滑留著當陀螺儀的盲區,表上寫明。</p>
+<p><strong>韌體。</strong> I2C3(PA8/PC9)接 LSM330 陀螺儀(7-bit 0x6A),暫存器與靈敏度照 datasheet(DocID023426 Rev 3):開機讀 WHO_AM_I_G = 0xD4、寫 CTRL_REG1_G = 0x0F;每個控制步讀 OUT_Z_L/H_G(每筆交易一個暫存器)。殘差 = |陀螺儀 − (右輪速 − 左輪速)/輪距| 的 10 步(50 ms)平均——輪速的量子是 1 tick / 5 ms = 15 mm/s,換成輪差 yaw rate 是 50 mrad/s,不平均就淹在量化裡。殘差 &gt; 45 mrad/s(離線表的 30 × 1.5)持續 50 ms → <code>SLIP</code>(flags 第 8 位,odom 框包末尾加 1 byte <code>flags_hi</code>)。韌體<strong>只回報不切</strong>:要停、要退是上位的事;driver 把 <code>SLIP</code> 與 <code>STALL</code>、<code>WDT_RESET</code> 同樣鎖住(§6.3)。命令歸零才解。沒有 IMU 的平台上 I2C 位址沒人回應(AF),韌體記下 <code>imu_whoami = 0x104</code>、不做打滑偵測;預設閉環的 CSV 與加 IMU 程式碼之前<strong>逐 byte 相同</strong>。</p>
+<p><strong>橋接扮演陀螺儀的機械部分。</strong> 每步用受控體真值位姿差分算 yaw rate,經 hook 寫進 Renode 裡感測器模型的 <code>AngularRateZ</code>——三個受控體同一份公式,不經受控體協定。韌體讀到的值對真值:落後一步,最大差 20 mrad/s、平均 2.1(轉向段 582 vs 580 mrad/s)。</p>
+<p><strong>Renode 的兩個缺口,都在閉環裡量到。</strong> 陀螺儀的模型與 I2C 主控端都不夠用(<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3):</p>
+<ul>
+<li>1.16.1 的 <code>STM32F4_I2C</code> 在 STOP 與 repeated START 都不呼叫從端的 <code>FinishTransmission()</code>。閉環量到:WHO_AM_I_G(開機第一筆交易)讀得對,之後陀螺儀恆為 −1687 mrad/s,0.545 s 誤報 SLIP。上游 <code>master</code> 已換成 <code>STM32F1_I2C</code>,執行期載入它的逐字副本。</li>
+<li><code>LSM330_Gyroscope</code> 的靈敏度是 130 digit/dps(datasheet 114.3),WHO_AM_I_G 讀 0。修在模型(<a href="https://github.com/renode/renode-infrastructure/pull/254">PR #254</a>);原版陀螺儀上韌體讀到 WHO_AM_I_G = 0,當成沒有 IMU。</li>
+</ul>
+<p><strong>假受控體要能打滑。</strong> <code>CONTACT=slip</code>:碰撞時車體停在原地,輪子照馬達層轉、編碼器照數(Rust <code>Fake</code> 與 <code>fake_plant.py</code> 同一份)。預設 <code>freeze</code> 不變——凍結時是 <code>STALL</code> 接手。</p>
+<p><strong>C13 的判準分兩部分,依陀螺儀看得到什麼來分。</strong> <strong>轉角打滑</strong>(輪差轉角比車體轉角累計多 0.02 rad 起算)要求 500 ms 內 SLIP(離線表 +165 ms 的 3 倍);<strong>只有平移打滑</strong>(輪行程比車體多 20 mm 起算,但轉角沒分開)只報延遲、不判——車正面頂住時陀螺儀要等 Nav2 開始修正方向、輪差出現才看得到,量到的延遲是 +750 ms 與 +1280 ms(下表兩次),這段時間 odom 多走 280–441 mm。沒有接觸的場景 SLIP 不得亮。負對照 <code>--negative slip-off</code> = 同一個 blind-scan 場景、<code>g_cfg</code> 關掉打滑偵測(不涉及重啟,<code>g_cfg</code> 的改動留得住)。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>場景(<code>IMU=1</code>)</th>
+<th>受控體</th>
+<th>沒接觸時 yaw 殘差最大</th>
+<th>SLIP</th>
+<th>延遲(對轉角打滑 / 對平移打滑)</th>
+<th>Nav2 結果</th>
+<th>C13</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>預設 6 s 腳本</td>
+<td>假</td>
+<td>9 mrad/s</td>
+<td>沒亮</td>
+<td>—</td>
+<td>—</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>預設 6 s 腳本,FreeRTOS</td>
+<td>假</td>
+<td>9</td>
+<td>沒亮</td>
+<td>—</td>
+<td>—</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>方形(<code>UPPER=ros</code>)</td>
+<td>假</td>
+<td>11</td>
+<td>沒亮</td>
+<td>—</td>
+<td>—</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>Nav2 90 s</td>
+<td>假</td>
+<td>10</td>
+<td>沒亮</td>
+<td>—</td>
+<td><code>succeeded</code>,46 mm</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>blind-scan,<code>CONTACT=freeze</code></td>
+<td>假</td>
+<td>8</td>
+<td>沒亮(輪子凍結,<code>STALL</code> 鎖住)</td>
+<td>—</td>
+<td><code>canceled</code></td>
+<td>不要求</td>
+</tr>
+<tr>
+<td>blind-scan,<code>CONTACT=slip</code>(兩次)</td>
+<td>假</td>
+<td>8–9</td>
+<td>亮</td>
+<td>第二次 <strong>+115 ms</strong> / +750 ms;第一次 — / +1280 ms</td>
+<td><code>canceled</code></td>
+<td>綠(第二次)</td>
+</tr>
+<tr>
+<td><code>slip-off</code></td>
+<td>假</td>
+<td>8</td>
+<td><strong>沒亮</strong></td>
+<td>—</td>
+<td><strong><code>succeeded</code>,真值離 goal 2278 mm</strong></td>
+<td><strong>紅</strong></td>
+</tr>
+<tr>
+<td>預設 6 s 腳本</td>
+<td>Isaac 6.0.1</td>
+<td>27</td>
+<td>沒亮</td>
+<td>—</td>
+<td>—</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>Nav2 90 s</td>
+<td>Isaac 6.0.1</td>
+<td>10</td>
+<td>沒亮</td>
+<td>—</td>
+<td><code>succeeded</code>,46 mm</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>blind-scan</td>
+<td>Isaac 6.0.1</td>
+<td>11</td>
+<td>亮(碰撞後 215 ms)</td>
+<td><strong>+10 ms</strong> / −30 ms(轉角先分開)</td>
+<td><code>canceled</code>;odom 對真值 31 / 37 mm</td>
+<td>綠</td>
+</tr>
+<tr>
+<td><code>slip-off</code></td>
+<td>Isaac 6.0.1</td>
+<td>10</td>
+<td><strong>沒亮</strong></td>
+<td>—</td>
+<td><strong><code>succeeded</code>,真值離 goal 2154 mm</strong>;odom 對真值 1643 / 1334 mm</td>
+<td><strong>紅</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>Isaac 上的打滑是沿著方塊側滑、車體跟著轉,轉角在碰撞後 205 ms 就分開,SLIP 晚 10 ms 亮;driver 鎖住之後輪子不再推,odom 對真值只差 31 / 37 mm(§6.4 第 4 列的同一個場景沒有偵測時是 1631 / 1353 mm)。假受控體的 <code>slip-off</code> 重現了 Isaac 上的假成功——Nav2 以為到了、車頂在 1.16 m 外。打滑偵測開著時同一個場景 <code>canceled</code>:上位不知道車在哪,但至少知道自己不知道。</p>
 <h2 id="2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</h2>
 <p><code>./run_loop.sh --negative bad-crc</code> 把每個 cmd_vel 的最後一個 byte 反相:</p>
 <pre><code>[run] fw ... cmd_frames=0 enc_frames=1199 bad_crc=300 rx_overflow=0
@@ -581,6 +755,54 @@
 <li><strong>序列線有線速。</strong> 上位在牆鐘上每 20 ms 送一個 cmd_vel、每 100 ms 一個 PING;橋接一停頓(load 15 下常有),上位的 byte 堆起來,一次全灌進 USART1 的話 Renode 的 UART 不分 baud 節拍、ISR 一個接一個,主迴圈搶不到 128 B 的 ring buffer 就溢位——量到 <code>rx_overflow=114</code>、4 個壞 CRC、C6/C7 紅。真線路 115200 bps 每 5 ms 最多 57 byte,橋接現在按這個線速分批注入(<code>calib.json</code> 的 <code>uart_baud</code>)。這一條是 §5 表裡「第一眼像韌體 CRC 有問題」的又一個。</li>
 <li><strong>撞牆那一步不能算進 C9。</strong> 受控體撞到方塊時速度直接歸零(73039 mm/s²),那是牆的事不是韌體斜坡的事;負對照原本 C9、C11 一起紅,現在只有 C11。</li>
 </ul>
+<p><strong>MPPI 對 DWB</strong>(<code>CONTROLLER=mppi</code>)。映像裡本來就有 <code>nav2-mppi-controller</code>;參數用 Nav2 Jazzy <code>nav2_bringup/params/nav2_params.yaml</code> 的 FollowPath 段(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/nav2_params_mppi.yaml"><code>nav2_params_mppi.yaml</code></a> 疊在 controller_server 上),只把速度與加速度上限改成和 DWB、韌體斜坡一致(vx 0–0.3 m/s、wz 0.6 rad/s、ax ±1.5、az 4.0),<strong>其他不調</strong>。假受控體、lockstep、<code>UPPER=nav2 --seconds 90</code>,時間都是受控體時間(2026-09-17,主機 load 11–12):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>DWB</th>
+<th>MPPI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>進 goal 0.1 m 內</td>
+<td>15.5 s</td>
+<td>16.2 s</td>
+</tr>
+<tr>
+<td>最後一次在動</td>
+<td><strong>17.8 s</strong></td>
+<td>42.1 s(在 goal 附近來回修到 xy 0.05 m / yaw 0.3 rad 的容差)</td>
+</tr>
+<tr>
+<td>末端離 goal</td>
+<td>43 mm</td>
+<td>34 mm</td>
+</tr>
+<tr>
+<td>路徑長</td>
+<td>3849 mm</td>
+<td>3904 mm</td>
+</tr>
+<tr>
+<td>車緣離方塊最近</td>
+<td>96 mm</td>
+<td>161 mm</td>
+</tr>
+<tr>
+<td>C9 max |dv/dt|</td>
+<td>2382 mm/s²</td>
+<td>1418 mm/s²</td>
+</tr>
+<tr>
+<td>每步牆鐘</td>
+<td>9.3 ms(Renode 0.54×)</td>
+<td>13.0 ms(0.39×,MPPI 在 2 核的 ROS 容器裡吃 CPU)</td>
+</tr>
+</tbody>
+</table></div>
+<p>MPPI 離障礙物遠、加速度小,但預設參數下收尾要多 24 s。這一區留 DWB:到達時間相當,停得乾淨;Isaac 上的 Nav2 數字(§6.4)都是 DWB,沒有另跑 MPPI。MPPI 的收尾不是它的上限——那是參數的事,這裡刻意不調。</p>
 <h3 id="63-上位對安全旗標的反應c12">6.3 上位對安全旗標的反應:C12</h3>
 <p>韌體重啟(IWDG)之後有兩件事上位非知道不可:<code>WDT_RESET</code> 亮了,而且<strong>里程計歸零了</strong>——odom 是韌體算的,重啟後 <code>x, y, θ</code> 從 (0, 0, 0) 重來,<code>map → odom</code> 那個靜態 identity 從這一刻起是錯的。上位如果只是繼續送 <code>cmd_vel</code>,車會從一個它以為在原點的位置開走。<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/hil_base_driver.py"><code>hil_base_driver.py</code></a> 的反應:看到 <code>WDT_RESET</code> 或 <code>STALL</code> 就<strong>鎖住</strong>——<code>cmd_vel</code> 一律送 0、對 <code>navigate_to_pose</code> 的 <code>cancel_goal</code> 服務送「全部取消」(goal_id 全 0),直到操作者呼叫 <code>/hil/fault_ack</code>(std_srvs/Trigger)才放開;<code>DRV_FAULT</code>、<code>ESTOP</code>、<code>HB_LOST</code> 不鎖,韌體自己會切、解除就恢復。負對照是 driver 的參數 <code>fault_latch:=false</code>(<code>--negative no-latch</code>):什麼都不做。</p>
 <p>場景 <code>UPPER=nav2 ./run_loop.sh --seconds 60 --fault hang --fault-at 8</code>:車在往 goal 的路上 8.0 s 死掉、9.0 s 看門狗重啟;<code>nav_client</code> 的行為是「goal 失敗就重送一次」——上位不知道底盤重啟過時會做的事。</p>
@@ -616,6 +838,76 @@
 </tbody>
 </table></div>
 <p>沒鎖住的那一欄,車沒有直直撞出去是 Nav2 的 progress checker 先把第一次 goal 判失敗——這是運氣不是設計,第二次 goal 就開走了。C12 的判準只看受控體真值(重啟 0.5 s 後 <code>|v| ≥ 5 mm/s</code> 的步數),不看 Nav2 的回覆:「上位該停」要用車的行為驗,不用上位的自述。</p>
+<h4 id="解鎖之後amcl-重定位c14">解鎖之後:AMCL 重定位(C14)</h4>
+<p>C12 只證明「上位知道要停」。停完還要能繼續:重啟後 odom 從 (0, 0, 0) 重來,靜態 identity 的 <code>map → odom</code> 從那一刻起是錯的。這一段換成 AMCL(<code>LOCALIZER=amcl</code>,映像多裝 <code>ros-jazzy-nav2-amcl</code>,一個套件、安裝 1.9 MB),流程在 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/ros/nav_client.py"><code>nav_client.py</code></a>(<code>RELOC=1</code>):重啟 → driver 鎖住、取消 goal → 重定位 → 收斂才呼叫 <code>/hil/fault_ack</code> 解鎖 → 重送 goal。</p>
+<p><strong>先量對稱。</strong> 房間 4 × 3 m、地圖只畫牆,對中心 (1.5, 1.0) 旋轉 180° 不變——起點 (0, 0) 的鏡像剛好是 goal (3, 2)。沿 Nav2 正對照的真值路徑每 0.5 s 取位姿 p 與鏡像 p′,算雷射實際量到的(含方塊)對兩張地圖預期掃描的逐束差(&gt; 5 cm 的比例):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>地圖</th>
+<th>真位姿</th>
+<th>鏡像位姿</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>只有牆(現行)</td>
+<td>0.07–0.18</td>
+<td><strong>逐列與真位姿相同</strong></td>
+</tr>
+<tr>
+<td>牆 + 方塊(<code>gen_map.py --boxes</code>)</td>
+<td>0.00</td>
+<td>0.07–0.15</td>
+</tr>
+</tbody>
+</table></div>
+<p>只有牆的地圖上,真位姿與鏡像在數學上分不開,<strong>全域定位不可用</strong>;方塊畫進地圖可以分開,但那會拿掉 blind-scan 的前提(方塊是雷射才看得到、地圖上沒有的東西)。所以地圖不改,重定位只做「從重啟前最後一個位姿接著追」:<code>/initialpose</code> = WDT_RESET 出現前 0.3 s 的最後一筆 AMCL 位姿,σ 0.5 m / 0.5 rad(死機那 1 s 車還在走),等協方差 σxy ≤ 0.05 m、σyaw ≤ 0.05 rad。</p>
+<p>三件做了才知道的:</p>
+<ul>
+<li><strong>車停著,Nav2 的 AMCL 不更新。</strong> 濾波只在里程計變化<strong>嚴格大於</strong> <code>update_min_d</code> / <code>update_min_a</code> 時跑,設 0 也一樣。不處理的話量到:發了 <code>/initialpose</code> 之後 60 s 沒有任何一筆 <code>amcl_pose</code>,等待逾時才解鎖;解鎖後車一動 AMCL 才修正,C14 照樣綠(21 mm)——<strong>「收斂才解鎖」這道閘形同虛設,判準卻看不出來</strong>。等待期間 5 Hz 呼叫 AMCL 的 <code>request_nomotion_update</code> 之後正常收斂。</li>
+<li><strong>driver 的鎖要看新出現的位元,不看位準。</strong> <code>WDT_RESET</code> 在韌體裡亮到下次上電;只看位準的 driver 在 ack 之後下一筆 odom 又鎖住,重送的 goal 被取消,車永遠不走。改成記住 ack 過的位元,熄掉再亮才算新的一次。C12 驗不到這件事——它只看解鎖之前。</li>
+<li><strong>C12 的「重啟 0.5 s 後車不動」在有重定位時只算到解鎖為止</strong>;解鎖的定義是重啟後上位先送了連續 0.5 s 的零命令、之後第一個非零命令——重啟那一刻還在路上的舊命令不算。</li>
+</ul>
+<p><code>UPPER=nav2 --seconds 150 --fault hang --fault-at 8</code>(假受控體,2026-09-17):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th><code>LOCALIZER=amcl RELOC=1</code></th>
+<th><code>--negative static-map-odom</code>(同樣解鎖重送,<code>map → odom</code> 仍是 identity)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>重定位</td>
+<td>初始猜測 (0.925, 1.176, 1.056),離重啟後停住的真值 (1.158, 1.461, 0.619) 366 mm / 0.44 rad;<code>request_nomotion_update</code> 16 次、<strong>3.3 s(牆鐘)收斂</strong>到 (1.149, 1.486, 0.620):對真值 <strong>27 mm / 0.001 rad</strong>,σ 0.033 m / 0.043 rad</td>
+<td>等 3 s</td>
+</tr>
+<tr>
+<td>解鎖</td>
+<td>重啟後 2.26 s(Renode 時間)</td>
+<td>重啟後 3.15 s</td>
+</tr>
+<tr>
+<td>C12(解鎖前)</td>
+<td>綠,再走 18 mm</td>
+<td>綠,再走 13 mm</td>
+</tr>
+<tr>
+<td>Nav2</td>
+<td><code>succeeded</code>(重啟時手上的 goal 由 nav_client 取消、重定位後重送)</td>
+<td><code>failed</code>(從「原點」規劃、原地轉)</td>
+</tr>
+<tr>
+<td>C14</td>
+<td><strong>綠</strong>:末端離 goal 27 mm、碰撞 0</td>
+<td><strong>紅</strong>:末端離 goal 1544 mm</td>
+</tr>
+</tbody>
+</table></div>
+<p>同一流程另兩次(nav_client 重啟時還沒主動取消 goal、而是等它自己失敗的版本):收斂到離真值 16.5 mm / 0.059 rad(5.9 s),解鎖拖到重啟後 27.3 s,C14 綠 13 mm;沒呼叫 <code>request_nomotion_update</code> 那次見上面第一點。</p>
+<p>沒有故障的 AMCL 導航(<code>LOCALIZER=amcl --seconds 90</code>)到達 23 mm、碰撞 0,與靜態 identity 的 46 mm 同一級。</p>
 <h3 id="64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</h3>
 <p>§6 的七件事之後,Isaac 版與兩個假受控體差三樣:沒有雷射、沒有牆、五個故障注入沒在它上面跑過。補齊的原則是<strong>同一份 <code>world.json</code>、同一份判準</strong>;做法上只有一處必須不同——假受控體的牆是公式(撞到就凍結),Isaac 的牆是 PhysX 碰撞體,車真的會被頂住。</p>
 <ul>
@@ -668,7 +960,7 @@
 <td>6</td>
 <td>決定性</td>
 <td>逐 byte</td>
-<td>沒重驗(§6 第 7 項的條件沒變:CPU 求解)</td>
+<td><strong>兩次 CSV 逐 byte 相同</strong>(2026-09-17 重驗:<code>WORLD=1 PLANT=remote</code> 預設 6 s 腳本,每輪重啟受控體、受控體綁 2 核;末端 901.1, −1.0, 0.8603 與 #1 列同;CPU 求解)</td>
 </tr>
 </tbody>
 </table></div>
@@ -711,6 +1003,9 @@
 </ul>
 <p>同一個 <code>blind-scan</code> 場景的相機版(<code>UPPER=nav2 PLANT=remote</code>,<code>TOPVIEW=1</code>;900 幀對 CSV 真值最大 8 mm;每幀 72 ms):</p>
 <p align="center"><img src="../../img/hil-topcam-nav2-blind-isaac.gif" width="480" alt="Isaac 真實俯視相機:blind-scan 負對照,車頂著方塊角打滑,前 60 s、1 fps"></p>
+
+<p><strong>Nav2 的 <code>/plan</code> 也畫進去</strong>(issue #6 的最後一項)。driver 的 <code>plan_log</code> 參數把每一條 <code>/plan</code> 寫成一行,附上收到當下最新的 odom 序號;俯視圖用 CSV 的 <code>odom_seq</code> 欄對齊——不必把 ROS 的牆鐘換算成 Renode 時間。<code>UPPER=nav2</code> 自動記(<code>${LOG%.csv}.plan</code>),<code>RECORD=1</code> 時自動疊上。下面是 §6.3 的 C14:8 s 死機、9 s 重啟,odom 幽靈車跳回原點;重定位之後的新路徑(綠色點劃線)從<strong>真值車</strong>的位置出發,不是從幽靈車——<code>map → odom</code> 由 AMCL 接回來了。</p>
+<p align="center"><img src="../../img/hil-topview-c14-reloc.gif" width="640" alt="C14:路上死機重啟,odom 跳回原點,AMCL 重定位後 Nav2 的新路徑從真值位置出發到 goal"></p>
 
 <h2 id="7-建議的分階段">7. 建議的分階段</h2>
 <p>不要一開始就接 Isaac。順序:</p>

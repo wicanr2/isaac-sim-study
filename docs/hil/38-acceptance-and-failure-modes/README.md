@@ -4,7 +4,7 @@
 
 > **驗證狀態**:§1–§5 在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 在場域 GPU 主機實測(Isaac Sim 6.0.1 pip 版,PhysX、CPU 求解、TGS;Renode 與橋接留在本機,受控體經 `ssh -L` 隧道,同日)。
 
-## 1. 十二項判準,在開跑前寫死
+## 1. 十四項判準,在開跑前寫死
 
 [`run_loop.sh`](../../../examples/hil-stm32/run_loop.sh) 一條指令:起 Renode 容器(`--network none`)、橋接容器共用它的 netns、跑完只停自己起的那一個。橋接開頭先印生效證明:
 
@@ -34,11 +34,13 @@
 | C9 | 受控體的輪加速度 ≤ (accel + alpha × 輪距/2) × 1.2 | 斜坡沒生效(韌體沒讀 `g_cfg`、算錯單位) | 2257 vs 2520 mm/s² |
 | C10 | 安全 I/O:`--fault` 注入的那一項在時限內反應(§1.2 的表) | 看門狗沒餵/沒起動、故障腳沒接、保險桿不擋、堵轉不鎖、心跳沒驗 | 沒注入時不驗;五項各自綠、五個 `*-off` 各自紅 |
 | C11 | Nav2:受控體真值到達 `world.goal` 0.1 m 內、途中沒撞(§6.2) | 規劃器沒避開雷射才看得到的方塊 | 只在 `UPPER=nav2` 驗;46 mm、碰撞 0;`blind-scan` 紅 |
-| C12 | 上位對 `WDT_RESET` 的反應:重啟 0.5 s 後車不再動(§6.3) | 上位不知道底盤重啟過、照送命令 | 只在 hang + 外部上位驗;`no-latch` 紅 |
+| C12 | 上位對 `WDT_RESET` 的反應:重啟 0.5 s 後車不再動;有重定位時(`RELOC=1`)只驗到解鎖為止(§6.3) | 上位不知道底盤重啟過、照送命令 | 只在 hang + 外部上位驗;`no-latch` 紅 |
+| C13 | 打滑(`IMU=1`):沒有接觸 → SLIP 不得亮;轉角打滑(輪差轉角比車體多 0.02 rad)開始後 500 ms 內 SLIP,外部上位時亮起 0.5 s 後輪子停;只有平移打滑 → 只報延遲不判(§1.3) | 車頂著障礙物打滑、上位以為到了 | 誤報 0(四種情境);`slip-off` 紅 |
+| C14 | 重啟後重定位(`RELOC=1`):解鎖 ≥ 重啟 + 1 s、最後真值到 goal 0.1 m 內、碰撞 0(§6.3) | 重啟後 odom 歸零、`map → odom` 仍是 identity | `static-map-odom` 紅 |
 
 任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 [30 篇](../../common/30-acceptance-probes-and-preregistration/README.md)。末端位姿 x 900.8、y 0.4、θ 0.8627 是這份 calib 下的參考值,裸機與 FreeRTOS 兩版韌體、三種編碼器注入法、UDP 受控體、vcan 路都要對上它(§3、[36 篇](../36-stm32-firmware-on-renode/README.md) §3.1、[39 篇](../39-freertos-firmware-in-the-loop/README.md) §3)。
 
-負對照有八個,每一個只差一個旗標:`--negative bad-crc`(§2)、`--negative enc-swap`(編碼器 A/B 對調:韌體量到負速度,PI 正回饋把車推到 5.3 m,C3、C8、C9 紅)、`--negative no-ramp`(§1.1)、五個安全 I/O 的 `*-off`(§1.2)。
+負對照有十一個,每一個只差一個旗標:`--negative bad-crc`(§2)、`--negative enc-swap`(編碼器 A/B 對調:韌體量到負速度,PI 正回饋把車推到 5.3 m,C3、C8、C9 紅)、`--negative no-ramp`(§1.1)、五個安全 I/O 的 `*-off` 與 `noinit-off`(§1.2)、`slip-off`(§1.3)、`static-map-odom`(§6.3)。上位側的 `no-latch`、`blind-scan` 另計。
 
 ### 1.1 加減速:斜坡在韌體、馬達層在受控體
 
@@ -94,6 +96,49 @@ C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌
 負對照關掉防護的方法是改 `g_cfg.safety_mask`,而 IWDG 在 `main()` 初始化時就要決定開不開——所以 `g_cfg` 的寫入時機從「開機後寫 SRAM」改成「**開機前寫 flash 裡 `.data` 的初始值**」(LMA = `_sidata + (g_cfg − _sdata)`,startup 照常複製),`[effect]` 開機後從 SRAM 讀回來印。等於燒錄前改了參數區,`--cfg`、`--negative no-ramp` 也一併改走這條路,lockstep 數字逐字不變。
 
 重啟後韌體只把 `WDT_RESET` 亮在 flags 裡(到下次上電為止),上位的命令照收——要不要因為一次看門狗重啟就拒絕命令是**上位的政策**,做在 driver(§6.3),不在韌體。
+
+### 1.3 打滑:陀螺儀 yaw rate 對輪差 yaw rate(C13)
+
+§6.4 第 4 列是 Isaac 上的失敗形態:車頂著方塊、輪子打滑、編碼器照數,韌體 odom 一路走到 goal,Nav2 回 `succeeded`,真值離 goal 2.2 m。看真值的 C11 抓得到,系統裡沒有任何一方知道。假受控體撞到就凍結編碼器,重現不了。
+
+**先離線選訊號。** 用那一次的 Isaac CSV(90 s)在打滑段與正常段(Isaac Nav2 正對照、Isaac 預設腳本、假受控體方形)算三個候選的分離度,門檻取正常段最大值 × 1.5,理想感測器(真值差分,沒有雜訊):
+
+| 訊號 | 正常段最大 | 打滑段最大 | 打滑開始後第一次超過門檻 | 打滑期間超過門檻的比例 |
+|---|---|---|---|---|
+| (a) 陀螺儀:\|輪差 yaw rate − 真值 yaw rate\|,50 ms 窗 | 0.030 rad/s | 0.506 rad/s | +165 ms | 7.0%(200 ms 窗 13.3%) |
+| (b) 加速度計:\|真值前進加速度 − 輪速微分\|,50 ms 窗 | 856 mm/s² | 5108 mm/s² | +170 ms | 0.1% |
+| (c) 雷射對地圖:真值位姿的掃描 vs odom 位姿在只有牆的地圖上的預期掃描,逐束差中位數 | 7 mm | 1.318 m | +250 ms | 99.8% |
+
+兩件事從表上讀得出來。一,(c) 最好,但 **blind-scan 這個場景把雷射全改成最大距離**——系統裡拿不到它;這個場景下能用的只有 (a) 與 (b)。二,(a) 只在車體與輪子的**轉角**分開時看得到:打滑 10 s 之後車頂住方塊不再轉(真值 θ 停在 1.571),輪子照轉、兩輪等速,陀螺儀與輪差都是 0。(b) 只抓得到撞上那一下。選 (a) 做在韌體;車體不轉的打滑留著當陀螺儀的盲區,表上寫明。
+
+**韌體。** I2C3(PA8/PC9)接 LSM330 陀螺儀(7-bit 0x6A),暫存器與靈敏度照 datasheet(DocID023426 Rev 3):開機讀 WHO_AM_I_G = 0xD4、寫 CTRL_REG1_G = 0x0F;每個控制步讀 OUT_Z_L/H_G(每筆交易一個暫存器)。殘差 = \|陀螺儀 − (右輪速 − 左輪速)/輪距\| 的 10 步(50 ms)平均——輪速的量子是 1 tick / 5 ms = 15 mm/s,換成輪差 yaw rate 是 50 mrad/s,不平均就淹在量化裡。殘差 > 45 mrad/s(離線表的 30 × 1.5)持續 50 ms → `SLIP`(flags 第 8 位,odom 框包末尾加 1 byte `flags_hi`)。韌體**只回報不切**:要停、要退是上位的事;driver 把 `SLIP` 與 `STALL`、`WDT_RESET` 同樣鎖住(§6.3)。命令歸零才解。沒有 IMU 的平台上 I2C 位址沒人回應(AF),韌體記下 `imu_whoami = 0x104`、不做打滑偵測;預設閉環的 CSV 與加 IMU 程式碼之前**逐 byte 相同**。
+
+**橋接扮演陀螺儀的機械部分。** 每步用受控體真值位姿差分算 yaw rate,經 hook 寫進 Renode 裡感測器模型的 `AngularRateZ`——三個受控體同一份公式,不經受控體協定。韌體讀到的值對真值:落後一步,最大差 20 mrad/s、平均 2.1(轉向段 582 vs 580 mrad/s)。
+
+**Renode 的兩個缺口,都在閉環裡量到。** 陀螺儀的模型與 I2C 主控端都不夠用([36 篇](../36-stm32-firmware-on-renode/README.md) §3):
+
+- 1.16.1 的 `STM32F4_I2C` 在 STOP 與 repeated START 都不呼叫從端的 `FinishTransmission()`。閉環量到:WHO_AM_I_G(開機第一筆交易)讀得對,之後陀螺儀恆為 −1687 mrad/s,0.545 s 誤報 SLIP。上游 `master` 已換成 `STM32F1_I2C`,執行期載入它的逐字副本。
+- `LSM330_Gyroscope` 的靈敏度是 130 digit/dps(datasheet 114.3),WHO_AM_I_G 讀 0。修在模型([PR #254](https://github.com/renode/renode-infrastructure/pull/254));原版陀螺儀上韌體讀到 WHO_AM_I_G = 0,當成沒有 IMU。
+
+**假受控體要能打滑。** `CONTACT=slip`:碰撞時車體停在原地,輪子照馬達層轉、編碼器照數(Rust `Fake` 與 `fake_plant.py` 同一份)。預設 `freeze` 不變——凍結時是 `STALL` 接手。
+
+**C13 的判準分兩部分,依陀螺儀看得到什麼來分。** **轉角打滑**(輪差轉角比車體轉角累計多 0.02 rad 起算)要求 500 ms 內 SLIP(離線表 +165 ms 的 3 倍);**只有平移打滑**(輪行程比車體多 20 mm 起算,但轉角沒分開)只報延遲、不判——車正面頂住時陀螺儀要等 Nav2 開始修正方向、輪差出現才看得到,量到的延遲是 +750 ms 與 +1280 ms(下表兩次),這段時間 odom 多走 280–441 mm。沒有接觸的場景 SLIP 不得亮。負對照 `--negative slip-off` = 同一個 blind-scan 場景、`g_cfg` 關掉打滑偵測(不涉及重啟,`g_cfg` 的改動留得住)。
+
+| 場景(`IMU=1`) | 受控體 | 沒接觸時 yaw 殘差最大 | SLIP | 延遲(對轉角打滑 / 對平移打滑) | Nav2 結果 | C13 |
+|---|---|---|---|---|---|---|
+| 預設 6 s 腳本 | 假 | 9 mrad/s | 沒亮 | — | — | 綠 |
+| 預設 6 s 腳本,FreeRTOS | 假 | 9 | 沒亮 | — | — | 綠 |
+| 方形(`UPPER=ros`) | 假 | 11 | 沒亮 | — | — | 綠 |
+| Nav2 90 s | 假 | 10 | 沒亮 | — | `succeeded`,46 mm | 綠 |
+| blind-scan,`CONTACT=freeze` | 假 | 8 | 沒亮(輪子凍結,`STALL` 鎖住) | — | `canceled` | 不要求 |
+| blind-scan,`CONTACT=slip`(兩次) | 假 | 8–9 | 亮 | 第二次 **+115 ms** / +750 ms;第一次 — / +1280 ms | `canceled` | 綠(第二次) |
+| `slip-off` | 假 | 8 | **沒亮** | — | **`succeeded`,真值離 goal 2278 mm** | **紅** |
+| 預設 6 s 腳本 | Isaac 6.0.1 | 27 | 沒亮 | — | — | 綠 |
+| Nav2 90 s | Isaac 6.0.1 | 10 | 沒亮 | — | `succeeded`,46 mm | 綠 |
+| blind-scan | Isaac 6.0.1 | 11 | 亮(碰撞後 215 ms) | **+10 ms** / −30 ms(轉角先分開) | `canceled`;odom 對真值 31 / 37 mm | 綠 |
+| `slip-off` | Isaac 6.0.1 | 10 | **沒亮** | — | **`succeeded`,真值離 goal 2154 mm**;odom 對真值 1643 / 1334 mm | **紅** |
+
+Isaac 上的打滑是沿著方塊側滑、車體跟著轉,轉角在碰撞後 205 ms 就分開,SLIP 晚 10 ms 亮;driver 鎖住之後輪子不再推,odom 對真值只差 31 / 37 mm(§6.4 第 4 列的同一個場景沒有偵測時是 1631 / 1353 mm)。假受控體的 `slip-off` 重現了 Isaac 上的假成功——Nav2 以為到了、車頂在 1.16 m 外。打滑偵測開著時同一個場景 `canceled`:上位不知道車在哪,但至少知道自己不知道。
 
 ## 2. 負對照:全綠證明不了測試在驗東西
 
@@ -257,6 +302,20 @@ realtime 也跑了一次(`UPPER=nav2 ./run_loop.sh --mode realtime --seconds 90`
 - **序列線有線速。** 上位在牆鐘上每 20 ms 送一個 cmd_vel、每 100 ms 一個 PING;橋接一停頓(load 15 下常有),上位的 byte 堆起來,一次全灌進 USART1 的話 Renode 的 UART 不分 baud 節拍、ISR 一個接一個,主迴圈搶不到 128 B 的 ring buffer 就溢位——量到 `rx_overflow=114`、4 個壞 CRC、C6/C7 紅。真線路 115200 bps 每 5 ms 最多 57 byte,橋接現在按這個線速分批注入(`calib.json` 的 `uart_baud`)。這一條是 §5 表裡「第一眼像韌體 CRC 有問題」的又一個。
 - **撞牆那一步不能算進 C9。** 受控體撞到方塊時速度直接歸零(73039 mm/s²),那是牆的事不是韌體斜坡的事;負對照原本 C9、C11 一起紅,現在只有 C11。
 
+**MPPI 對 DWB**(`CONTROLLER=mppi`)。映像裡本來就有 `nav2-mppi-controller`;參數用 Nav2 Jazzy `nav2_bringup/params/nav2_params.yaml` 的 FollowPath 段([`nav2_params_mppi.yaml`](../../../examples/hil-stm32/ros/nav2_params_mppi.yaml) 疊在 controller_server 上),只把速度與加速度上限改成和 DWB、韌體斜坡一致(vx 0–0.3 m/s、wz 0.6 rad/s、ax ±1.5、az 4.0),**其他不調**。假受控體、lockstep、`UPPER=nav2 --seconds 90`,時間都是受控體時間(2026-09-17,主機 load 11–12):
+
+| | DWB | MPPI |
+|---|---|---|
+| 進 goal 0.1 m 內 | 15.5 s | 16.2 s |
+| 最後一次在動 | **17.8 s** | 42.1 s(在 goal 附近來回修到 xy 0.05 m / yaw 0.3 rad 的容差) |
+| 末端離 goal | 43 mm | 34 mm |
+| 路徑長 | 3849 mm | 3904 mm |
+| 車緣離方塊最近 | 96 mm | 161 mm |
+| C9 max \|dv/dt\| | 2382 mm/s² | 1418 mm/s² |
+| 每步牆鐘 | 9.3 ms(Renode 0.54×) | 13.0 ms(0.39×,MPPI 在 2 核的 ROS 容器裡吃 CPU) |
+
+MPPI 離障礙物遠、加速度小,但預設參數下收尾要多 24 s。這一區留 DWB:到達時間相當,停得乾淨;Isaac 上的 Nav2 數字(§6.4)都是 DWB,沒有另跑 MPPI。MPPI 的收尾不是它的上限——那是參數的事,這裡刻意不調。
+
 ### 6.3 上位對安全旗標的反應:C12
 
 韌體重啟(IWDG)之後有兩件事上位非知道不可:`WDT_RESET` 亮了,而且**里程計歸零了**——odom 是韌體算的,重啟後 `x, y, θ` 從 (0, 0, 0) 重來,`map → odom` 那個靜態 identity 從這一刻起是錯的。上位如果只是繼續送 `cmd_vel`,車會從一個它以為在原點的位置開走。[`hil_base_driver.py`](../../../examples/hil-stm32/ros/hil_base_driver.py) 的反應:看到 `WDT_RESET` 或 `STALL` 就**鎖住**——`cmd_vel` 一律送 0、對 `navigate_to_pose` 的 `cancel_goal` 服務送「全部取消」(goal_id 全 0),直到操作者呼叫 `/hil/fault_ack`(std_srvs/Trigger)才放開;`DRV_FAULT`、`ESTOP`、`HB_LOST` 不鎖,韌體自己會切、解除就恢復。負對照是 driver 的參數 `fault_latch:=false`(`--negative no-latch`):什麼都不做。
@@ -271,6 +330,39 @@ realtime 也跑了一次(`UPPER=nav2 ./run_loop.sh --mode realtime --seconds 90`
 | C10 IWDG | +1000 ms 重啟 | 同 |
 
 沒鎖住的那一欄,車沒有直直撞出去是 Nav2 的 progress checker 先把第一次 goal 判失敗——這是運氣不是設計,第二次 goal 就開走了。C12 的判準只看受控體真值(重啟 0.5 s 後 `|v| ≥ 5 mm/s` 的步數),不看 Nav2 的回覆:「上位該停」要用車的行為驗,不用上位的自述。
+
+#### 解鎖之後:AMCL 重定位(C14)
+
+C12 只證明「上位知道要停」。停完還要能繼續:重啟後 odom 從 (0, 0, 0) 重來,靜態 identity 的 `map → odom` 從那一刻起是錯的。這一段換成 AMCL(`LOCALIZER=amcl`,映像多裝 `ros-jazzy-nav2-amcl`,一個套件、安裝 1.9 MB),流程在 [`nav_client.py`](../../../examples/hil-stm32/ros/nav_client.py)(`RELOC=1`):重啟 → driver 鎖住、取消 goal → 重定位 → 收斂才呼叫 `/hil/fault_ack` 解鎖 → 重送 goal。
+
+**先量對稱。** 房間 4 × 3 m、地圖只畫牆,對中心 (1.5, 1.0) 旋轉 180° 不變——起點 (0, 0) 的鏡像剛好是 goal (3, 2)。沿 Nav2 正對照的真值路徑每 0.5 s 取位姿 p 與鏡像 p′,算雷射實際量到的(含方塊)對兩張地圖預期掃描的逐束差(> 5 cm 的比例):
+
+| 地圖 | 真位姿 | 鏡像位姿 |
+|---|---|---|
+| 只有牆(現行) | 0.07–0.18 | **逐列與真位姿相同** |
+| 牆 + 方塊(`gen_map.py --boxes`) | 0.00 | 0.07–0.15 |
+
+只有牆的地圖上,真位姿與鏡像在數學上分不開,**全域定位不可用**;方塊畫進地圖可以分開,但那會拿掉 blind-scan 的前提(方塊是雷射才看得到、地圖上沒有的東西)。所以地圖不改,重定位只做「從重啟前最後一個位姿接著追」:`/initialpose` = WDT_RESET 出現前 0.3 s 的最後一筆 AMCL 位姿,σ 0.5 m / 0.5 rad(死機那 1 s 車還在走),等協方差 σxy ≤ 0.05 m、σyaw ≤ 0.05 rad。
+
+三件做了才知道的:
+
+- **車停著,Nav2 的 AMCL 不更新。** 濾波只在里程計變化**嚴格大於** `update_min_d` / `update_min_a` 時跑,設 0 也一樣。不處理的話量到:發了 `/initialpose` 之後 60 s 沒有任何一筆 `amcl_pose`,等待逾時才解鎖;解鎖後車一動 AMCL 才修正,C14 照樣綠(21 mm)——**「收斂才解鎖」這道閘形同虛設,判準卻看不出來**。等待期間 5 Hz 呼叫 AMCL 的 `request_nomotion_update` 之後正常收斂。
+- **driver 的鎖要看新出現的位元,不看位準。** `WDT_RESET` 在韌體裡亮到下次上電;只看位準的 driver 在 ack 之後下一筆 odom 又鎖住,重送的 goal 被取消,車永遠不走。改成記住 ack 過的位元,熄掉再亮才算新的一次。C12 驗不到這件事——它只看解鎖之前。
+- **C12 的「重啟 0.5 s 後車不動」在有重定位時只算到解鎖為止**;解鎖的定義是重啟後上位先送了連續 0.5 s 的零命令、之後第一個非零命令——重啟那一刻還在路上的舊命令不算。
+
+`UPPER=nav2 --seconds 150 --fault hang --fault-at 8`(假受控體,2026-09-17):
+
+| | `LOCALIZER=amcl RELOC=1` | `--negative static-map-odom`(同樣解鎖重送,`map → odom` 仍是 identity) |
+|---|---|---|
+| 重定位 | 初始猜測 (0.925, 1.176, 1.056),離重啟後停住的真值 (1.158, 1.461, 0.619) 366 mm / 0.44 rad;`request_nomotion_update` 16 次、**3.3 s(牆鐘)收斂**到 (1.149, 1.486, 0.620):對真值 **27 mm / 0.001 rad**,σ 0.033 m / 0.043 rad | 等 3 s |
+| 解鎖 | 重啟後 2.26 s(Renode 時間) | 重啟後 3.15 s |
+| C12(解鎖前) | 綠,再走 18 mm | 綠,再走 13 mm |
+| Nav2 | `succeeded`(重啟時手上的 goal 由 nav_client 取消、重定位後重送) | `failed`(從「原點」規劃、原地轉) |
+| C14 | **綠**:末端離 goal 27 mm、碰撞 0 | **紅**:末端離 goal 1544 mm |
+
+同一流程另兩次(nav_client 重啟時還沒主動取消 goal、而是等它自己失敗的版本):收斂到離真值 16.5 mm / 0.059 rad(5.9 s),解鎖拖到重啟後 27.3 s,C14 綠 13 mm;沒呼叫 `request_nomotion_update` 那次見上面第一點。
+
+沒有故障的 AMCL 導航(`LOCALIZER=amcl --seconds 90`)到達 23 mm、碰撞 0,與靜態 identity 的 46 mm 同一級。
 
 ### 6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2
 
@@ -289,7 +381,7 @@ realtime 也跑了一次(`UPPER=nav2 ./run_loop.sh --mode realtime --seconds 90`
 | 3 | `UPPER=nav2 --seconds 90` | `succeeded`,真值到 goal 46 mm、碰撞 0 | `succeeded`(1 次),**真值 47 mm、碰撞 0 步**;C3 0.6 / 0.6 mm;C9 2450;整趟 523 s 牆鐘(0.17×,load 13) |
 | 4 | `--negative blind-scan` | 碰撞 475 步、末端差 2235 mm,C11 紅;Nav2 沒到 | 5.25 s 在 (1165, 655) 亮旗標,之後**沿方塊再走 175 mm** 被角頂住(1336, 620),碰撞 16718 步、末端差 2162 mm,C11 紅;**但 Nav2 回 `succeeded`、odom 末端離 goal 42 mm**——輪子頂著方塊打滑,韌體 odom 一路走到 goal(C3 紅:odom 對真值差 1631 / 1353 mm、0.75 rad) |
 | 5 | 五個 `--fault` | 表在 §1.2 | 全部綠:hang 1.995 → 2.995 s 重啟(+1000,死掉期間 CCR 停 330);drv-fault 旗標 +0 ms、300 步 CCR/EN 全 0、放開恢復;bumper 500.4 撞、最遠 **544.8**(假受控體 537.2)、倒車到 239.2;stall 旗標 **+390 ms**(假 +355:輪子是被 drive 的 damping 煞住,不是凍結);no-ping +200 / +495 ms(同) |
-| 6 | 決定性 | 逐 byte | 沒重驗(§6 第 7 項的條件沒變:CPU 求解) |
+| 6 | 決定性 | 逐 byte | **兩次 CSV 逐 byte 相同**(2026-09-17 重驗:`WORLD=1 PLANT=remote` 預設 6 s 腳本,每輪重啟受控體、受控體綁 2 核;末端 901.1, −1.0, 0.8603 與 #1 列同;CPU 求解) |
 
 第 4 列是這一節的重點,也是假受控體做不出來的失敗形態:**撞上去之後車不動、編碼器照數,上位以為到了。** 假受控體撞到就凍結編碼器,odom 跟著停,Nav2 看得出來沒到;Isaac 的球輪對方塊打滑(drive 的 `maxForce` 20 N·m 換到輪緣是 400 N,9 kg 的車摩擦力上限只有幾十 N),韌體的堵轉判斷(§1.2:|duty| ≥ 60% 且輪速 < 20 mm/s)**永遠不會觸發**——輪速是編碼器量的,輪子在轉。真車撞牆是哪一種(馬達堵轉、還是輪子打滑)看馬達扭矩對摩擦,兩種都會發生;純軟體 HIL 到這裡才第一次能把「打滑」這一支做出來,而它的後果是上位的自述(`succeeded`、`dist_to_goal 0.042`)與真值(差 2.2 m)完全脫鉤。要抓它得靠外部真值(場域的定位系統、或這裡的受控體真值——C11 看的是真值不是 odom),不是靠底盤回報。
 
@@ -317,6 +409,11 @@ Isaac 版另有**真實俯視相機**(`isaac_plant.py --topview DIR`,`tools/isaa
 同一個 `blind-scan` 場景的相機版(`UPPER=nav2 PLANT=remote`,`TOPVIEW=1`;900 幀對 CSV 真值最大 8 mm;每幀 72 ms):
 
 <p align="center"><img src="../../img/hil-topcam-nav2-blind-isaac.gif" width="480" alt="Isaac 真實俯視相機:blind-scan 負對照,車頂著方塊角打滑,前 60 s、1 fps"></p>
+
+
+**Nav2 的 `/plan` 也畫進去**(issue #6 的最後一項)。driver 的 `plan_log` 參數把每一條 `/plan` 寫成一行,附上收到當下最新的 odom 序號;俯視圖用 CSV 的 `odom_seq` 欄對齊——不必把 ROS 的牆鐘換算成 Renode 時間。`UPPER=nav2` 自動記(`${LOG%.csv}.plan`),`RECORD=1` 時自動疊上。下面是 §6.3 的 C14:8 s 死機、9 s 重啟,odom 幽靈車跳回原點;重定位之後的新路徑(綠色點劃線)從**真值車**的位置出發,不是從幽靈車——`map → odom` 由 AMCL 接回來了。
+
+<p align="center"><img src="../../img/hil-topview-c14-reloc.gif" width="640" alt="C14:路上死機重啟,odom 跳回原點,AMCL 重定位後 Nav2 的新路徑從真值位置出發到 goal"></p>
 
 
 

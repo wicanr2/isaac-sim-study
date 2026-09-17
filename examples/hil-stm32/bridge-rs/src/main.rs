@@ -45,6 +45,12 @@ struct Args {
     enc: String,
     /// --enc cont 的誤差攤還時間(ms):錨點更新時的追蹤誤差在這段虛擬時間內線性補上
     enc_tau_ms: f64,
+    /// IMU:I2C3 上有 LSM330 陀螺儀(平台描述 stm32f4-encoder-imu.repl);每步把受控體真值 yaw rate 寫進去,C13 驗打滑偵測
+    imu: bool,
+    /// C14:上位會在底盤重啟後重定位、解鎖、重送 goal(RELOC=1)——C12 只驗到解鎖為止,到達由 C14 驗
+    expect_reloc: bool,
+    /// 內建假受控體碰撞時:freeze(輪子凍結)| slip(車體不動、輪子照轉)
+    contact: String,
     cfg: String,
     /// 故障注入:none | hang | drv-fault | bumper | stall | no-ping(在 --fault-at 秒發生)
     fault: String,
@@ -87,6 +93,9 @@ fn parse_args() -> Args {
         can: "hook".into(),
         enc: "auto".into(),
         enc_tau_ms: 20.0,
+        imu: false,
+        expect_reloc: false,
+        contact: "freeze".into(),
         cfg: String::new(),
         fault: "none".into(),
         fault_at: 2.0,
@@ -134,6 +143,9 @@ fn parse_args() -> Args {
             "--enc" => a.enc = val,
             // cont:CNT 在韌體讀的當下由「受控體 tick + 輪速 × 經過的虛擬時間」算(renode/hil_quadrature.cs ContinuousEncoder)
             "--enc-tau-ms" => a.enc_tau_ms = val.parse().expect("--enc-tau-ms"),
+            "--imu" => a.imu = val == "1",
+            "--expect-reloc" => a.expect_reloc = val == "1",
+            "--contact" => a.contact = val,
             // 開機後覆蓋韌體的 g_cfg(kp=..,ki=..,accel=..,ff=..;Q8 或 mm/s²),增益掃描與負對照不用重編韌體
             "--cfg" => a.cfg = val,
             other => {
@@ -194,8 +206,11 @@ mod dbg {
     pub const RESETS: u64 = 17;
     pub const BOOT_CSR: u64 = 18;
     pub const PING_FRAMES: u64 = 19;
+    pub const IMU_WHOAMI: u64 = 20;
+    pub const GYRO_Z: u64 = 21;
+    pub const YAW_RESID: u64 = 22;
     pub const MAGIC_VALUE: u32 = 0x4849_4C31;
-    pub const WORDS: u32 = 20;
+    pub const WORDS: u32 = 23;
 }
 
 /// odom / CAN 狀態框 / g_dbg.flags 的位元(firmware/proto.h)
@@ -208,6 +223,7 @@ mod flag {
     pub const STALL: u32 = 1 << 5;
     pub const HB_LOST: u32 = 1 << 6;
     pub const WDT_RESET: u32 = 1 << 7;
+    pub const SLIP: u32 = 1 << 8;
 }
 /// g_cfg.safety_mask 的位元
 mod safety {
@@ -216,6 +232,7 @@ mod safety {
     pub const BUMPER: u32 = 1 << 2;
     pub const STALL: u32 = 1 << 3;
     pub const HB: u32 = 1 << 4;
+    pub const SLIP: u32 = 1 << 5;
 }
 const DRV_FAULT_L_PIN: i32 = 14;
 const DRV_FAULT_R_PIN: i32 = 15;
@@ -289,7 +306,7 @@ fn main() {
     }
     let mut scan_up = if a.scan_listen.is_empty() { None } else { Some(upper::Upper::listen(&a.scan_listen).expect("--scan-listen")) };
     let mut pl: Box<dyn Plant> = if a.plant == "fake" {
-        match &world { Some(w) => Box::new(plant::Fake::new(c).with_world(w.clone())), None => Box::new(plant::Fake::new(c)) }
+        match &world { Some(w) => Box::new(plant::Fake::new(c).with_world(w.clone()).with_contact_slip(a.contact == "slip")), None => Box::new(plant::Fake::new(c)) }
     } else if let Some(addr) = a.plant.strip_prefix("udp:") {
         Box::new(plant::Udp::connect(addr).expect("UDP plant"))
     } else if let Some(addr) = a.plant.strip_prefix("tcp:") {
@@ -303,12 +320,12 @@ fn main() {
     let neg = a.negative.as_str();
     let fault: String = match neg {
         "iwdg-off" => "hang".into(), "drv-fault-off" => "drv-fault".into(), "bumper-off" => "bumper".into(),
-        "stall-off" => "stall".into(), "hb-off" => "no-ping".into(), "noinit-off" => "hang".into(), _ => a.fault.clone(),
+        "stall-off" => "stall".into(), "hb-off" => "no-ping".into(), "noinit-off" => "hang".into(), "static-map-odom" => "hang".into(), _ => a.fault.clone(),
     };
     if neg == "no-latch" && !a.upper.starts_with("tcp-listen:") { eprintln!("--negative no-latch 是上位側的負對照,要配 --upper tcp-listen(UPPER=nav2)"); }
     let mask_clear: u32 = match neg {
         "iwdg-off" => safety::IWDG, "drv-fault-off" => safety::DRV_FAULT, "bumper-off" => safety::BUMPER,
-        "stall-off" => safety::STALL, "hb-off" => safety::HB, _ => 0,
+        "stall-off" => safety::STALL, "hb-off" => safety::HB, "slip-off" => safety::SLIP, _ => 0,
     };
     if !["none", "hang", "drv-fault", "bumper", "stall", "no-ping"].contains(&fault.as_str()) {
         eprintln!("--fault 只接受 none|hang|drv-fault|bumper|stall|no-ping");
@@ -346,7 +363,7 @@ fn main() {
         for kv in a.cfg.split(',') {
             let (k, v) = kv.split_once('=').expect("--cfg 格式 k=v,k=v");
             let off = match k.trim() { "kp" => 1, "ki" => 2, "accel" => 3, "ff" => 4, "alpha" => 5, "iwdg" => 6, "hang" => 7, "hb" => 8,
-                "stall_duty" => 9, "stall_ms" => 10, "mask" => 11, other => { eprintln!("--cfg 未知欄位 {other}"); std::process::exit(2); } };
+                "stall_duty" => 9, "stall_ms" => 10, "mask" => 11, "slip" => 12, "slip_ms" => 13, other => { eprintln!("--cfg 未知欄位 {other}"); std::process::exit(2); } };
             let v: i32 = v.trim().parse().expect("--cfg 值");
             patches.push((off, v as u32));
         }
@@ -397,7 +414,7 @@ fn main() {
         std::process::exit(1);
     }
     // 開機後從 SRAM 讀回:證明 startup 複製的是改過的那份
-    let cfgv = ec.read_u32s_at(bus, cfg_base, 12).unwrap();
+    let cfgv = ec.read_u32s_at(bus, cfg_base, 14).unwrap();
     if cfgv[0] != 0x4849_4C43 {
         eprintln!("g_cfg magic 不對(0x{:08x})", cfgv[0]);
         std::process::exit(1);
@@ -408,6 +425,10 @@ fn main() {
     println!("[effect] g_cfg safety: iwdg_ms={} hang_at_ms={} hb_timeout_ms={} stall_duty={} stall_ms={} mask=0x{:02x}{}",
         cfgv[6] as i32, cfgv[7] as i32, cfgv[8] as i32, cfgv[9] as i32, cfgv[10] as i32, cfgv[11],
         if mask_clear != 0 { format!(" (負對照關掉 0x{:02x})", mask_clear) } else { String::new() });
+    let imu_whoami = ec.read_u32_at(bus, dbg_base + 4 * dbg::IMU_WHOAMI).unwrap();
+    println!("[effect] imu: bridge --imu {} contact={};韌體讀到 WHO_AM_I_G=0x{:03x}({});g_cfg slip_mrad_s={} slip_ms={}",
+        a.imu as u8, a.contact, imu_whoami, if imu_whoami == 0xD4 { "LSM330 在" } else { "沒有 IMU,打滑偵測不做" }, cfgv[12] as i32, cfgv[13] as i32);
+    if a.imu && imu_whoami != 0xD4 { eprintln!("--imu 1 但韌體沒讀到 LSM330(平台描述要 stm32f4-encoder-imu.repl)"); std::process::exit(1); }
     let cfg_accel = if neg == "no-ramp" { calib_accel } else { cfgv[3] as i32 };
     let cfg_alpha = if neg == "no-ramp" { calib_alpha } else { cfgv[5] as i32 };
     let wheel_accel_limit = cfg_accel as f64 + cfg_alpha as f64 * c.track_mm / 2.0 / 1000.0;
@@ -419,8 +440,10 @@ fn main() {
     let mut scan_log = if a.scan_log.is_empty() { None } else { Some(std::fs::File::create(&a.scan_log).expect("--scan-log")) };
     // realtime 多一欄 wall_ms(每次都不同,lockstep 不放:那邊的 CSV 要能逐 byte 比)
     let wall_col = if realtime { "wall_ms," } else { "" };
+    // IMU 時多兩欄(韌體的陀螺儀 mrad/s、yaw 殘差);沒有 IMU 的 CSV 版面不變
+    let imu_cols = if a.imu { ",gyro_z,yaw_resid" } else { "" };
     writeln!(log, "step,t_us,{wall_col}cmd_v,cmd_w,sp_l,sp_r,meas_l,meas_r,duty_l_dbg,ccr1,ccr2,dir_l,dir_r,en,flags,\
-plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_y,odom_th,odom_vl,odom_vr,odom_flags,can_duty_l,can_duty_r,collided").unwrap();
+plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_y,odom_th,odom_vl,odom_vr,odom_flags,can_duty_l,can_duty_r,collided{imu_cols}").unwrap();
 
     let mut parser = proto::Parser::default();
     let mut last_odom = proto::Odom::default();
@@ -493,11 +516,23 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let fault_end_step = ((a.fault_at + 1.5) / dt_s).round() as u32;   // drv-fault / stall 的注入持續 1.5 s
     let mut last_flags: u32 = 0;
     let mut collisions = 0u32;
-    let mut moved_after_reset = 0u32;      // C12:重啟 0.5 s 後受控體還在動的步數
+    let mut moved_after_reset = 0u32;      // C12:重啟 0.5 s 後受控體還在動的步數(有 --expect-reloc 時只算到解鎖為止)
+    let mut unlock_step: Option<u32> = None; // C14:重啟後上位第一個非零命令(解鎖)
+    let mut zero_since: Option<u32> = None;   // 重啟後上位零命令開始的步
     let mut dist_after_reset = 0.0f64;
     let mut pos_at_reset: Option<(f64, f64)> = None;
     let mut first_collision: Option<u32> = None;
     let mut scans_sent = 0u32;
+    // C13 打滑:SLIP 第一次亮的步、接觸後輪行程 − 車體行程(真的打滑了多少)、打滑開始的步(累計 > 20 mm)
+    let mut first_slip: Option<u32> = None;
+    let mut slip_mm = 0.0f64;
+    let mut slip_onset: Option<u32> = None;
+    // 陀螺儀看得到的是「轉角」的打滑:輪差推出的轉角 − 車體真的轉角,累計超過 0.02 rad 才算(38 篇 §1.2 的離線表:正面頂住、車體不轉的打滑陀螺儀看不到)
+    let mut rot_slip_rad = 0.0f64;
+    let mut rot_onset: Option<u32> = None;
+    let mut moved_after_slip = 0u32;
+    let mut max_yaw_resid = 0i32;
+    let tick_mm = c.wheel_circ_um / 1000.0 / c.ticks_per_rev as f64;
     if realtime {
         hk.emulation_start().expect("start");
         hk.wait_acks().expect("ack");
@@ -609,6 +644,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                 if flags & flag::WDT_RESET != 0 { " WDT_RESET" } else { "" });
         }
         last_flags = flags;
+        if flags & flag::SLIP != 0 && first_slip.is_none() { first_slip = Some(k); println!("[slip] t={:.3}s SLIP 亮(yaw 殘差 {} mrad/s)", t_s, d[dbg::YAW_RESID as usize] as i32); }
+        let (gyro_z, yaw_resid) = (d[dbg::GYRO_Z as usize] as i32, d[dbg::YAW_RESID as usize] as i32);
+        if a.imu && collisions == 0 && yaw_resid > max_yaw_resid { max_yaw_resid = yaw_resid; }
         if k > 0 && tick < prev_tick && reset_step.is_none() {
             reset_step = Some(k);
             println!("[fault] t={:.3}s 韌體 tick {} → {}:重啟了(IWDG)", t_s, prev_tick, tick);
@@ -725,7 +763,12 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         if out.x_mm > x_max { x_max = out.x_mm; }
         if let Some(rs) = reset_step {
             if pos_at_reset.is_none() { pos_at_reset = Some((out.x_mm, out.y_mm)); }
-            if k >= rs + (0.5 / dt_s) as u32 {
+            // 解鎖 = 重啟後上位先送了連續 0.5 s 的零命令(鎖住)之後,第一個非零命令;重啟那一刻還在路上的舊命令不算
+            if up_last_cmd == (0, 0) { if zero_since.is_none() { zero_since = Some(k); } } else if unlock_step.is_none() {
+                if zero_since.map(|z| (k - z) as f64 * dt_s >= 0.5).unwrap_or(false) { unlock_step = Some(k); println!("[reloc] t={:.3}s 鎖住 {:.2} s 之後上位第一個非零命令(解鎖)", t_s, (k - zero_since.unwrap()) as f64 * dt_s); }
+                else { zero_since = None; }
+            }
+            if k >= rs + (0.5 / dt_s) as u32 && (!a.expect_reloc || unlock_step.is_none()) {
                 if out.vl_mm_s.abs() >= 5.0 || out.vr_mm_s.abs() >= 5.0 { moved_after_reset += 1; }
                 let (x0, y0) = pos_at_reset.unwrap();
                 dist_after_reset = dist_after_reset.max(((out.x_mm - x0).powi(2) + (out.y_mm - y0).powi(2)).sqrt());
@@ -737,7 +780,8 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         }
         // 假雷射:受控體給一筆就原樣轉給上位(語意在上位解;橋接只加行首與 seq)。負對照 blind-scan:全部改成 range_max
         if let Some(mut sc) = pl.take_scan() {
-            if neg == "blind-scan" { if let Some(w) = &world { for r in sc.iter_mut() { *r = w.range_max as f32; } } }
+            // slip-off:同一個 blind-scan 場景,再關掉韌體的打滑偵測(C13 的負對照)
+            if neg == "blind-scan" || neg == "slip-off" { if let Some(w) = &world { for r in sc.iter_mut() { *r = w.range_max as f32; } } }
             let mut line = format!("SCAN {} {}", k, sc.len());
             for r in &sc { line.push_str(&format!(" {:.3}", r)); }
             line.push('\n');
@@ -753,7 +797,31 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             let acc = ((out.vl_mm_s - last_plant.vl_mm_s) / plant_dt).abs().max(((out.vr_mm_s - last_plant.vr_mm_s) / plant_dt).abs());
             if acc > max_plant_accel { max_plant_accel = acc; }
         }
-        path_len_mm += ((out.x_mm - last_plant.x_mm).powi(2) + (out.y_mm - last_plant.y_mm).powi(2)).sqrt();
+        let body_mm = ((out.x_mm - last_plant.x_mm).powi(2) + (out.y_mm - last_plant.y_mm).powi(2)).sqrt();
+        path_len_mm += body_mm;
+        // IMU:受控體真值 yaw rate → 陀螺儀(三個受控體同一份公式:位姿差分;橋接算,不經受控體協定)
+        if a.imu {
+            let mut dth = out.th_rad - last_plant.th_rad;
+            while dth > std::f64::consts::PI { dth -= 2.0 * std::f64::consts::PI; }
+            while dth < -std::f64::consts::PI { dth += 2.0 * std::f64::consts::PI; }
+            let mdps = if plant_dt > 0.0 { (dth / plant_dt).to_degrees() * 1000.0 } else { 0.0 };
+            hk.gyro_z(mdps.round() as i32).unwrap();
+            hk.wait_acks().unwrap();
+        }
+        if first_collision.is_some() {
+            let wheel_mm = ((out.ticks_l.wrapping_sub(last_plant.ticks_l)).abs() + (out.ticks_r.wrapping_sub(last_plant.ticks_r)).abs()) as f64 * 0.5 * tick_mm;
+            slip_mm += (wheel_mm - body_mm).max(0.0);
+            if slip_onset.is_none() && slip_mm > 20.0 { slip_onset = Some(k); println!("[slip] t={:.3}s 受控體打滑開始(接觸後輪行程比車體多 {:.0} mm)", t_s, slip_mm); }
+            let wheel_dth = (out.ticks_r.wrapping_sub(last_plant.ticks_r) - out.ticks_l.wrapping_sub(last_plant.ticks_l)) as f64 * tick_mm / c.track_mm;
+            let mut body_dth = out.th_rad - last_plant.th_rad;
+            while body_dth > std::f64::consts::PI { body_dth -= 2.0 * std::f64::consts::PI; }
+            while body_dth < -std::f64::consts::PI { body_dth += 2.0 * std::f64::consts::PI; }
+            rot_slip_rad += (wheel_dth - body_dth).abs();
+            if rot_onset.is_none() && rot_slip_rad > 0.02 { rot_onset = Some(k); println!("[slip] t={:.3}s 轉角打滑開始(輪差轉角比車體多 {:.3} rad)", t_s, rot_slip_rad); }
+        }
+        if let Some(fs) = first_slip {
+            if k >= fs + (0.5 / dt_s) as u32 && (out.vl_mm_s.abs() >= 5.0 || out.vr_mm_s.abs() >= 5.0) { moved_after_slip += 1; }
+        }
         last_plant = out;
         { let d = ph.elapsed(); t_plant += d; if d > m_plant { m_plant = d; } }
         let ph = Instant::now();
@@ -820,12 +888,13 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         let (cv, cw) = if up.is_some() { up_last_cmd } else { cmd_at(&script, t_s) };
         let cs = can_status.unwrap_or((0, 0, 0, 0));
         let wall_ms = if realtime { format!("{:.1},", wall0.elapsed().as_secs_f64() * 1000.0) } else { String::new() };
-        writeln!(log, "{k},{t_us},{wall_ms}{cv},{cw},{sp_l},{sp_r},{meas_l},{meas_r},{duty_l_dbg},{ccr1},{ccr2},{},{},{},{flags},\
+        write!(log, "{k},{t_us},{wall_ms}{cv},{cw},{sp_l},{sp_r},{meas_l},{meas_r},{duty_l_dbg},{ccr1},{ccr2},{},{},{},{flags},\
 {:.1},{:.1},{:.4},{:.1},{:.1},{},{},{},{},{},{},{},{},{},{},{},{}",
             dir_l as u8, dir_r as u8, en as u8,
             out.x_mm, out.y_mm, out.th_rad, out.vl_mm_s, out.vr_mm_s, out.ticks_l, out.ticks_r,
             last_odom.seq, last_odom.x_mm, last_odom.y_mm, last_odom.th_mrad, last_odom.vl_mm_s, last_odom.vr_mm_s,
             last_odom.flags, cs.0, cs.1, out.collided as u8).unwrap();
+        if a.imu { writeln!(log, ",{gyro_z},{yaw_resid}").unwrap(); } else { writeln!(log).unwrap(); }
     }
 
     if realtime {
@@ -1019,10 +1088,40 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         Check { name: c10_name.leak(), pass: c10_pass, detail: c10_detail },
         // C12:上位對 WDT_RESET 的反應——韌體重啟後 0.5 s 起到跑完,受控體不得再動(上位該把命令歸零、取消 goal);
         // 只在 hang + 外部上位驗。負對照 --negative no-latch 是上位那側的參數(driver 不反應),橋接只印標籤
-        Check { name: if fault == "hang" && up.is_some() { "C12 上位對 WDT_RESET 的反應:重啟 0.5 s 後車不再動" } else { "C12 (沒有 hang + 外部上位,不驗)" },
+        Check { name: if fault == "hang" && up.is_some() && a.expect_reloc { "C12 上位對 WDT_RESET 的反應:重啟 0.5 s 後到解鎖之前車不動" } else if fault == "hang" && up.is_some() { "C12 上位對 WDT_RESET 的反應:重啟 0.5 s 後車不再動" } else { "C12 (沒有 hang + 外部上位,不驗)" },
             pass: !(fault == "hang" && up.is_some()) || (reset_step.is_some() && moved_after_reset == 0),
             detail: if fault == "hang" && up.is_some() { format!("重啟 {};重啟 0.5 s 後 |v| ≥ 5 mm/s 的步數 {},最遠再走 {:.0} mm",
                 step_ms(reset_step).map(|t| format!("@{:.0} ms", t)).unwrap_or("沒發生".into()), moved_after_reset, dist_after_reset) } else { String::new() } },
+        // C13 打滑偵測(只在 --imu 1):
+        //  沒有接觸的場景 → SLIP 不得亮(誤報 0);接觸後真的打滑了(輪行程比車體多 20 mm 以上)→ 打滑開始後
+        //  SLIP_DETECT_LIMIT_MS 內亮,外部上位時亮起 0.5 s 後輪子不再轉(driver 鎖住,同 C12)。負對照 slip-off 關韌體的偵測。
+        //  接觸了但沒打滑(輪子凍結)→ 不要求亮。限制值 500 ms:離線理想訊號 +165 ms(38 篇 §1.2)× 3。
+        Check { name: if !a.imu { "C13 (沒有 IMU,不驗)" } else if rot_onset.is_some() { "C13 轉角打滑開始後 500 ms 內 SLIP,外部上位時 SLIP 亮 0.5 s 後輪子停" } else if slip_onset.is_some() { "C13 (只有平移打滑:陀螺儀的盲區,只報延遲不判)" } else if collisions > 0 { "C13 (接觸但沒打滑,不要求 SLIP)" } else { "C13 沒有接觸 → SLIP 不得亮(誤報 0)" },
+            pass: !a.imu || match rot_onset {
+                Some(on) => first_slip.map(|fs| fs < on || (fs - on) as f64 * dt_s * 1000.0 <= 500.0).unwrap_or(false)
+                    && (up.is_none() || moved_after_slip == 0),
+                None => collisions > 0 || first_slip.is_none(),
+            },
+            detail: if !a.imu { String::new() } else { format!("SLIP {};轉角打滑開始 {}(累計 {:.3} rad,延遲 {});打滑開始 {}(輪行程比車體多 {:.0} mm,延遲 {});第一次碰撞 {};SLIP 亮 0.5 s 後輪子還在轉的步數 {};沒接觸時 yaw 殘差最大 {} mrad/s(門檻 {})",
+                first_slip.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("沒亮".into()),
+                rot_onset.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), rot_slip_rad,
+                match (rot_onset, first_slip) { (Some(o), Some(f)) => format!("{:+.0} ms", (f as f64 - o as f64) * dt_s * 1000.0), _ => "—".into() },
+                slip_onset.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), slip_mm,
+                match (slip_onset, first_slip) { (Some(o), Some(f)) => format!("{:+.0} ms", (f as f64 - o as f64) * dt_s * 1000.0), _ => "—".into() },
+                first_collision.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), moved_after_slip, max_yaw_resid, cfgv[12] as i32) } },
+        // C14 重啟後重定位(--expect-reloc):解鎖前 C12 成立(上面)、解鎖不早於重啟 + 1 s(不是上位一重啟就重送)、
+        // 最後真值到 goal 0.1 m 內、全程碰撞 0。負對照 static-map-odom:同樣解鎖重送,但 map→odom 仍是 identity
+        Check { name: if a.expect_reloc { "C14 重啟後重定位:解鎖 ≥ 重啟 + 1 s、最後到 goal 0.1 m 內、碰撞 0" } else { "C14 (沒有 --expect-reloc,不驗)" },
+            pass: !a.expect_reloc || match (&world, reset_step, unlock_step) {
+                (Some(w), Some(rs), Some(us)) => (us - rs) as f64 * dt_s >= 1.0 && collisions == 0
+                    && ((last_plant.x_mm - w.goal.0 * 1000.0).powi(2) + (last_plant.y_mm - w.goal.1 * 1000.0).powi(2)).sqrt() <= 100.0,
+                _ => false },
+            detail: if !a.expect_reloc { String::new() } else { format!("重啟 {};解鎖 {}(重啟後 {});末端離 goal {};碰撞 {} 步",
+                step_ms(reset_step).map(|t| format!("@{:.0} ms", t)).unwrap_or("沒發生".into()),
+                step_ms(unlock_step).map(|t| format!("@{:.0} ms", t)).unwrap_or("沒解鎖".into()),
+                match (reset_step, unlock_step) { (Some(r), Some(u)) => format!("{:.2} s", (u - r) as f64 * dt_s), _ => "—".into() },
+                world.as_ref().map(|w| format!("{:.0} mm", ((last_plant.x_mm - w.goal.0 * 1000.0).powi(2) + (last_plant.y_mm - w.goal.1 * 1000.0).powi(2)).sqrt())).unwrap_or("—".into()),
+                collisions) } },
         // C11:有世界且上位是外部的(Nav2)→ 到達 goal 0.1 m 內、途中沒撞;沒世界不驗
         // 有故障注入時不驗到達:那個場景在驗 C10/C12(車該停),不是該到
         Check { name: if world.is_some() && a.expect_goal && fault == "none" { "C11 Nav2:受控體到達 world.goal 0.1 m 內,途中沒撞牆或方塊" } else if fault != "none" { "C11 (故障注入場景,不驗到達)" } else { "C11 (沒有 --expect-goal,不驗)" },

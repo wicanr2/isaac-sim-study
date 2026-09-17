@@ -36,7 +36,16 @@ fork:`wicanr2/renode-infrastructure` 分支 `stm32-timer-period-preload-fixes`(�
 | `STM32F4_RCC_Fixed.cs` / `STM32_IndependentWatchdog_Fixed.cs` | 同一份修正、類名改 `_Fixed`,`i @` 執行期載入;`stm32f4-encoder-rccfix.repl` 用它們,`RCCFIX=1 ./run_loop.sh` 接進閉環 |
 | `STM32F4_RCCResetFlagsTests.cs` | 五條 NUnit(上電旗標、RMVF 清、系統重置保留、看門狗逾時設 IWDGRSTF、有餵狗不設);修正版 5/5、原版 1/5 |
 
-fork 分支 `stm32-rcc-reset-flags`(基於上游 `master` 0ab5d08)commit `09a1622`。上游 PR 的英文稿給使用者看過才送(2026-09-17 未送)。
+fork 分支 `stm32-rcc-reset-flags`(基於上游 `master` 0ab5d08)commit `09a1622` → [renode-infrastructure PR #253](https://github.com/renode/renode-infrastructure/pull/253)。
+
+| 檔案(IMU:I2C + 陀螺儀) | 用途 |
+|---|---|
+| `STM32F1_I2C.master-0ab5d08.cs` | 上游 `master` 的 `STM32F1_I2C` 逐字副本(檔頭加兩行註解)。1.16.1 只有 `STM32F4_I2C`,它在 STOP 與 repeated START 不呼叫從端的 `FinishTransmission()`,同一個從端的第二筆交易會被當成資料;`master` 換成這個模型(commit 033ee44)。F1/F2/F4 是同一代 I2C,`i @` 執行期載入,類名不變 |
+| `LSM330_Gyroscope.1.16.1.cs` / `LSM330_Gyroscope.patch` / `LSM330_Gyroscope_Fixed.cs` | 原版副本(1.16.1 與 `master` 相同)/ diff / 改名執行期載入版:靈敏度照 datasheet(8.75 / 17.5 / 70 mdps/digit,原版 130 digit/dps)、輸出飽和、補 WHO_AM_I_G = 0xD4 與 CTRL_REG1..3_G |
+| `LSM330_GyroscopeTests.cs` | 五條 NUnit;修正版 5/5、原版 0/5 |
+| `stm32f4-encoder-imu.repl` | `stm32f4-encoder-rccfix.repl` + I2C3 換 `STM32F1_I2C` + `gyro: Sensors.LSM330_Gyroscope_Fixed @ i2c3 0x6A`;`IMU=1 ./run_loop.sh` |
+
+fork 分支 `lsm330-gyro-datasheet-sensitivity`(基於 `master` 0ab5d08)commit `4edd246` → [renode-infrastructure PR #254](https://github.com/renode/renode-infrastructure/pull/254)。`I2CPeripheralBase` 不看子位址 MSb 的自動遞增、`Read(count)` 永遠回 1 byte——韌體每筆交易只讀一個暫存器,這一項沒修。
 
 | 檔案(NVIC) | 用途 |
 |---|---|

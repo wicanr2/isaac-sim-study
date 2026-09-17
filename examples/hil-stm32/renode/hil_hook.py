@@ -50,6 +50,7 @@ ID_ENCODER_STEPS = 0xFFFF0020   # i32 dl, i32 dr: quadrature counts to feed TIM2
 ID_ENC_CONT_CFG  = 0xFFFF0021   # i32 tau_us: install the continuous encoders on TIM2/TIM4 (hil_quadrature.cs)
 ID_ENC_CONT_L    = 0xFFFF0022   # i32 plant ticks, i32 rate (milli-ticks/s): update the left continuous encoder
 ID_ENC_CONT_R    = 0xFFFF0023   # same, right
+ID_GYRO_Z        = 0xFFFF0024   # i32 milli-dps: angular rate Z of the IMU gyroscope (sysbus.i2c3.gyro)
 ID_ACK           = 0xFFFF00AC
 TIM3_CCR1        = 0x40000434
 TIM3_CCR2        = 0x40000438
@@ -183,6 +184,22 @@ def mc_hil_enc_stats():
             e = _conts[key]
             print "hil_hook: cont %s updates=%d reads=%d max_abs_err=%.2f last_err=%.2f" % (key, e.Updates, e.Reads, e.MaxAbsError, e.LastError)
 
+# IMU gyroscope: the property is set by a .NET helper for the same reason as the encoder feeder
+_gyro = {}
+
+def _gyro_set(machine, milli_dps):
+    if "feeder" not in _gyro:
+        sensor = self.Machine["sysbus.i2c3.gyro"]
+        asms = [a for a in System.AppDomain.CurrentDomain.GetAssemblies() if a.GetType("Antmicro.Renode.Hil.AngularRateFeeder") is not None]
+        T = asms[0].GetType("Antmicro.Renode.Hil.AngularRateFeeder")
+        _gyro["feeder"] = System.Activator.CreateInstance(T, System.Array[System.Object]([sensor]))
+    fd = _gyro["feeder"]
+    if emulationManager.CurrentEmulation.IsStarted:
+        machine.HandleTimeDomainEvent[System.Int32](System.Action[System.Int32](fd.Set), System.Int32(milli_dps),
+                                                    TimeDomainsManager.Instance.GetEffectiveVirtualTimeStamp())
+    else:
+        fd.Set(int(milli_dps))
+
 def _i32(b):
     v = int(b[0]) | (int(b[1]) << 8) | (int(b[2]) << 16) | (int(b[3]) << 24)
     return v - (1 << 32) if v & 0x80000000 else v
@@ -226,6 +243,9 @@ def _rx_loop():
                 _ack()
             elif rid == ID_PAUSE:
                 emulationManager.CurrentEmulation.PauseAll()
+                _ack()
+            elif rid == ID_GYRO_Z:
+                _gyro_set(machine, _i32(data[0:4]))
                 _ack()
             elif rid == ID_ENC_CONT_CFG:
                 _cont_install(machine, tim_left, tim_right, _i32(data[0:4]))

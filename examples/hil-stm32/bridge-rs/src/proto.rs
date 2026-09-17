@@ -56,10 +56,11 @@ pub struct Odom {
     pub vl_mm_s: i16,
     pub vr_mm_s: i16,
     pub flags: u8,
+    pub flags_hi: u8,
 }
 
-/// odom_payload_t(packed):seq 2 + t 4 + x 4 + y 4 + th 4 + vl 2 + vr 2 + flags 1
-pub const ODOM_LEN: usize = 23;
+/// odom_payload_t(packed):seq 2 + t 4 + x 4 + y 4 + th 4 + vl 2 + vr 2 + flags 1 + flags_hi 1
+pub const ODOM_LEN: usize = 24;
 
 pub fn parse_odom(p: &[u8]) -> Option<Odom> {
     if p.len() != ODOM_LEN {
@@ -74,6 +75,7 @@ pub fn parse_odom(p: &[u8]) -> Option<Odom> {
         vl_mm_s: i16::from_le_bytes([p[18], p[19]]),
         vr_mm_s: i16::from_le_bytes([p[20], p[21]]),
         flags: p[22],
+        flags_hi: p[23],
     })
 }
 

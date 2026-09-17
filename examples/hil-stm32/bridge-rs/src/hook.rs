@@ -14,6 +14,7 @@ pub const ID_ENCODER_STEPS: u32 = 0xFFFF_0020;
 pub const ID_ENC_CONT_CFG: u32 = 0xFFFF_0021;
 pub const ID_ENC_CONT_L: u32 = 0xFFFF_0022;
 pub const ID_ENC_CONT_R: u32 = 0xFFFF_0023;
+pub const ID_GYRO_Z: u32 = 0xFFFF_0024;
 pub const ID_ACK: u32 = 0xFFFF_00AC;
 
 #[derive(Debug, Clone)]
@@ -92,6 +93,13 @@ impl Hook {
             self.write_rec(id, &d)?;
             self.pending_acks += 1;
         }
+        Ok(())
+    }
+
+    /// IMU:把受控體這一步的真值 yaw rate(milli-dps)寫進 I2C3 上 LSM330 陀螺儀的 AngularRateZ。
+    pub fn gyro_z(&mut self, milli_dps: i32) -> io::Result<()> {
+        self.write_rec(ID_GYRO_Z, &milli_dps.to_le_bytes())?;
+        self.pending_acks += 1;
         Ok(())
     }
 

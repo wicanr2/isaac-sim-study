@@ -78,11 +78,18 @@ pub struct Fake {
     x: f64,
     y: f64,
     th: f64,
+    /// 碰撞時輪子怎麼辦:false = 凍結(編碼器不動,第一版);true = 打滑(車體不動、輪子照馬達層轉、編碼器照數)
+    slip_on_contact: bool,
 }
 
 impl Fake {
     pub fn new(c: Calib) -> Fake {
-        Fake { c, world: None, scan: None, tau_s: c.motor_tau_s, vl: 0.0, vr: 0.0, sl_mm: 0.0, sr_mm: 0.0, x: 0.0, y: 0.0, th: 0.0 }
+        Fake { c, world: None, scan: None, tau_s: c.motor_tau_s, vl: 0.0, vr: 0.0, sl_mm: 0.0, sr_mm: 0.0, x: 0.0, y: 0.0, th: 0.0, slip_on_contact: false }
+    }
+
+    pub fn with_contact_slip(mut self, slip: bool) -> Fake {
+        self.slip_on_contact = slip;
+        self
     }
 
     pub fn with_world(mut self, w: World) -> Fake {
@@ -119,9 +126,10 @@ impl Plant for Fake {
             collided = w.collides(nx, ny);
         }
         if collided {
-            self.vl = 0.0; self.vr = 0.0;
+            // 凍結:輪子被擋住(編碼器不動);打滑:車體被擋住,輪子照轉、編碼器照數(Isaac 上量到的形態,38 篇 §6.4)
+            if self.slip_on_contact { self.sl_mm += dl; self.sr_mm += dr; } else { self.vl = 0.0; self.vr = 0.0; }
             if do_scan { let w = self.world.as_ref().unwrap(); self.scan = Some(w.scan(self.x / 1000.0, self.y / 1000.0, self.th)); }
-            return Ok(PlantOut { ticks_l: self.ticks(self.sl_mm), ticks_r: self.ticks(self.sr_mm), x_mm: self.x, y_mm: self.y, th_rad: self.th, vl_mm_s: 0.0, vr_mm_s: 0.0, collided: true });
+            return Ok(PlantOut { ticks_l: self.ticks(self.sl_mm), ticks_r: self.ticks(self.sr_mm), x_mm: self.x, y_mm: self.y, th_rad: self.th, vl_mm_s: self.vl, vr_mm_s: self.vr, collided: true });
         }
         self.sl_mm += dl;
         self.sr_mm += dr;

@@ -118,7 +118,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 </tr>
 <tr>
 <td><code>g_dbg</code></td>
-<td>就是 <code>dbg_common_t</code>(20 字)</td>
+<td>就是 <code>dbg_common_t</code>(23 字)</td>
 <td><code>dbg_common_t</code> 當第一個成員,後面接 RTOS 欄位;<code>ctl_bind_dbg(&amp;g_dbg.c)</code></td>
 </tr>
 </tbody>
@@ -130,7 +130,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 <li><strong>週期由 <code>xTaskDelayUntil</code> 保證。</strong> 它回 <code>pdFALSE</code> 表示「這一輪已經晚了,沒有真的睡」——那就是錯過週期,記進 <code>g_dbg.ctrl_missed</code>。裸機版的 <code>next_ctrl += 5</code> 會默默追趕,看不出來。</li>
 <li><strong><code>proto_send</code> 包在 critical section 裡。</strong> USART1 只有一條 TX 線,<code>rx_task</code> 回 PONG 與 <code>report_task</code> 送 odom 可能交錯——裸機版沒有這個問題,因為只有一條執行流。</li>
 </ul>
-<p><code>g_dbg</code> 第 20 字之後多了 RTOS 才有的觀測:<code>ctrl_missed</code>、<code>report_missed</code>、<code>rx_wakeups</code>、三個 task 的 stack high-water mark、<code>assert_line</code>、<code>stack_overflow</code>、<code>malloc_failed</code>。橋接用 <code>--dbg-extra 9</code> 跑完印出。</p>
+<p><code>g_dbg</code> 第 23 字之後多了 RTOS 才有的觀測:<code>ctrl_missed</code>、<code>report_missed</code>、<code>rx_wakeups</code>、三個 task 的 stack high-water mark、<code>assert_line</code>、<code>stack_overflow</code>、<code>malloc_failed</code>。橋接用 <code>--dbg-extra 9</code> 跑完印出。</p>
 <h2 id="3-閉環結果跟裸機版比">3. 閉環結果:跟裸機版比</h2>
 <p>同一條指令、同一份腳本(0.5 s 起 300 mm/s 走 3 s → 600 mrad/s 轉 1.5 s → 停),假受控體:</p>
 <div class="tw"><table>
@@ -228,7 +228,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 <h2 id="5-什麼沒變">5. 什麼沒變</h2>
 <ul>
 <li>橋接、hook、External Control、受控體、十二項判準:一個 byte 都沒改。RTOS 是韌體內部的事,匯流排上看不出來——這正是 HIL 該有的性質。</li>
-<li><code>g_dbg</code> 前 20 字的版面(<code>dbg_common_t</code>)。橋接靠 <code>magic</code> 確認讀對東西,靠符號表找位址;兩版的 <code>g_dbg</code> 位址不同,<code>--sym</code> 換一份就好。</li>
+<li><code>g_dbg</code> 前 23 字的版面(<code>dbg_common_t</code>)。橋接靠 <code>magic</code> 確認讀對東西,靠符號表找位址;兩版的 <code>g_dbg</code> 位址不同,<code>--sym</code> 換一份就好。</li>
 <li>三條規則(35 篇 §6):沒有模擬模式、橋接不做安全、生效證明。<code>[effect]</code> 那幾行多印了 <code>g_dbg</code> 位址與 magic。</li>
 </ul>
 <h2 id="6-檢查清單">6. 檢查清單</h2>

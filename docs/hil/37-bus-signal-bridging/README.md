@@ -17,7 +17,8 @@
 | 驅動器故障、保險桿 | 板子 → MCU | External Control `gpio_set` gpioPortC 14/15、0(低有效) | 橋接扮演 pull-up:開機前拉高、IWDG 重啟後再拉一次;故障注入把它拉低([38 篇](../38-acceptance-and-failure-modes/README.md) §1.2) |
 | 雷射 | 受控體 → 上位(不經 MCU) | 受控體文字協定的 `SCAN` 行 → 橋接 3801 原樣轉 → driver 發 `/scan` | 橋接只加行首與 seq,不解語意;負對照 `blind-scan` 在這裡把距離全改成 range_max([38 篇](../38-acceptance-and-failure-modes/README.md) §6.2) |
 | 心跳 | 上位 → MCU | UART `PING`(0x03)每 100 ms,韌體回 `PONG` | 橋接腳本模式自己送;ROS driver 也送;300 ms 沒收到韌體降速到 0 |
-| 韌體內部狀態 | MCU → 橋接 | External Control `sysbus_read` `g_dbg`(17 個字一次讀) | 生效證明與驗收用 |
+| 陀螺儀角速度 | 受控體 → MCU(經 I2C 感測器) | 橋接每步用受控體真值位姿差分算 yaw rate → hook 一筆 `0xFFFF0024`(milli-dps)→ .NET `AngularRateFeeder` 寫 `sysbus.i2c3.gyro` 的 `AngularRateZ`;韌體自己經 I2C3 讀 OUT_Z | 三個受控體同一份公式(橋接算,不經受控體協定);韌體走真板的 I2C 路徑([38 篇](../38-acceptance-and-failure-modes/README.md) §1.3) |
+| 韌體內部狀態 | MCU → 橋接 | External Control `sysbus_read` `g_dbg`(23 個字一次讀) | 生效證明與驗收用 |
 | 增益、斜坡、安全遮罩 | 橋接 → MCU | External Control `sysbus_write` 到 flash 裡 `.data` 初始值的 LMA(**開機前**),開機後從 SRAM 讀回印 `[effect]` | `--cfg kp=..,ki=..,accel=..` 掃參數、`--negative no-ramp` 關斜坡、`*-off` 關一項安全功能、`--fault hang` 排一個死機時刻,都不重編韌體([38 篇](../38-acceptance-and-failure-modes/README.md) §1.1、§1.2) |
 | UART(上位協定) | 雙向 | IronPython hook(`usart1.WriteChar` / `CharReceived`) | 要 ack(§3);Renode 內建的 socket terminal 也能用但沒有 ack |
 | CAN | 雙向 | IronPython hook(`can1.OnFrameReceived` / `FrameSent`) | 不碰核心;三條路的取捨在 §4 |

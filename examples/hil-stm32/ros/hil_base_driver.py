@@ -16,7 +16,7 @@ import time
 
 import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from std_msgs.msg import UInt8
@@ -46,6 +46,8 @@ class HilBaseDriver(Node):
         self.declare_parameter("fault_latch", True)
         self.declare_parameter("cancel_service", "/navigate_to_pose/_action/cancel_goal")
         self.declare_parameter("odom_frame", "odom")
+        # 俯視圖錄影用(issue #6):Nav2 的 /plan 一條一行寫檔,附上收到當下最新的 odom 序號(跟橋接 CSV 的 odom_seq 對齊)
+        self.declare_parameter("plan_log", "")
         self.declare_parameter("base_frame", "base_link")
         calib = json.loads(pathlib.Path(self.get_parameter("calib").value).read_text(encoding="utf-8"))
         self.track_m = calib["track_mm"] / 1000.0
@@ -77,11 +79,18 @@ class HilBaseDriver(Node):
         self.pub_scan = self.create_publisher(LaserScan, "scan", 10)
         self.fault_latched = False
         self.n_latch = 0
+        # 已經 ack 過的旗標位元:WDT_RESET 在韌體裡亮到下次上電為止,只看位準的話 ack 之後下一筆 odom 又鎖住;
+        # 所以只對「沒 ack 過的」位元反應,位元熄掉再亮才算新的一次
+        self.acked_bits = 0
         self.cancel_cli = self.create_client(CancelGoal, self.get_parameter("cancel_service").value)
         self.create_service(Trigger, "hil/fault_ack", self.on_fault_ack)
         self.pub_tf_static = self.create_publisher(TFMessage, "/tf_static", rclpy.qos.QoSProfile(depth=1, durability=rclpy.qos.DurabilityPolicy.TRANSIENT_LOCAL))
         self.publish_static_tf()
         self.create_subscription(Twist, "cmd_vel", self.on_cmd_vel, 10)
+        plan_log = str(self.get_parameter("plan_log").value)
+        self.plan_file = open(plan_log, "w", encoding="utf-8") if plan_log else None
+        if self.plan_file:
+            self.create_subscription(Path, "plan", self.on_plan, 10)
         rate = float(self.get_parameter("cmd_rate_hz").value)
         self.create_timer(1.0 / rate, self.tick_tx)
         self.create_timer(1.0 / float(self.get_parameter("heartbeat_hz").value), self.tick_ping)
@@ -121,20 +130,29 @@ class HilBaseDriver(Node):
 
     # --- 安全旗標的反應 ---
     def on_flags(self, flags: int):
-        latch_bits = hilproto.FLAG_WDT_RESET | hilproto.FLAG_STALL
-        if flags & latch_bits and not self.fault_latched and bool(self.get_parameter("fault_latch").value):
+        latch_bits = hilproto.FLAG_WDT_RESET | hilproto.FLAG_STALL | hilproto.FLAG_SLIP
+        self.acked_bits &= flags            # 熄掉的位元不再算 ack 過
+        self.last_latch_flags = flags & latch_bits
+        if flags & latch_bits & ~self.acked_bits and not self.fault_latched and bool(self.get_parameter("fault_latch").value):
             self.fault_latched = True
             self.n_latch += 1
-            self.get_logger().warn("fault latched: flags 0x%02x %s -> cmd_vel=0, cancel goal, wait /hil/fault_ack" % (
+            self.get_logger().warn("fault latched: flags 0x%03x %s -> cmd_vel=0, cancel goal, wait /hil/fault_ack" % (
                 flags, hilproto.flag_names(flags)))
             if self.cancel_cli.service_is_ready():
                 self.cancel_cli.call_async(CancelGoal.Request())   # goal_id 全 0 + stamp 0 = 取消全部
             else:
                 self.get_logger().warn("cancel service not ready: %s" % self.get_parameter("cancel_service").value)
 
+    def on_plan(self, msg: Path):
+        seq = self.last["seq"] if getattr(self, "last", None) else 0
+        pts = " ".join("%.3f %.3f" % (p.pose.position.x, p.pose.position.y) for p in msg.poses)
+        self.plan_file.write("PLAN %d %d %s\n" % (seq, len(msg.poses), pts))
+        self.plan_file.flush()
+
     def on_fault_ack(self, req, resp):
         was = self.fault_latched
         self.fault_latched = False
+        self.acked_bits |= getattr(self, "last_latch_flags", 0)
         resp.success = True
         resp.message = "cleared" if was else "not latched"
         self.get_logger().info("fault ack: %s" % resp.message)
@@ -233,10 +251,10 @@ class HilBaseDriver(Node):
                 o = hilproto.parse_odom(payload)
                 if o is not None:
                     self.publish_odom(o)
-                    self.pub_flags.publish(UInt8(data=o["flags"]))
+                    self.pub_flags.publish(UInt8(data=o["flags"] & 0xFF))
                     self.on_flags(o["flags"])
                     if o["flags"] != self.last_flags:
-                        self.get_logger().info("flags 0x%02x %s" % (o["flags"], hilproto.flag_names(o["flags"])))
+                        self.get_logger().info("flags 0x%03x %s" % (o["flags"], hilproto.flag_names(o["flags"])))
                         self.last_flags = o["flags"]
 
     def publish_odom(self, o):

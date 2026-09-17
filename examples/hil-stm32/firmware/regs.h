@@ -25,6 +25,7 @@
 #define RCC_APB1ENR_TIM3   (1u << 1)
 #define RCC_APB1ENR_TIM4   (1u << 2)
 #define RCC_APB1ENR_USART2 (1u << 17)
+#define RCC_APB1ENR_I2C3   (1u << 23)
 #define RCC_APB1ENR_CAN1   (1u << 25)
 #define RCC_APB2ENR_USART1 (1u << 4)
 
@@ -33,6 +34,7 @@
 #define GPIOB_BASE    0x40020400u
 #define GPIOC_BASE    0x40020800u
 #define GPIO_MODER(b)  REG((b) + 0x00)
+#define GPIO_OTYPER(b) REG((b) + 0x04)  /* 1 = 開汲極(I2C 要) */
 #define GPIO_PUPDR(b)  REG((b) + 0x0C)  /* 01 = pull-up;輸入腳沒接東西時讀 1(RM0090 §8.4.4) */
 #define GPIO_IDR(b)    REG((b) + 0x10)
 #define GPIO_ODR(b)    REG((b) + 0x14)
@@ -50,6 +52,27 @@
 #define DRV_FAULT_L_PIN 14 /* PC14 左驅動器故障輸入,低有效(驅動器的 nFAULT 開集極,靠 pull-up) */
 #define DRV_FAULT_R_PIN 15 /* PC15 右驅動器故障輸入,低有效 */
 #define BUMPER_PIN     0   /* PC0 保險桿,常閉接點:斷開(低)= 撞到 */
+
+/* ---- I2C3 @0x40005C00(RM0090 §27.6):IMU 陀螺儀。PA8 = I2C3_SCL、PC9 = I2C3_SDA,AF4、開汲極
+ * (腳位與 AF 出自 STM32F405/407 datasheet 的 alternate function 表,未在本 repo 環境查證;Renode 不看腳位) ---- */
+#define I2C3_BASE     0x40005C00u
+#define I2C_CR1(b)    REG((b) + 0x00)
+#define I2C_CR2(b)    REG((b) + 0x04)
+#define I2C_DR(b)     REG((b) + 0x10)
+#define I2C_SR1(b)    REG((b) + 0x14)
+#define I2C_SR2(b)    REG((b) + 0x18)
+#define I2C_CCR(b)    REG((b) + 0x1C)
+#define I2C_TRISE(b)  REG((b) + 0x20)
+#define I2C_CR1_PE    (1u << 0)
+#define I2C_CR1_START (1u << 8)
+#define I2C_CR1_STOP  (1u << 9)
+#define I2C_CR1_ACK   (1u << 10)
+#define I2C_SR1_SB    (1u << 0)
+#define I2C_SR1_ADDR  (1u << 1)
+#define I2C_SR1_BTF   (1u << 2)
+#define I2C_SR1_RXNE  (1u << 6)
+#define I2C_SR1_TXE   (1u << 7)
+#define I2C_SR1_AF    (1u << 10)
 
 /* ---- IWDG @0x40003000(RM0090 §21):LSI 32 kHz,一旦起動不能停 ------------- */
 #define IWDG_BASE     0x40003000u

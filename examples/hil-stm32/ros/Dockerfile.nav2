@@ -7,3 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-jazzy-nav2-bt-navigator ros-jazzy-nav2-behaviors ros-jazzy-nav2-lifecycle-manager \
       ros-jazzy-nav2-smoother ros-jazzy-nav2-velocity-smoother ros-jazzy-nav2-simple-commander \
     && rm -rf /var/lib/apt/lists/*
+# AMCL(GOAL 6 C-2:韌體重啟後重定位)。獨立一層:上一層的快取照用,只多這一個套件(apt 模擬 1 個 deb、下載 388 KB、安裝 1.9 MB,2026-09-17 量)
+RUN apt-get update && apt-get install -y --no-install-recommends ros-jazzy-nav2-amcl \
+    && rm -rf /var/lib/apt/lists/*

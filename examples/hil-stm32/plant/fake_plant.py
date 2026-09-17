@@ -41,8 +41,9 @@ def motor_advance(v: float, target: float, dt: float, tau: float, accel_max: flo
 class FakePlant:
     """一階馬達(時間常數 tau)+ 精確差速運動學。編碼器 tick 由各輪累計行程取整。"""
 
-    def __init__(self, calib: dict, tau_s: float = None, world=None):
+    def __init__(self, calib: dict, tau_s: float = None, world=None, slip_on_contact: bool = False):
         self.world = world
+        self.slip_on_contact = slip_on_contact
         self.collided = False
         self.circ_mm = 2 * math.pi * calib["wheel_radius_mm"]
         self.track = calib["track_mm"]
@@ -62,13 +63,17 @@ class FakePlant:
         self.vl = motor_advance(self.vl, tl, dt, self.tau, self.accel_max)
         self.vr = motor_advance(self.vr, tr, dt, self.tau, self.accel_max)
         dl, dr = self.vl * dt, self.vr * dt
-        # 碰撞(有世界才有):撞到牆或方塊就停在原地,編碼器不動(同 Rust Fake)
+        # 碰撞(有世界才有):車體停在原地;輪子凍結(編碼器不動)或打滑(照轉、編碼器照數),同 Rust Fake
         self.collided = False
         if self.world is not None:
             ds_m = (dl + dr) * 0.5 / 1000.0
             if self.world.collides(self.x / 1000.0 + ds_m * math.cos(self.th), self.y / 1000.0 + ds_m * math.sin(self.th)):
                 self.collided = True
-                self.vl = self.vr = 0.0
+                if self.slip_on_contact:
+                    self.sl += dl
+                    self.sr += dr
+                else:
+                    self.vl = self.vr = 0.0
                 return
         self.sl += dl
         self.sr += dr
@@ -92,6 +97,7 @@ def main() -> int:
     ap.add_argument("--tau", type=float, default=None, help="覆蓋 calib 的 motor_tau_s")
     ap.add_argument("--tcp", action="store_true")
     ap.add_argument("--world", default=None, help="world.json:有給就算假雷射與碰撞")
+    ap.add_argument("--contact", default="freeze", choices=["freeze", "slip"], help="碰撞時輪子凍結或打滑(車體不動、輪子照轉)")
     a = ap.parse_args()
 
     calib = json.load(open(a.calib, encoding="utf-8"))
@@ -100,7 +106,7 @@ def main() -> int:
         sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
         from world import World
         world = World(a.world)
-    plant = FakePlant(calib, a.tau, world)
+    plant = FakePlant(calib, a.tau, world, a.contact == "slip")
     host, port = a.bind.rsplit(":", 1)
     print(f"[fake_plant] listening {a.bind} {'tcp' if a.tcp else 'udp'} circ={plant.circ_mm:.3f}mm track={plant.track} tpr={plant.tpr} tau={a.tau}", flush=True)
     serve(plant, host, int(port), a.tcp)

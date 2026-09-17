@@ -10,7 +10,7 @@ MSG_ODOM = 0x02
 MSG_PING = 0x03
 MSG_PONG = 0x83
 
-_ODOM = struct.Struct("<HIiiihhB")  # seq t_ms x_mm y_mm th_mrad vl vr flags = 23 bytes
+_ODOM = struct.Struct("<HIiiihhBB")  # seq t_ms x_mm y_mm th_mrad vl vr flags flags_hi = 24 bytes
 ODOM_LEN = _ODOM.size
 
 
@@ -41,8 +41,9 @@ def ping() -> bytes:
 # odom / CAN 0x201 的 flags 位元(firmware/proto.h)
 FLAG_ENABLED, FLAG_ESTOP, FLAG_CMD_STALE, FLAG_DRV_FAULT = 1 << 0, 1 << 1, 1 << 2, 1 << 3
 FLAG_BUMPER, FLAG_STALL, FLAG_HB_LOST, FLAG_WDT_RESET = 1 << 4, 1 << 5, 1 << 6, 1 << 7
+FLAG_SLIP = 1 << 8   # odom 的 flags_hi
 FLAG_NAMES = {1 << 0: "ENABLED", 1 << 1: "ESTOP", 1 << 2: "CMD_STALE", 1 << 3: "DRV_FAULT",
-              1 << 4: "BUMPER", 1 << 5: "STALL", 1 << 6: "HB_LOST", 1 << 7: "WDT_RESET"}
+              1 << 4: "BUMPER", 1 << 5: "STALL", 1 << 6: "HB_LOST", 1 << 7: "WDT_RESET", 1 << 8: "SLIP"}
 
 
 def flag_names(flags: int) -> str:
@@ -53,9 +54,9 @@ def parse_odom(payload: bytes):
     """回 dict 或 None。"""
     if len(payload) != ODOM_LEN:
         return None
-    seq, t_ms, x, y, th, vl, vr, flags = _ODOM.unpack(payload)
+    seq, t_ms, x, y, th, vl, vr, flags, flags_hi = _ODOM.unpack(payload)
     return {"seq": seq, "t_ms": t_ms, "x_mm": x, "y_mm": y, "th_mrad": th,
-            "vl_mm_s": vl, "vr_mm_s": vr, "flags": flags}
+            "vl_mm_s": vl, "vr_mm_s": vr, "flags": flags | (flags_hi << 8)}
 
 
 class Parser:
