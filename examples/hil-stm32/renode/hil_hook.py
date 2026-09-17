@@ -47,6 +47,9 @@ ID_BUS_SNAPSHOT  = 0xFFFF0003
 ID_START         = 0xFFFF0010
 ID_PAUSE         = 0xFFFF0011
 ID_ENCODER_STEPS = 0xFFFF0020   # i32 dl, i32 dr: quadrature counts to feed TIM2 (left) / TIM4 (right)
+ID_ENC_CONT_CFG  = 0xFFFF0021   # i32 tau_us: install the continuous encoders on TIM2/TIM4 (hil_quadrature.cs)
+ID_ENC_CONT_L    = 0xFFFF0022   # i32 plant ticks, i32 rate (milli-ticks/s): update the left continuous encoder
+ID_ENC_CONT_R    = 0xFFFF0023   # same, right
 ID_ACK           = 0xFFFF00AC
 TIM3_CCR1        = 0x40000434
 TIM3_CCR2        = 0x40000438
@@ -152,6 +155,34 @@ def _enc_feed(machine, timer, key, delta):
         fd.Feed(int(delta))
     _st["enc_edges"] += abs(int(delta))
 
+# Continuous encoder (docs/hil/37 sec. 3): CNT computed at read time from an anchor updated once per step.
+_conts = {}
+
+def _cont_install(machine, tim_left, tim_right, tau_us):
+    asms = [a for a in System.AppDomain.CurrentDomain.GetAssemblies() if a.GetType("Antmicro.Renode.Hil.ContinuousEncoder") is not None]
+    if not asms:
+        raise Exception("hil_quadrature.cs not loaded (i @/w/renode/hil_quadrature.cs before hil_hook.py)")
+    T = asms[0].GetType("Antmicro.Renode.Hil.ContinuousEncoder")
+    for key, tim in (("left", tim_left), ("right", tim_right)):
+        if key not in _conts:
+            _conts[key] = System.Activator.CreateInstance(T, System.Array[System.Object]([machine, tim, System.Double(tau_us / 1e6)]))
+    print "hil_hook: continuous encoders on timer2/timer4, tau %d us" % tau_us
+
+def _cont_update(machine, key, ticks, rate_milli):
+    enc = _conts[key]
+    packed = System.Int64((int(ticks) << 32) | (int(rate_milli) & 0xFFFFFFFF))
+    if emulationManager.CurrentEmulation.IsStarted:
+        machine.HandleTimeDomainEvent[System.Int64](System.Action[System.Int64](enc.Update), packed,
+                                                    TimeDomainsManager.Instance.GetEffectiveVirtualTimeStamp())
+    else:
+        enc.Update(packed)
+
+def mc_hil_enc_stats():
+    for key in ("left", "right"):
+        if key in _conts:
+            e = _conts[key]
+            print "hil_hook: cont %s updates=%d reads=%d max_abs_err=%.2f last_err=%.2f" % (key, e.Updates, e.Reads, e.MaxAbsError, e.LastError)
+
 def _i32(b):
     v = int(b[0]) | (int(b[1]) << 8) | (int(b[2]) << 16) | (int(b[3]) << 24)
     return v - (1 << 32) if v & 0x80000000 else v
@@ -195,6 +226,12 @@ def _rx_loop():
                 _ack()
             elif rid == ID_PAUSE:
                 emulationManager.CurrentEmulation.PauseAll()
+                _ack()
+            elif rid == ID_ENC_CONT_CFG:
+                _cont_install(machine, tim_left, tim_right, _i32(data[0:4]))
+                _ack()
+            elif rid == ID_ENC_CONT_L or rid == ID_ENC_CONT_R:
+                _cont_update(machine, "left" if rid == ID_ENC_CONT_L else "right", _i32(data[0:4]), _i32(data[4:8]))
                 _ack()
             elif rid == ID_ENCODER_STEPS:
                 dl = _i32(data[0:4]); dr = _i32(data[4:8])

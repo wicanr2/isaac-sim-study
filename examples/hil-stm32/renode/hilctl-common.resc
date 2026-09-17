@@ -36,3 +36,4 @@ runMacro $reset
 
 # 生效證明:哪一個 timer 模型在跑(原版 STM32_Timer / 修正版 STM32_Timer_Fixed)
 python "print '[effect] timer3 type = ' + self.Machine['sysbus.timer3'].GetType().Name"
+python "print '[effect] rcc type = ' + self.Machine['sysbus.rcc'].GetType().Name + ', iwdg type = ' + self.Machine['sysbus.iwdg'].GetType().Name"

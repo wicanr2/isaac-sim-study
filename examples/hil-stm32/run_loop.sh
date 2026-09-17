@@ -10,6 +10,7 @@
 #   FW=freertos ./run_loop.sh           # 韌體換成 FreeRTOS 版(firmware-freertos/)
 #   RECORD=1 ./run_loop.sh --fault bumper  # 跑完多產一支俯視圖錄影 out/run.mp4(+ _topview.svg/png;RECORD_GIF=1 多 gif);issue #6
 #   ./run_loop.sh --mode realtime       # Renode 自由跑、橋接每 5 ms 牆鐘取樣;Renode 容器自動給 4 核(CPUS= 覆蓋;2 核會被 CFS 每 100 ms 凍 50 ms)
+#   RCCFIX=1 ./run_loop.sh --fault hang # RCC/IWDG 換成修正版:看門狗重置後 RCC_CSR.IWDGRSTF = 1(docs/hil/38 §1.2)
 #   TIMERFIX=1 ./run_loop.sh            # TIM3 換成 renode/upstream/STM32_Timer_Fixed.cs(執行期載入的修正版)
 #   PLANT=remote ./run_loop.sh          # 受控體在場域 GPU 主機:自動開 ssh -L 隧道,受控體那端要先起好(埠 3700,TCP;
 #                                       # tools/isaac_plant_ctl.sh start;WORLD=1 / UPPER=nav2 時那端也要 WORLD=1 start)
@@ -39,6 +40,13 @@ ENC_PRE=()
 if [ "$ENC_SRC" = tim ]; then
   [ "${TIMERFIX:-0}" = 1 ] && { echo "TIMERFIX=1 與 encoder_source=tim 目前不同時用(兩份平台描述)"; exit 2; }
   ENC_PRE=(-e "i @/w/renode/upstream/STM32_Timer_Master.cs" -e "i @/w/renode/hil_quadrature.cs" -e '$repl=@/w/renode/upstream/stm32f4-encoder.repl')
+fi
+# RCCFIX=1:RCC 與 IWDG 換成修正版(RCC_CSR 的重置旗標跨系統重置保留、看門狗重置設 IWDGRSTF;renode/upstream/STM32_ResetFlags.patch)
+if [ "${RCCFIX:-0}" = 1 ]; then
+  [ "$ENC_SRC" = tim ] || { echo "RCCFIX=1 目前只接 encoder_source=tim 的平台描述"; exit 2; }
+  ENC_PRE=(-e "i @/w/renode/upstream/STM32_Timer_Master.cs" -e "i @/w/renode/hil_quadrature.cs"
+           -e "i @/w/renode/upstream/STM32_IndependentWatchdog_Fixed.cs" -e "i @/w/renode/upstream/STM32F4_RCC_Fixed.cs"
+           -e '$repl=@/w/renode/upstream/stm32f4-encoder-rccfix.repl')
 fi
 ENC_ARG=(); [ -n "${ENC:-}" ] && ENC_ARG=(--enc "$ENC")
 [ "$CAN" = socketcan ] && { [ "$RESC" = hilctl ] || { echo "CAN=socketcan 與 TIMERFIX 不同時用"; exit 2; }; RESC=hilctl-socketcan; }

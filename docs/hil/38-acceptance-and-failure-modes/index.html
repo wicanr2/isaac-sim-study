@@ -85,7 +85,7 @@
 </tr>
 <tr>
 <td>C8</td>
-<td>TIM 模式:CNT == 受控體 tick(mod 2^16)且韌體累計 == 前一步 tick;CAN 模式:收到的訊框 == steps − 1</td>
+<td>TIM 模式:CNT == 受控體 tick(mod 2^16)且韌體累計 == 前一步 tick;連續注入(<code>--enc cont</code>,37 篇 §5):步邊界 |CNT − tick| ≤ 一步最大 tick 數 + 1 且車停下後逐字相等(<code>--skew</code> 時只驗後者);CAN 模式:收到的訊框 == steps − 1</td>
 <td>編碼器注入掉資料;一步延遲</td>
 <td>CNT 10057/13431 == plant;fw == 前一步</td>
 </tr>
@@ -187,9 +187,9 @@
 <td>IWDG</td>
 <td><code>KR=0x5555 → PR=3(/32 → 1 kHz)→ RLR=999 → KR=0xCCCC → KR=0xAAAA</code>;每個控制步餵(FreeRTOS 版由最低優先的 report_task 餵)</td>
 <td><code>hang</code>:<code>g_cfg.hang_at_ms</code> 到時關中斷死迴圈</td>
-<td>死掉後 1.2 s 內重啟(<code>.noinit</code> 計數 +1、tick 從頭)、重啟那步 CCR 0</td>
+<td>死掉後 1.2 s 內重啟(<code>.noinit</code> 計數 +1、tick 從頭)、重啟那步 CCR 0、<strong>重啟後韌體亮 <code>WDT_RESET</code></strong>(上位的鎖靠它,§6.3)</td>
 <td>1.995 s 死掉(<code>ctrl_steps</code> 停在 420)→ <strong>2.995 s 重啟</strong>(+1000 ms);死掉期間 CCR 停在 345(34.5% duty 轉了 1 s);重啟那步 CCR 0,5 ms 後上位的 cmd_vel 又進來,車又走</td>
-<td><code>iwdg-off</code>:不起動 IWDG → 沒重啟,CCR 345 轉到結束,車跑到 1.6 m,<strong>紅</strong></td>
+<td><code>iwdg-off</code>:不起動 IWDG → 沒重啟,CCR 345 轉到結束,車跑到 1.6 m,<strong>紅</strong>;<code>noinit-off</code>:韌體只信 <code>RCC_CSR.IWDGRSTF</code> 判斷暖重置 → 原版 Renode 紅、修正版綠(下面第三點)</td>
 </tr>
 <tr>
 <td>驅動器故障腳</td>
@@ -229,7 +229,10 @@
 <ul>
 <li><strong>堵轉的速度門檻要高於感測器的量子。</strong> 一個 tick = 76.7 µm,5 ms 一個控制步,所以最小的非零速度是 15 mm/s;門檻 5 mm/s 的話,輪子還在慢慢滑的那幾百毫秒裡每偶爾一個 tick 就把計時清零,量到 +525 ms 才鎖。門檻改 20 → +355 ms。</li>
 <li><strong>Renode 的 GPIO 輸入腳預設是 0,而且機器重置後回到 0。</strong> 低有效的腳在真板上靠 pull-up,Renode 不看 <code>PUPDR</code>;橋接開機前把三腳拉高,IWDG 重啟後也要再拉一次(重啟後那一步 DRV_FAULT 與 BUMPER 會亮一下)。這是「橋接扮演板子」的一部分,不是韌體的事——韌體照 RM0090 寫 <code>PUPDR = 01</code>。</li>
-<li><strong>暖重置的證據。</strong> 真板讀 <code>RCC_CSR.IWDGRSTF</code>;Renode 的 RCC 給重置值 <code>0x0E000000</code>(POR/PIN/BOR 三個旗標),不設 IWDGRSTF——這是 <code>STM32_IndependentWatchdog</code> 原始碼裡的 <code>TODO</code>。韌體另外用 <code>.noinit</code> 區段的計數(<code>LoadELF</code> 只寫檔案裡有的區段,<code>NOLOAD</code> 的 SRAM 跨 reset 保留),兩個都記進 <code>g_dbg</code>。看門狗模型本身照 RM0090 第 21 章的序列反應:<code>Reload()</code> 才把 RLR 載入計數器、起動時從 0xFFF 起、逾時 <code>machine.RequestReset()</code>;監視器的 <code>macro reset</code> 接著重載 ELF,韌體從 <code>Reset_Handler</code> 重來。<strong>這一項 Renode 沒有缺口。</strong></li>
+<li><strong>暖重置的證據:<code>RCC_CSR.IWDGRSTF</code>,修在 Renode。</strong> 真板讀 <code>RCC_CSR</code> 的重置旗標。RM0090 Rev 22 §7.3.21 寫的是「Reset value: 0x0E00 0000, reset by system reset, except reset flags by power reset only」:七個重置旗標跨<strong>系統</strong>重置保留(IWDG 重置是系統重置,§7.1.1),寫 RMVF 才清。Renode 1.16.1 的 <code>STM32F4_RCC</code>(上游 <code>master</code> 同一份)把旗標與 RMVF 做成 tag、放在暫存器集合裡,而看門狗逾時的 <code>machine.RequestReset()</code> 會重置所有週邊——RCC 也回到上電值,RMVF 寫了沒作用;看門狗本身也不通知 RCC(<code>STM32_IndependentWatchdog</code> 裡的 <code>TODO: Use RCC to set restart cause</code>)。修正(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/upstream"><code>renode/upstream/STM32_ResetFlags.patch</code></a>):旗標移出暫存器集合,<code>Reset()</code> 不動它、RMVF 清、上電值仍是 <code>0x0E000000</code>;看門狗在要求重置前發 <code>ResetTriggered</code> 事件,RCC 收到就設 IWDGRSTF。NUnit 五條修正版 5/5、原版 1/5(只有「上電旗標」本來就對)。閉環 <code>RCCFIX=1 ./run_loop.sh --fault hang</code>:上電 <code>boot_csr = 0x0E000000</code>,重啟後 <code>0x20000000</code>(只有 IWDGRSTF;開機時韌體已用 RMVF 清過上電旗標)。
+  韌體另有第二條證據:<code>.noinit</code> 區段的計數(<code>LoadELF</code> 只寫檔案裡有的區段,<code>NOLOAD</code> 的 SRAM 跨 reset 保留),原版 Renode 上 <code>WDT_RESET</code> 靠的是它。負對照 <strong><code>--negative noinit-off</code></strong>(橋接每步把 <code>.noinit</code> 的 magic 清成 0,韌體只剩 <code>RCC_CSR</code> 這條證據):原版 Renode 上 C10 <strong>紅</strong>(重啟了,但 <code>WDT_RESET</code> 沒亮、<code>boot_csr</code> 仍是 <code>0x0E000000</code>),修正版<strong>綠</strong>(<code>boot_csr = 0x20000000</code>、<code>WDT_RESET</code> 亮)——四次 lockstep,2026-09-17。
+  看門狗模型本身照 RM0090 第 21 章的序列反應:<code>Reload()</code> 才把 RLR 載入計數器、起動時從 0xFFF 起、逾時 <code>machine.RequestReset()</code>;監視器的 <code>macro reset</code> 接著重載 ELF,韌體從 <code>Reset_Handler</code> 重來。</li>
+<li><strong>開機前寫進 flash 的 <code>g_cfg</code>,IWDG 重啟後回到預設。</strong> <code>macro reset</code> 重跑 <code>LoadELF</code>,把 flash 裡 <code>.data</code> 的初始值寫回 ELF 的版本——真板的 flash 不會因為 reset 改變,這是模擬器重置流程與真板不同的地方。量到的:<code>--fault hang</code> 開機前寫 <code>hang_at_ms = 2102</code>,跑完從 SRAM 讀回 <code>hang_at_ms = 0</code>(<code>[fault] 跑完讀回 g_cfg</code> 那一行)。<code>hang</code> 只死一次就是因為這樣;反過來,<strong>要在重啟之後才生效的負對照不能走 <code>g_cfg</code></strong>:開機時關掉的遮罩,在重啟那一刻就被蓋回全開,負對照會安靜地變成正對照。<code>noinit-off</code> 因此由橋接每步清 <code>.noinit</code>,不改韌體。</li>
 </ul>
 <p>負對照關掉防護的方法是改 <code>g_cfg.safety_mask</code>,而 IWDG 在 <code>main()</code> 初始化時就要決定開不開——所以 <code>g_cfg</code> 的寫入時機從「開機後寫 SRAM」改成「<strong>開機前寫 flash 裡 <code>.data</code> 的初始值</strong>」(LMA = <code>_sidata + (g_cfg − _sdata)</code>,startup 照常複製),<code>[effect]</code> 開機後從 SRAM 讀回來印。等於燒錄前改了參數區,<code>--cfg</code>、<code>--negative no-ramp</code> 也一併改走這條路,lockstep 數字逐字不變。</p>
 <p>重啟後韌體只把 <code>WDT_RESET</code> 亮在 flags 裡(到下次上電為止),上位的命令照收——要不要因為一次看門狗重啟就拒絕命令是<strong>上位的政策</strong>,做在 driver(§6.3),不在韌體。</p>

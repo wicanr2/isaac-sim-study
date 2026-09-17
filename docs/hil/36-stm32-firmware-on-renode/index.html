@@ -107,8 +107,8 @@ TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_sour
 <tr>
 <td><code>STM32_IndependentWatchdog</code>(IWDG)</td>
 <td>KR(0x5555/0xCCCC/0xAAAA)、PR、RLR、SR</td>
-<td>照 RM0090 第 21 章的序列:<code>Reload</code> 才把 RLR 載入、起動從 0xFFF 起、PR 的 2^(2+PR) 分頻;逾時 <code>machine.RequestReset()</code> → 週邊全部重置、監視器的 <code>macro reset</code> 重載 ELF。<strong>RCC_CSR 的 IWDGRSTF 不設</strong>(模型裡的 <code>TODO</code>),SR 的 PVU/RVU 永遠 0</td>
-<td>夠用:韌體 2.0 s 死掉、2.995 s 重啟(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.2)。重置來源另靠 <code>.noinit</code> 計數</td>
+<td>照 RM0090 第 21 章的序列:<code>Reload</code> 才把 RLR 載入、起動從 0xFFF 起、PR 的 2^(2+PR) 分頻;逾時 <code>machine.RequestReset()</code> → 週邊全部重置、監視器的 <code>macro reset</code> 重載 ELF。<strong>RCC_CSR 的 IWDGRSTF 不設</strong>(模型裡的 <code>TODO</code>),而且 <code>STM32F4_RCC</code> 在系統重置時把重置旗標回到上電值(RM0090 §7.3.21:旗標只在 power reset 清);SR 的 PVU/RVU 永遠 0</td>
+<td>重啟本身夠用:韌體 2.0 s 死掉、2.995 s 重啟。重置來源:原版靠 <code>.noinit</code> 計數;修正版(<code>RCCFIX=1</code>,<code>STM32_ResetFlags.patch</code>)重啟後 <code>RCC_CSR = 0x20000000</code>(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.2)</td>
 </tr>
 <tr>
 <td><code>STM32_GPIOPort</code>,輸入腳</td>

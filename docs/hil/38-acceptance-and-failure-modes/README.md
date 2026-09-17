@@ -30,7 +30,7 @@
 | C5 | odom 回報數 ≥ 90% 期望 | UART 出口掉資料 | 305 / 300 |
 | C6 | 韌體 `bad_crc` == 橋接送壞的數 | CRC 檢查沒在跑 | 0 vs 0 |
 | C7 | 韌體收到的 cmd == 送出且未壞的數 | UART 入口掉資料 | 300 vs 300 |
-| C8 | TIM 模式:CNT == 受控體 tick(mod 2^16)且韌體累計 == 前一步 tick;CAN 模式:收到的訊框 == steps − 1 | 編碼器注入掉資料;一步延遲 | CNT 10057/13431 == plant;fw == 前一步 |
+| C8 | TIM 模式:CNT == 受控體 tick(mod 2^16)且韌體累計 == 前一步 tick;連續注入(`--enc cont`,37 篇 §5):步邊界 \|CNT − tick\| ≤ 一步最大 tick 數 + 1 且車停下後逐字相等(`--skew` 時只驗後者);CAN 模式:收到的訊框 == steps − 1 | 編碼器注入掉資料;一步延遲 | CNT 10057/13431 == plant;fw == 前一步 |
 | C9 | 受控體的輪加速度 ≤ (accel + alpha × 輪距/2) × 1.2 | 斜坡沒生效(韌體沒讀 `g_cfg`、算錯單位) | 2257 vs 2520 mm/s² |
 | C10 | 安全 I/O:`--fault` 注入的那一項在時限內反應(§1.2 的表) | 看門狗沒餵/沒起動、故障腳沒接、保險桿不擋、堵轉不鎖、心跳沒驗 | 沒注入時不驗;五項各自綠、五個 `*-off` 各自紅 |
 | C11 | Nav2:受控體真值到達 `world.goal` 0.1 m 內、途中沒撞(§6.2) | 規劃器沒避開雷射才看得到的方塊 | 只在 `UPPER=nav2` 驗;46 mm、碰撞 0;`blind-scan` 紅 |
@@ -76,7 +76,7 @@ C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌
 
 | 項 | 韌體(RM0090) | 橋接注入(`--fault`) | C10 判準 | 實測 | 負對照(`--negative`) |
 |---|---|---|---|---|---|
-| IWDG | `KR=0x5555 → PR=3(/32 → 1 kHz)→ RLR=999 → KR=0xCCCC → KR=0xAAAA`;每個控制步餵(FreeRTOS 版由最低優先的 report_task 餵) | `hang`:`g_cfg.hang_at_ms` 到時關中斷死迴圈 | 死掉後 1.2 s 內重啟(`.noinit` 計數 +1、tick 從頭)、重啟那步 CCR 0 | 1.995 s 死掉(`ctrl_steps` 停在 420)→ **2.995 s 重啟**(+1000 ms);死掉期間 CCR 停在 345(34.5% duty 轉了 1 s);重啟那步 CCR 0,5 ms 後上位的 cmd_vel 又進來,車又走 | `iwdg-off`:不起動 IWDG → 沒重啟,CCR 345 轉到結束,車跑到 1.6 m,**紅** |
+| IWDG | `KR=0x5555 → PR=3(/32 → 1 kHz)→ RLR=999 → KR=0xCCCC → KR=0xAAAA`;每個控制步餵(FreeRTOS 版由最低優先的 report_task 餵) | `hang`:`g_cfg.hang_at_ms` 到時關中斷死迴圈 | 死掉後 1.2 s 內重啟(`.noinit` 計數 +1、tick 從頭)、重啟那步 CCR 0、**重啟後韌體亮 `WDT_RESET`**(上位的鎖靠它,§6.3) | 1.995 s 死掉(`ctrl_steps` 停在 420)→ **2.995 s 重啟**(+1000 ms);死掉期間 CCR 停在 345(34.5% duty 轉了 1 s);重啟那步 CCR 0,5 ms 後上位的 cmd_vel 又進來,車又走 | `iwdg-off`:不起動 IWDG → 沒重啟,CCR 345 轉到結束,車跑到 1.6 m,**紅**;`noinit-off`:韌體只信 `RCC_CSR.IWDGRSTF` 判斷暖重置 → 原版 Renode 紅、修正版綠(下面第三點) |
 | 驅動器故障腳 | PC14/PC15 輸入 + pull-up,低有效 → 致能關、duty 0、積分清 | `drv-fault`:2.0–3.5 s `gpio_set` PC14 低 | 拉低後 10 ms 內 DRV_FAULT、EN 低、CCR 0;放開後恢復 | 旗標 **+0 ms**(同一個控制步);故障期間 300 步 CCR/EN 全 0;放開後恢復 | `drv-fault-off`:旗標不出現,299 步 CCR≠0,**紅** |
 | 保險桿 | PC0 輸入 + pull-up,常閉接點斷開 = 撞到 → 前進命令改 0 走斜坡,倒車放行 | `bumper`:受控體 x ≥ 500 mm 就把 PC0 拉低(腳本 3.5 s 改倒車) | 撞牆後 60 mm 內停、旗標亮、倒車後 x 少 100 mm 以上 | 500.5 mm 撞到,最遠 **537.2**(+37.2:斜坡 30 mm + 一個控制步);倒車到 239.7 | `bumper-off`:穿牆到 900.2,**紅** |
 | 堵轉 | 上一步 \|duty\| ≥ 60% 且 \|輪速\| < 20 mm/s 持續 200 ms → 鎖住(致能關),上位命令歸零才解 | `stall`:2.0–3.5 s 受控體不動、編碼器不動 | 卡住後 500 ms 內 STALL 且 CCR 0;命令歸零後解 | 旗標 **+355 ms**(輪速衰減 ~150 ms + 200 ms);之後 3.5 s 的轉向命令被擋,5.0 s 歸零解鎖 | `stall-off`:旗標不出現,duty 100% 灌到 3.5 s,**紅** |
@@ -86,7 +86,10 @@ C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌
 
 - **堵轉的速度門檻要高於感測器的量子。** 一個 tick = 76.7 µm,5 ms 一個控制步,所以最小的非零速度是 15 mm/s;門檻 5 mm/s 的話,輪子還在慢慢滑的那幾百毫秒裡每偶爾一個 tick 就把計時清零,量到 +525 ms 才鎖。門檻改 20 → +355 ms。
 - **Renode 的 GPIO 輸入腳預設是 0,而且機器重置後回到 0。** 低有效的腳在真板上靠 pull-up,Renode 不看 `PUPDR`;橋接開機前把三腳拉高,IWDG 重啟後也要再拉一次(重啟後那一步 DRV_FAULT 與 BUMPER 會亮一下)。這是「橋接扮演板子」的一部分,不是韌體的事——韌體照 RM0090 寫 `PUPDR = 01`。
-- **暖重置的證據。** 真板讀 `RCC_CSR.IWDGRSTF`;Renode 的 RCC 給重置值 `0x0E000000`(POR/PIN/BOR 三個旗標),不設 IWDGRSTF——這是 `STM32_IndependentWatchdog` 原始碼裡的 `TODO`。韌體另外用 `.noinit` 區段的計數(`LoadELF` 只寫檔案裡有的區段,`NOLOAD` 的 SRAM 跨 reset 保留),兩個都記進 `g_dbg`。看門狗模型本身照 RM0090 第 21 章的序列反應:`Reload()` 才把 RLR 載入計數器、起動時從 0xFFF 起、逾時 `machine.RequestReset()`;監視器的 `macro reset` 接著重載 ELF,韌體從 `Reset_Handler` 重來。**這一項 Renode 沒有缺口。**
+- **暖重置的證據:`RCC_CSR.IWDGRSTF`,修在 Renode。** 真板讀 `RCC_CSR` 的重置旗標。RM0090 Rev 22 §7.3.21 寫的是「Reset value: 0x0E00 0000, reset by system reset, except reset flags by power reset only」:七個重置旗標跨**系統**重置保留(IWDG 重置是系統重置,§7.1.1),寫 RMVF 才清。Renode 1.16.1 的 `STM32F4_RCC`(上游 `master` 同一份)把旗標與 RMVF 做成 tag、放在暫存器集合裡,而看門狗逾時的 `machine.RequestReset()` 會重置所有週邊——RCC 也回到上電值,RMVF 寫了沒作用;看門狗本身也不通知 RCC(`STM32_IndependentWatchdog` 裡的 `TODO: Use RCC to set restart cause`)。修正([`renode/upstream/STM32_ResetFlags.patch`](../../../examples/hil-stm32/renode/upstream/)):旗標移出暫存器集合,`Reset()` 不動它、RMVF 清、上電值仍是 `0x0E000000`;看門狗在要求重置前發 `ResetTriggered` 事件,RCC 收到就設 IWDGRSTF。NUnit 五條修正版 5/5、原版 1/5(只有「上電旗標」本來就對)。閉環 `RCCFIX=1 ./run_loop.sh --fault hang`:上電 `boot_csr = 0x0E000000`,重啟後 `0x20000000`(只有 IWDGRSTF;開機時韌體已用 RMVF 清過上電旗標)。
+  韌體另有第二條證據:`.noinit` 區段的計數(`LoadELF` 只寫檔案裡有的區段,`NOLOAD` 的 SRAM 跨 reset 保留),原版 Renode 上 `WDT_RESET` 靠的是它。負對照 **`--negative noinit-off`**(橋接每步把 `.noinit` 的 magic 清成 0,韌體只剩 `RCC_CSR` 這條證據):原版 Renode 上 C10 **紅**(重啟了,但 `WDT_RESET` 沒亮、`boot_csr` 仍是 `0x0E000000`),修正版**綠**(`boot_csr = 0x20000000`、`WDT_RESET` 亮)——四次 lockstep,2026-09-17。
+  看門狗模型本身照 RM0090 第 21 章的序列反應:`Reload()` 才把 RLR 載入計數器、起動時從 0xFFF 起、逾時 `machine.RequestReset()`;監視器的 `macro reset` 接著重載 ELF,韌體從 `Reset_Handler` 重來。
+- **開機前寫進 flash 的 `g_cfg`,IWDG 重啟後回到預設。** `macro reset` 重跑 `LoadELF`,把 flash 裡 `.data` 的初始值寫回 ELF 的版本——真板的 flash 不會因為 reset 改變,這是模擬器重置流程與真板不同的地方。量到的:`--fault hang` 開機前寫 `hang_at_ms = 2102`,跑完從 SRAM 讀回 `hang_at_ms = 0`(`[fault] 跑完讀回 g_cfg` 那一行)。`hang` 只死一次就是因為這樣;反過來,**要在重啟之後才生效的負對照不能走 `g_cfg`**:開機時關掉的遮罩,在重啟那一刻就被蓋回全開,負對照會安靜地變成正對照。`noinit-off` 因此由橋接每步清 `.noinit`,不改韌體。
 
 負對照關掉防護的方法是改 `g_cfg.safety_mask`,而 IWDG 在 `main()` 初始化時就要決定開不開——所以 `g_cfg` 的寫入時機從「開機後寫 SRAM」改成「**開機前寫 flash 裡 `.data` 的初始值**」(LMA = `_sidata + (g_cfg − _sdata)`,startup 照常複製),`[effect]` 開機後從 SRAM 讀回來印。等於燒錄前改了參數區,`--cfg`、`--negative no-ramp` 也一併改走這條路,lockstep 數字逐字不變。
 

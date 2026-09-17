@@ -228,7 +228,7 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 <p>這一區用 ① 這條路修了 <code>STM32_Timer</code> 的三個缺口(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/upstream"><code>renode/upstream/</code></a>):計數週期 ARR+1、OCxPE 預載、致能時就驅動 PWM 腳。每一項有一支探針(原版紅、修正版綠)與一條上游樣式的 Robot 測試(原版 3 紅、修正版 3 綠);修正版接進閉環 <code>TIMERFIX=1 ./run_loop.sh</code> 仍 ALL PASS,而且 <code>.resc</code> 印出 timer 的型別名當生效證明——沒有這一行,「修正版也綠」與「根本沒載入」看起來一樣。第四個候選 <code>STM32_UART</code> 的 TC 閂鎖在 1.16.1 上<strong>無法重現</strong>(CPU 寫 DR 後 TC 正常設回、TCIE 拉中斷);既有內部紀錄的條件是 DMA 傳送,這裡沒走那條路,不下結論。</p>
 <p><code>NVIC</code> 的 SysTick 在 ENABLE 0→1 時不從 RELOAD 載入是 FreeRTOS 版才踩到的(<a href="../../hil/39-freertos-firmware-in-the-loop/">39 篇</a> §4),NUnit 原版 1/2 紅、修正版 2/2 綠;<code>CANHub</code> 暫停時丟訊框是走 vcan 才踩到的(上面)。四個週邊、三個 commit,全部在同一個 fork 分支。</p>
 <p>修正以上游樣式放在 fork(<code>wicanr2/renode-infrastructure</code>,分支 <code>stm32-timer-period-preload-fixes</code>,基於 1.16.1 的 commit),三個 commit(訊息全英文):<code>STM32_Timer.cs</code> + <code>STM32_TimerTests.cs</code>、<code>NVIC.cs</code> + <code>NVIC_SysTickTests.cs</code>、<code>CANHub.cs</code> + <code>CANHubTests.cs</code>。驗證到哪裡:上游版檔案對 1.16.1 組件編譯 0 warning、NUnit 修正版 9/9 綠、原版 2/9、Robot 3/3、閉環迴歸 ALL PASS;<strong>沒做</strong>完整 Renode 建置與上游全部測試。</p>
-<p>上游(2026-09-16):<code>master</code> 在 1.16.1 之後把 <code>STM32_Timer.cs</code> 與 <code>NVIC.cs</code> 重寫過,三項 timer 缺口與 SysTick 缺口讀原始碼確認<strong>還在</strong>,但 1.16.1 的 patch 貼不上去,而對 <code>master</code> 的修正要完整建 Renode 才驗得了;<code>CANHub</code> 只多了 <code>CANTester</code> 分支。所以:<code>CANHub</code> 修正 rebase 到 <code>master</code> 送 <a href="https://github.com/renode/renode-infrastructure/pull/250">PR #250</a>(對 <code>master</code> 的編譯與測試由上游 CI 跑,本機只驗了同一份邏輯對 1.16.1 組件 NUnit 3/3);timer 與 SysTick 開 issue 附 1.16.1 的 patch 與量測:<a href="https://github.com/renode/renode/issues/1003">renode#1003</a>、<a href="https://github.com/renode/renode/issues/1004">renode#1004</a>。 encoder mode 的三項修正(0↔ARR 繞回、DIR、週期 ARR+1;<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.1)是對 <code>master</code> 改的,所以另開分支 <a href="https://github.com/wicanr2/renode-infrastructure/tree/stm32-timer-encoder-wrap"><code>stm32-timer-encoder-wrap</code></a>(commit <code>a8e98b0</code>,2026-09-17 rebase 到當天的 <code>master</code>,<code>STM32_TimerEncoderTests</code> 五條 NUnit 原版 1/5、修正版 5/5),送 <a href="https://github.com/renode/renode-infrastructure/pull/252">PR #252</a>;它的週期項(ARR+1)就是 #1003 的週期那一半。</p>
+<p>上游(2026-09-16):<code>master</code> 在 1.16.1 之後把 <code>STM32_Timer.cs</code> 與 <code>NVIC.cs</code> 重寫過,三項 timer 缺口與 SysTick 缺口讀原始碼確認<strong>還在</strong>,但 1.16.1 的 patch 貼不上去,而對 <code>master</code> 的修正要完整建 Renode 才驗得了;<code>CANHub</code> 只多了 <code>CANTester</code> 分支。所以:<code>CANHub</code> 修正 rebase 到 <code>master</code> 送 <a href="https://github.com/renode/renode-infrastructure/pull/250">PR #250</a>(對 <code>master</code> 的編譯與測試由上游 CI 跑,本機只驗了同一份邏輯對 1.16.1 組件 NUnit 3/3);timer 與 SysTick 開 issue 附 1.16.1 的 patch 與量測:<a href="https://github.com/renode/renode/issues/1003">renode#1003</a>、<a href="https://github.com/renode/renode/issues/1004">renode#1004</a>。 encoder mode 的三項修正(0↔ARR 繞回、DIR、週期 ARR+1;<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.1)是對 <code>master</code> 改的,所以另開分支 <a href="https://github.com/wicanr2/renode-infrastructure/tree/stm32-timer-encoder-wrap"><code>stm32-timer-encoder-wrap</code></a>(commit <code>a8e98b0</code>,2026-09-17 rebase 到當天的 <code>master</code>,<code>STM32_TimerEncoderTests</code> 五條 NUnit 原版 1/5、修正版 5/5),送 <a href="https://github.com/renode/renode-infrastructure/pull/252">PR #252</a>;它的週期項(ARR+1)就是 #1003 的週期那一半。<code>RCC_CSR</code> 的重置旗標(系統重置保留、看門狗設 IWDGRSTF;<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.2)在 <code>STM32F4_RCC.cs</code> 與 <code>STM32_IndependentWatchdog.cs</code> 上,這兩個檔 1.16.1 與 <code>master</code> 逐 byte 相同,所以同一份修正對兩邊都成立:分支 <a href="https://github.com/wicanr2/renode-infrastructure/tree/stm32-rcc-reset-flags"><code>stm32-rcc-reset-flags</code></a>(基於 <code>master</code> 0ab5d08,NUnit 修正版 5/5、原版 1/5),閉環用執行期載入版 <code>RCCFIX=1</code>。</p>
 <h2 id="5-lockstep-迴圈">5. lockstep 迴圈</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/bridge-rs/src/main.rs"><code>bridge-rs/src/main.rs</code></a> 每一步(5 ms):</p>
 <pre><code>1. 上位腳本 → cmd_vel 框包 → hook UART 注入 → 等 ack        (每 20 ms 一次)
@@ -243,6 +243,74 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 <p><strong>每步成本</strong>:主機閒時 8–13 ms(分段:<code>run_for</code> 9.3 ms、hook 2.2 ms、<code>ec_read</code> 1.0 ms),主機另有負載時 29.6 ms——橋接每步印 <code>[run] per-step wall: ec_read/hook/plant/run_for</code> 四段,看數字不用猜。要更快的話,順序是:把 drain 換成「等一個明確的 end-of-step 紀錄」(省 1 ms)、把 GPIO 三次讀合併成一次 <code>ODR</code> 匯流排讀(省 2 RPC)、最後才是把 <code>run_for</code> 拉長。</p>
 <p><code>--mode realtime</code> 用同一個迴圈,只換第 2 步:開跑前經 hook 送 <code>START</code>(<code>0xFFFF0010</code>,hook 呼叫 <code>StartAll()</code> 後 ack),每步不再 <code>run_for</code>,改 sleep 到下一個 5 ms 牆鐘刻度;受控體的 dt 用實際過了多久;跑完送 <code>PAUSE</code>(<code>0xFFFF0011</code>)。每步 5.0–5.2 ms(<code>ec_read</code> 1.8 + hook 2.4 + sleep 0.4),三個時鐘的分歧與後果量在 <a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1。</p>
 <p><strong>編碼器注入 <code>--enc hook|gpio|cnt|can</code></strong>(<code>auto</code>:calib <code>tim</code> 時 lockstep → <code>hook</code>、realtime → <code>cnt</code>;<code>can</code> 是第一版的訊框路):<code>hook</code> 一筆紀錄帶左右 Δtick,hook 端交給 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/hil_quadrature.cs"><code>renode/hil_quadrature.cs</code></a>——一個 .NET 類,把 Δtick 走成 A/B 相位序列、對 timer 的 <code>OnGPIO(0/1)</code> 打邊緣。為什麼是 .NET 不是 Python:機器在跑時這段工作要排進時間域、在模擬執行緒上執行,用 Python lambda 排進去會在 hook 執行緒還在 Python 裡時把模擬卡死(Renode 時間停在 0.535 s,量到的);.NET 方法沒有這個問題。<code>i @file.cs</code> 動態編譯的型別 IronPython <code>import</code> 不到,要從 <code>AppDomain</code> 的組件用反射拿。每步成本 lockstep:hook 2.9 ms、gpio 4.2 ms(約 40 個 RPC)、cnt 2.8 ms。C8 在 TIM 模式改驗兩個等式:<code>CNT == 受控體 tick mod 2^16</code>(注入沒掉)、韌體累計 == 前一步的 tick(一步延遲)。</p>
+<p><strong>連續注入 <code>--enc cont</code>。</strong> 上面三種都是<strong>取樣式</strong>:受控體走完一步,橋接把這一步的 tick 一口氣塞進 CNT,韌體在自己的 5 ms tick 讀。兩個節拍對不齊時,韌體一個控制週期吃到的筆數會在 n 與 n+1 之間跳,量測速度跟著跳,C9 紅(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1 第 4 點)。真板沒有這件事:編碼器的邊緣是連續的,CNT 在韌體讀的那一刻就是那一刻的位置。候選有兩個:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>做法</th>
+<th>lockstep</th>
+<th>realtime</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(a) 攤平</td>
+<td>這一步的 Δtick 平均攤在這一步 <code>run_for</code> 的虛擬時間上</td>
+<td>成立:步長已知</td>
+<td>不成立:橋接事先不知道 Renode 這一步會推進多少(量到 2–7 ms 在抖)</td>
+</tr>
+<tr>
+<td>(b) 外插</td>
+<td>CNT 在<strong>被讀的當下</strong>算:<code>錨點 + 輪速 × (t − t錨) + 誤差 × min(1, (t − t錨)/τ)</code>;橋接每步送一次受控體累計 tick 與輪速,更新錨點</td>
+<td>成立</td>
+<td>成立:不需要知道步長,時間用 Renode 自己的虛擬時鐘</td>
+</tr>
+</tbody>
+</table></div>
+<p>做的是 (b)。實作是 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/renode/hil_quadrature.cs"><code>hil_quadrature.cs</code></a> 的 <code>ContinuousEncoder</code>:在 TIM2/TIM4 的 CNT 位址掛 <code>SetHookAfterPeripheralRead</code>(回傳算出來的值)與 <code>SetHookBeforePeripheralWrite</code>(韌體寫 CNT = 0 時重定偏移——開機與 IWDG 重啟後的 <code>encoder_tim_init</code> 都寫),時間取 <code>cpu.SyncTime()</code> 之後的 <code>machine.ElapsedVirtualTime</code>,所以是當下那條指令的時間,不是上一個量子邊界。hook 紀錄 <code>0xFFFF0021</code>(裝上,帶 τ)、<code>0xFFFF0022/23</code>(左/右:tick、輪速 milli-tick/s);機器在跑時更新排進時間域。三個取捨:</p>
+<ul>
+<li><strong>不打邊緣。</strong> 8k 邊緣/s 在 realtime 付不起(<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §5.1 的事件成本);代價是 encoder mode 的計數邏輯沒被這條路驗到——那是 <code>hook</code> 注入在 lockstep 驗的事。</li>
+<li><strong>誤差分 τ 攤還,不跳。</strong> 錨點更新時外插與受控體實際 tick 的差,在 τ 內線性補上;下一筆更新來晚了也不會超補。τ 小,追得緊;τ 大,更新時刻抖動造成的假速度小。</li>
+<li><strong>外插必然落後於「受控體還沒走的那一段」。</strong> lockstep <code>--skew stall:100:10</code> 讓 Renode 一口氣先跑 50 ms、受控體之後才補那 50 ms:外插照舊速度推,受控體實際在減速,補上時差 98 tick,在 τ 內補完就是一段反向的假速度(韌體 <code>meas</code> −92 → +122 mm/s),C9 照樣紅。這不是注入法能補的——Renode 跑在受控體前面時,受控體的未來還不存在。</li>
+</ul>
+<p>C8 在 <code>cont</code> 下換定義:<strong>步邊界讀到的 CNT 對同一時刻受控體 tick 的差 ≤ 一步的最大 tick 數 + 1,而且車停下後逐字相等</strong>(沒有「一步延遲」這件事,CNT 外插到當下)。<code>--skew</code> 時只驗後半——時鐘被刻意拉開,步內追蹤的上界本來就不成立(均勻比值 R 下穩態落後 ≈ 輪速 × τ × (1−R)/R)。</p>
+<p>lockstep 預設腳本(2026-09-17,現行韌體,取樣式參考 900.8 / 0.4 / 0.8627):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>τ</th>
+<th>末端 (x, y, θ)</th>
+<th>步邊界最大 |CNT − tick|</th>
+<th>C9 max |dv/dt|</th>
+<th>兩次 CSV</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>5 ms</td>
+<td>900.5, 0.5, 0.8635</td>
+<td>1 tick</td>
+<td>2460</td>
+<td>—</td>
+</tr>
+<tr>
+<td>20 ms</td>
+<td>900.6, 0.5, 0.8626</td>
+<td>3 tick</td>
+<td>2356</td>
+<td>逐 byte 相同</td>
+</tr>
+<tr>
+<td>50 ms</td>
+<td>900.6, 0.5, 0.8620</td>
+<td>6 tick</td>
+<td>2236</td>
+<td>—</td>
+</tr>
+</tbody>
+</table></div>
+<p>末端與取樣式差 0.3 mm / 0.9 mrad 以內,量級是一筆 odom;<strong>參考值不換</strong>:lockstep 的預設注入仍是 <code>hook</code>(驗 encoder mode 本身),900.8 / 0.4 / 0.8627 仍是那條路的參考,<code>cont</code> 的末端另列。<code>--enc-tau-ms</code> 預設 20。</p>
 <p><strong>上位出口 <code>--upper tcp-listen:ADDR</code></strong>(<a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/bridge-rs/src/upper.rs"><code>src/upper.rs</code></a>):外部上位(ROS 2 節點)連進來,橋接在這一側只當序列線——每步開頭把收到的 byte 全部注入 USART1、等 ack;MCU 吐出的 byte 原樣送回。它不解語意,只用同一個 <code>Parser</code> 數框包(C7)、記最後一個命令進 CSV。內建腳本與外部上位送到韌體的 byte 完全相同,韌體分不出來——這是拓撲那張表「每個行程只認一種語言」的實作。</p>
 <h2 id="6-受控體介面">6. 受控體介面</h2>
 <p>橋接對受控體只暴露兩個結構:</p>

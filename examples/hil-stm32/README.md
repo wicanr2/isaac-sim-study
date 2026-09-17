@@ -13,6 +13,7 @@ PLANT=udp ./run_loop.sh          # 受控體改走 UDP(plant/fake_plant.py,另�
 PLANT=remote ./run_loop.sh       # 受控體在場域 GPU 主機(先 tools/isaac_plant_ctl.sh sync + start),自動開 ssh -L
 WORLD=1 PLANT=remote ./run_loop.sh   # Isaac 版含牆與方塊(碰撞體)+ PhysX 射線雷射:那端要 WORLD=1 tools/isaac_plant_ctl.sh start;UPPER=nav2 / --fault 同樣可接
 FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正版 STM32_Timer(renode/upstream/)
+RCCFIX=1 ./run_loop.sh --fault hang     # RCC/IWDG 換修正版:看門狗重啟後 RCC_CSR = 0x20000000(IWDGRSTF);--negative noinit-off 橋接清 .noinit,韌體只剩 RCC_CSR 可信 → 原版紅、修正版綠
 ./run_loop.sh --mode realtime    # Renode 自由跑,橋接每 5 ms 牆鐘取樣;Renode 容器自動 4 核(2 核會被 CFS 每 100 ms 凍 50 ms);QUANTUM=0.001 改同步量子;tools/rt_stats.py 算節拍統計
 RECORD=1 ./run_loop.sh --fault bumper   # 跑完多產俯視圖錄影 out/run.mp4 + _topview.svg/png(RECORD_GIF=1 多 gif);既有 CSV 用 tools/topview.sh 補
 ./run_loop.sh --skew uniform:0.5 # lockstep 的時鐘偏斜實驗(決定性):每步 Renode 只推進 0.5×dt;stall:100:10 = 每 100 步一次 50 ms 停頓(35 篇 §5.1 第 4 點)

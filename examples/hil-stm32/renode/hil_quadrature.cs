@@ -6,6 +6,9 @@
 //
 using System;
 using Antmicro.Renode.Core;
+using Antmicro.Renode.Peripherals.Bus;
+using Antmicro.Renode.Peripherals.CPU;
+using Antmicro.Renode.Time;
 
 namespace Antmicro.Renode.Hil
 {
@@ -41,5 +44,94 @@ namespace Antmicro.Renode.Hil
         {
             Tuple.Create(false, false), Tuple.Create(true, false), Tuple.Create(true, true), Tuple.Create(false, true),
         };
+    }
+
+    // Continuous encoder for realtime (docs/hil/37 sec. 3): instead of edges or a CNT write at the step
+    // boundary, the CNT register of an encoder-mode timer is computed at the instant the CPU reads it,
+    // from an anchor that the bridge updates once per step:
+    //
+    //     pos(t) = anchor + rate * (t - tA) + err * min(1, (t - tA) / tau)
+    //
+    // rate is the plant's wheel speed (ticks per second); err = plantTicks - pos(tA) is the tracking
+    // error at the update, paid back over tau so the position stays continuous (no jump at the update,
+    // no overshoot if the next update comes late). t is the virtual time of the read (cpu.SyncTime()
+    // first, so it is the current instruction, not the last quantum boundary). A firmware write to CNT
+    // re-bases an offset, so CNT = 0 at init (also after an IWDG reset) works as on a real board.
+    // Edges are not generated: at 8k edges/s each edge is a timer event that realtime cannot afford.
+    public class ContinuousEncoder
+    {
+        public ContinuousEncoder(Machine machine, IBusPeripheral timer, double tauSeconds)
+        {
+            this.machine = machine;
+            this.tau = tauSeconds;
+            var cnt = new Antmicro.Renode.Core.Range(CntOffset, 4);
+            machine.SystemBus.SetHookAfterPeripheralRead<uint>(timer, (value, offset) => Read(), cnt);
+            machine.SystemBus.SetHookBeforePeripheralWrite<uint>(timer, (value, offset) => { Rebase(value); return value; }, cnt);
+        }
+
+        // packed = (int32 plantTicks << 32) | uint32(rate in milli-ticks per second)
+        public void Update(long packed)
+        {
+            var ticks = (int)(packed >> 32);
+            var rateMilli = unchecked((int)(packed & 0xFFFFFFFF));
+            lock(sync)
+            {
+                var t = Now();
+                var c = Position(t);
+                var e = ticks - c;
+                if(Math.Abs(e) > MaxAbsError) { MaxAbsError = Math.Abs(e); }
+                LastError = e;
+                anchor = c;
+                tA = t;
+                err = e;
+                rate = rateMilli / 1000.0;
+                Updates++;
+            }
+        }
+
+        public double MaxAbsError { get; private set; }
+        public double LastError { get; private set; }
+        public long Updates { get; private set; }
+        public long Reads { get; private set; }
+
+        private uint Read()
+        {
+            lock(sync)
+            {
+                Reads++;
+                var v = (long)Math.Floor(Position(Now()) + offset + 0.5);
+                return (uint)(v & 0xFFFF);
+            }
+        }
+
+        private void Rebase(uint value)
+        {
+            lock(sync)
+            {
+                offset = (value & 0xFFFF) - Position(Now());
+            }
+        }
+
+        private double Position(double t)
+        {
+            var dt = Math.Max(0.0, t - tA);
+            var k = tau > 0 ? Math.Min(1.0, dt / tau) : 1.0;
+            return anchor + rate * dt + err * k;
+        }
+
+        private double Now()
+        {
+            if(machine.SystemBus.TryGetCurrentCPU(out var cpu) && cpu.OnPossessedThread)
+            {
+                cpu.SyncTime();
+            }
+            return machine.ElapsedVirtualTime.TimeElapsed.TotalSeconds;
+        }
+
+        private const ulong CntOffset = 0x24;
+        private readonly Machine machine;
+        private readonly double tau;
+        private readonly object sync = new object();
+        private double anchor, rate, err, tA, offset;
     }
 }

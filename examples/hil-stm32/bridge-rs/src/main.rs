@@ -43,6 +43,8 @@ struct Args {
     upper: String,
     can: String,
     enc: String,
+    /// --enc cont 的誤差攤還時間(ms):錨點更新時的追蹤誤差在這段虛擬時間內線性補上
+    enc_tau_ms: f64,
     cfg: String,
     /// 故障注入:none | hang | drv-fault | bumper | stall | no-ping(在 --fault-at 秒發生)
     fault: String,
@@ -84,6 +86,7 @@ fn parse_args() -> Args {
         upper: "script".into(),
         can: "hook".into(),
         enc: "auto".into(),
+        enc_tau_ms: 20.0,
         cfg: String::new(),
         fault: "none".into(),
         fault_at: 2.0,
@@ -129,6 +132,8 @@ fn parse_args() -> Args {
             // 編碼器注入法:auto(calib tim → hook;can → can)、hook(一筆紀錄,hook 在 Renode 裡打正交脈衝)、
             // gpio(每個邊緣一個 External Control gpio_set)、cnt(External Control 直接寫 TIM CNT)、can(0x181 訊框)
             "--enc" => a.enc = val,
+            // cont:CNT 在韌體讀的當下由「受控體 tick + 輪速 × 經過的虛擬時間」算(renode/hil_quadrature.cs ContinuousEncoder)
+            "--enc-tau-ms" => a.enc_tau_ms = val.parse().expect("--enc-tau-ms"),
             // 開機後覆蓋韌體的 g_cfg(kp=..,ki=..,accel=..,ff=..;Q8 或 mm/s²),增益掃描與負對照不用重編韌體
             "--cfg" => a.cfg = val,
             other => {
@@ -263,7 +268,19 @@ fn main() {
     let mut quad_phase = [0usize; 2];
     let mut enc_prev_ticks = [0i32; 2];
     let mut ticks_before_last = [0i32; 2];
-    println!("[effect] encoder: calib={} inject={}", if c.encoder_tim { "tim" } else { "can" }, enc_mode);
+    println!("[effect] encoder: calib={} inject={}{}", if c.encoder_tim { "tim" } else { "can" }, enc_mode,
+        if enc_mode == "cont" { format!(" tau_ms={}", a.enc_tau_ms) } else { String::new() });
+    if enc_mode == "cont" {
+        hk.enc_cont_install((a.enc_tau_ms * 1000.0).round() as i32).expect("enc_cont_install");
+        hk.wait_acks().expect("ack");
+    }
+    // cont 模式的追蹤誤差:每步邊界讀到的 CNT − 同一時刻的受控體 tick(步內外插準不準)
+    let mut cont_cnt = [0u32; 2];
+    let mut cont_max_err = 0i32;
+    let mut cont_last_err = [0i32; 2];
+    let mut max_step_ticks = 0i32;
+    // 受控體輪速 mm/s → milli-tick/s
+    let rate_milli = |v_mm_s: f64| (v_mm_s * c.ticks_per_rev as f64 * 1.0e6 / c.wheel_circ_um as f64).round() as i32;
 
     let world = if a.world.is_empty() { None } else { Some(world::World::load(&a.world).expect("world.json")) };
     if let Some(w) = &world {
@@ -286,7 +303,7 @@ fn main() {
     let neg = a.negative.as_str();
     let fault: String = match neg {
         "iwdg-off" => "hang".into(), "drv-fault-off" => "drv-fault".into(), "bumper-off" => "bumper".into(),
-        "stall-off" => "stall".into(), "hb-off" => "no-ping".into(), _ => a.fault.clone(),
+        "stall-off" => "stall".into(), "hb-off" => "no-ping".into(), "noinit-off" => "hang".into(), _ => a.fault.clone(),
     };
     if neg == "no-latch" && !a.upper.starts_with("tcp-listen:") { eprintln!("--negative no-latch 是上位側的負對照,要配 --upper tcp-listen(UPPER=nav2)"); }
     let mask_clear: u32 = match neg {
@@ -302,6 +319,9 @@ fn main() {
         parse_script("0:0,0;0.5:300,0;3.5:-200,0;5:0,0")
     } else { script };
     let fault_at_ms = (a.fault_at * 1000.0).round() as u32;
+    // 負對照 noinit-off:拿掉韌體判斷暖重置的第二條證據——每步把 .noinit 的 magic 清掉,韌體開機時只剩 RCC_CSR.IWDGRSTF。
+    // 不走 g_cfg:g_cfg 的改動寫在 flash,IWDG 重啟時 `macro reset` 重跑 LoadELF 會把它蓋回預設(量到的,38 篇 §1.2)
+    let noinit_magic_addr = if neg == "noinit-off" { Some(calib::symbol_addr(&a.sym, "g_noinit").expect("符號 g_noinit")) } else { None };
 
     // 低有效的輸入腳(PC14/PC15 驅動器故障、PC0 保險桿)在 Renode 的預設是 0 = 觸發;
     // 真板有 pull-up,這裡由橋接在開機前拉高,等於接上 pull-up
@@ -489,6 +509,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         let t_s = if realtime { wall0.elapsed().as_secs_f64() } else { k as f64 * dt_s };
         let in_fault_window = t_s >= a.fault_at && t_s < a.fault_at + 1.5;
 
+        if let Some(addr) = noinit_magic_addr { ec.write_u32_at(bus, addr, 0).unwrap(); }
         // 0. 故障注入(腳位):驅動器故障腳在視窗內拉低;保險桿在受控體撞到牆時斷開(低)
         if fault == "drv-fault" && in_fault_window != drv_low {
             drv_low = in_fault_window;
@@ -614,6 +635,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         }
         if fault == "stall" {
             if let Some(f0) = first_flag[5] { if k > f0 && t_s < 5.0 && (ccr1 != 0 || ccr2 != 0) { stall_violations += 1; } }
+        }
+        if enc_mode == "cont" {
+            cont_cnt = [ec.read_u32_at(bus, TIM2_CNT).unwrap(), ec.read_u32_at(bus, TIM4_CNT).unwrap()];
         }
         let t_us = ec.time_us().unwrap();
         if realtime {
@@ -760,6 +784,19 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                     }
                 }
             }
+            "cont" => {
+                let sgn: i32 = if a.negative == "enc-swap" { -1 } else { 1 };
+                let p = [out.ticks_l.wrapping_mul(sgn), out.ticks_r.wrapping_mul(sgn)];
+                // 這一步邊界讀到的 CNT 是上一筆錨點外插到現在;受控體剛走完同一段 → 同一時刻,可以比
+                for w in 0..2 {
+                    let e = (cont_cnt[w] as u16).wrapping_sub(p[w] as u16) as i16 as i32;
+                    cont_last_err[w] = e;
+                    if k > 0 && e.abs() > cont_max_err { cont_max_err = e.abs(); }
+                }
+                max_step_ticks = max_step_ticks.max(dl.abs()).max(dr.abs());
+                hk.enc_cont_update(p, [rate_milli(out.vl_mm_s) * sgn, rate_milli(out.vr_mm_s) * sgn]).unwrap();
+                hk.wait_acks().unwrap();
+            }
             "cnt" => {
                 let sgn: i32 = if a.negative == "enc-swap" { -1 } else { 1 };
                 ec.write_u32_at(bus, TIM2_CNT, (out.ticks_l.wrapping_mul(sgn)) as u32 & 0xFFFF).unwrap();
@@ -806,6 +843,11 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let (cnt_l, cnt_r) = if enc_mode != "can" {
         (ec.read_u32_at(bus, TIM2_CNT).unwrap(), ec.read_u32_at(bus, TIM4_CNT).unwrap())
     } else { (0, 0) };
+    // cont:沒有「一步延遲」這件事(CNT 外插到當下);判準是步邊界追蹤誤差 ≤ 一步的 tick 數 + 1,
+    // 且車停下後(腳本最後 1 s 靜止)誤差歸零——CNT 與受控體 tick 逐字相等
+    // --skew 刻意讓 Renode 與受控體的時鐘不同步,步內外插必然落後(均勻 R 時穩態落後 ≈ v·tau·(1−R)/R),上界不驗
+    let cont_ok = (cont_max_err <= max_step_ticks + 1 || a.skew != "none") && cont_last_err == [0, 0]
+        && cnt_l == last_plant.ticks_l as u32 & 0xFFFF && cnt_r == last_plant.ticks_r as u32 & 0xFFFF;
     let tim_ok = enc_mode == "can" || (cnt_l == last_plant.ticks_l as u32 & 0xFFFF && cnt_r == last_plant.ticks_r as u32 & 0xFFFF
         && fw_enc_l == ticks_before_last[0] && fw_enc_r == ticks_before_last[1]);
     let ctrl_steps = ec.read_u32_at(bus, dbg_base + 4 * dbg::CTRL_STEPS).unwrap();
@@ -893,10 +935,18 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             let t_hang = step_ms(hang_step).unwrap_or(fault_ms);
             let within = t_reset.map(|t| t - t_hang <= c.iwdg_timeout_ms as f64 * 1.2 + 100.0).unwrap_or(false);
             let stopped = ccr_after_reset == Some(0);
-            (format!("C10 IWDG:韌體死掉後 {} ms 內重啟且馬達停", c.iwdg_timeout_ms),
-             within && resets_end >= 1 && stopped,
-             format!("死於 {:.0} ms → 重啟 {}(resets={});死掉期間 CCR 停在 {}(馬達照轉),重啟那步 CCR {};之後上位命令又進來,ENABLED 於 {}",
+            // 韌體要自己知道這次開機是暖重置(WDT_RESET 亮):上位的鎖(C12)靠它;noinit-off 時只剩 RCC_CSR 這條證據
+            let wdt_flag = reset_step.is_some() && first_flag[7].map(|k| k >= reset_step.unwrap()).unwrap_or(false);
+            let boot_csr_end = ec.read_u32_at(bus, dbg_base + 4 * dbg::BOOT_CSR).unwrap();
+            // 開機前寫進 flash 的 g_cfg 在重啟後還在不在(`macro reset` 會重跑 LoadELF)
+            let cfg_after = ec.read_u32s_at(bus, cfg_base, 12).unwrap();
+            println!("[fault] 跑完讀回 g_cfg(SRAM):hang_at_ms={} safety_mask=0x{:02x}(開機前寫進 flash 的是 hang_at_ms={})", cfg_after[7] as i32, cfg_after[11], fault_at_ms + a.boot_ms as u32);
+            (format!("C10 IWDG:韌體死掉後 {} ms 內重啟、馬達停、韌體亮 WDT_RESET", c.iwdg_timeout_ms),
+             // noinit-off 時 .noinit 計數被清,resets 恆 0;重啟改由 tick 倒退(reset_step)判定
+             within && (resets_end >= 1 || (neg == "noinit-off" && reset_step.is_some())) && stopped && wdt_flag,
+             format!("死於 {:.0} ms → 重啟 {}(resets={},WDT_RESET {},重啟後 boot_csr=0x{:08x} IWDGRSTF={});死掉期間 CCR 停在 {}(馬達照轉),重啟那步 CCR {};之後上位命令又進來,ENABLED 於 {}",
                 t_hang, t_reset.map(|t| format!("@{:.0} ms(+{:.0})", t, t - t_hang)).unwrap_or("沒發生".into()), resets_end,
+                if wdt_flag { "亮" } else { "沒亮" }, boot_csr_end, (boot_csr_end >> 29) & 1,
                 ccr_while_hung_max, ccr_after_reset.map(|v| v.to_string()).unwrap_or("—".into()),
                 step_ms(enabled_after_reset).map(|t| format!("{:.0} ms", t)).unwrap_or("—".into())))
         }
@@ -963,9 +1013,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         Check { name: if hang_counts { "C7 (hang 重啟,不驗)" } else { "C7 韌體收到的 cmd == 送出且未壞的數" }, pass: hang_counts || cmd_frames == sent_cmds - corrupted,
             detail: format!("{cmd_frames} vs {}", sent_cmds - corrupted) },
         // 最後一步注入的訊框要下一個 run_for 才被讀到:lockstep 固有的一步延遲
-        Check { name: if enc_mode != "can" { if realtime { "C8 (TIM, realtime) TIM CNT == 受控體 tick mod 2^16" } else { "C8 (TIM) TIM CNT == 受控體 tick;韌體累計 == 前一步 tick(一步延遲)" } } else if realtime { "C8 (realtime) 韌體收到的編碼器訊框 ≥ 90% steps" } else { "C8 韌體收到的編碼器訊框 == steps-1(一步延遲)" },
-            pass: hang_counts || if enc_mode != "can" { if realtime { cnt_l == last_plant.ticks_l as u32 & 0xFFFF && cnt_r == last_plant.ticks_r as u32 & 0xFFFF } else { tim_ok } } else if realtime { enc_frames as f64 >= 0.9 * steps as f64 } else { enc_frames == steps - 1 },
-            detail: if enc_mode != "can" { format!("CNT {cnt_l}/{cnt_r} vs plant {}/{};fw {fw_enc_l}/{fw_enc_r} vs 前一步 {}/{}", last_plant.ticks_l as u32 & 0xFFFF, last_plant.ticks_r as u32 & 0xFFFF, ticks_before_last[0], ticks_before_last[1]) } else { format!("{enc_frames} vs {}", if realtime { steps } else { steps - 1 }) } },
+        Check { name: if enc_mode == "cont" { if a.skew != "none" { "C8 (TIM, cont, skew) 車停下後 CNT == 受控體 tick(時鐘刻意偏斜,追蹤上界不驗)" } else if realtime { "C8 (TIM, cont, realtime) 車停下後 CNT == 受控體 tick;步邊界追蹤誤差 ≤ 一步 tick + 1" } else { "C8 (TIM, cont) 步邊界 CNT 對受控體 tick 的追蹤誤差 ≤ 一步 tick + 1;車停下後逐字相等" } } else if enc_mode != "can" { if realtime { "C8 (TIM, realtime) TIM CNT == 受控體 tick mod 2^16" } else { "C8 (TIM) TIM CNT == 受控體 tick;韌體累計 == 前一步 tick(一步延遲)" } } else if realtime { "C8 (realtime) 韌體收到的編碼器訊框 ≥ 90% steps" } else { "C8 韌體收到的編碼器訊框 == steps-1(一步延遲)" },
+            pass: hang_counts || if enc_mode == "cont" { cont_ok } else if enc_mode != "can" { if realtime { cnt_l == last_plant.ticks_l as u32 & 0xFFFF && cnt_r == last_plant.ticks_r as u32 & 0xFFFF } else { tim_ok } } else if realtime { enc_frames as f64 >= 0.9 * steps as f64 } else { enc_frames == steps - 1 },
+            detail: if enc_mode == "cont" { format!("max |CNT − tick| = {cont_max_err}(一步最多 {max_step_ticks} tick);末步誤差 {:?};末端 CNT {cnt_l}/{cnt_r} vs plant {}/{}", cont_last_err, last_plant.ticks_l as u32 & 0xFFFF, last_plant.ticks_r as u32 & 0xFFFF) } else if enc_mode != "can" { format!("CNT {cnt_l}/{cnt_r} vs plant {}/{};fw {fw_enc_l}/{fw_enc_r} vs 前一步 {}/{}", last_plant.ticks_l as u32 & 0xFFFF, last_plant.ticks_r as u32 & 0xFFFF, ticks_before_last[0], ticks_before_last[1]) } else { format!("{enc_frames} vs {}", if realtime { steps } else { steps - 1 }) } },
         Check { name: c10_name.leak(), pass: c10_pass, detail: c10_detail },
         // C12:上位對 WDT_RESET 的反應——韌體重啟後 0.5 s 起到跑完,受控體不得再動(上位該把命令歸零、取消 goal);
         // 只在 hang + 外部上位驗。負對照 --negative no-latch 是上位那側的參數(driver 不反應),橋接只印標籤

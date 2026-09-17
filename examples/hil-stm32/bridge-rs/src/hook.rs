@@ -11,6 +11,9 @@ pub const ID_BUS_SNAPSHOT: u32 = 0xFFFF_0003;
 pub const ID_START: u32 = 0xFFFF_0010;
 pub const ID_PAUSE: u32 = 0xFFFF_0011;
 pub const ID_ENCODER_STEPS: u32 = 0xFFFF_0020;
+pub const ID_ENC_CONT_CFG: u32 = 0xFFFF_0021;
+pub const ID_ENC_CONT_L: u32 = 0xFFFF_0022;
+pub const ID_ENC_CONT_R: u32 = 0xFFFF_0023;
 pub const ID_ACK: u32 = 0xFFFF_00AC;
 
 #[derive(Debug, Clone)]
@@ -70,6 +73,25 @@ impl Hook {
         d[4..].copy_from_slice(&dr.to_le_bytes());
         self.write_rec(ID_ENCODER_STEPS, &d)?;
         self.pending_acks += 1;
+        Ok(())
+    }
+
+    /// 連續編碼器(37 篇 §3):在 TIM2/TIM4 的 CNT 裝讀取 hook,CNT 在韌體讀的當下由錨點算出;tau = 誤差攤還時間。
+    pub fn enc_cont_install(&mut self, tau_us: i32) -> io::Result<()> {
+        self.write_rec(ID_ENC_CONT_CFG, &tau_us.to_le_bytes())?;
+        self.pending_acks += 1;
+        Ok(())
+    }
+
+    /// 每步一次:受控體累計 tick 與輪速(milli-tick/s),左右各一筆。
+    pub fn enc_cont_update(&mut self, ticks: [i32; 2], rate_milli: [i32; 2]) -> io::Result<()> {
+        for (w, id) in [(0usize, ID_ENC_CONT_L), (1usize, ID_ENC_CONT_R)] {
+            let mut d = [0u8; 8];
+            d[..4].copy_from_slice(&ticks[w].to_le_bytes());
+            d[4..].copy_from_slice(&rate_milli[w].to_le_bytes());
+            self.write_rec(id, &d)?;
+            self.pending_acks += 1;
+        }
         Ok(())
     }
 

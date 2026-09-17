@@ -1,0 +1,139 @@
+diff --git a/src/Emulator/Peripherals/Peripherals/Miscellaneous/STM32F4_RCC.cs b/src/Emulator/Peripherals/Peripherals/Miscellaneous/STM32F4_RCC.cs
+index 02636e0af..aa23cea2a 100644
+--- a/src/Emulator/Peripherals/Peripherals/Miscellaneous/STM32F4_RCC.cs
++++ b/src/Emulator/Peripherals/Peripherals/Miscellaneous/STM32F4_RCC.cs
+@@ -17,8 +17,13 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
+     [AllowedTranslations(AllowedTranslation.ByteToDoubleWord | AllowedTranslation.WordToDoubleWord)]
+     public sealed class STM32F4_RCC : IDoubleWordPeripheral, IKnownSize, IProvidesRegisterCollection<DoubleWordRegisterCollection>
+     {
+-        public STM32F4_RCC(IMachine machine, STM32F4_RTC rtcPeripheral)
++        public STM32F4_RCC(IMachine machine, STM32F4_RTC rtcPeripheral, STM32_IndependentWatchdog independentWatchdog = null)
+         {
++            if(independentWatchdog != null)
++            {
++                independentWatchdog.ResetTriggered += () => SetResetFlag(ResetFlag.IndependentWatchdog);
++            }
++
+             // Renode, in general, does not include clock control peripherals.
+             // While this is doable, it seldom benefits real software development
+             // and is very cumbersome to maintain.
+@@ -293,18 +298,24 @@ public STM32F4_RCC(IMachine machine, STM32F4_RTC rtcPeripheral)
+                     .WithValueField(16, 1, name: "BDRST")
+                     .WithReservedBits(17, 15)
+                 },
+-                {(long)Registers.ClockControlAndStatus, new DoubleWordRegister(this, 0x0E000000)
++                // RM0090 7.3.21: "reset by system reset, except reset flags by power reset only".
++                // The flags live outside the register collection so that Reset() (a system reset, e.g. the one
++                // requested by the watchdog) keeps them; they are cleared by RMVF. The power-on value is
++                // BORRSTF | PINRSTF | PORRSTF (0x0E000000).
++                {(long)Registers.ClockControlAndStatus, new DoubleWordRegister(this)
+                     .WithFlag(0, out var lsion, name: "LSION")
+                     .WithFlag(1, FieldMode.Read, valueProviderCallback: _ => lsion.Value, name: "LSIRDY")
+                     .WithReservedBits(2, 21)
+-                    .WithTag("RMVF", 24, 1)
+-                    .WithTag("BORRSTF", 25, 1)
+-                    .WithTag("PINRSTF", 26, 1)
+-                    .WithTag("PORRSTF", 27, 1)
+-                    .WithTag("SFTRSTF", 28, 1)
+-                    .WithTag("IWDGRSTF", 29, 1)
+-                    .WithTag("WWDGRSTF", 30, 1)
+-                    .WithTag("LPWRRSTF", 31, 1)
++                    .WithReservedBits(23, 1)
++                    .WithFlag(24, FieldMode.Read | FieldMode.Write, valueProviderCallback: _ => false,
++                        writeCallback: (_, value) => { if(value) { resetFlags = 0; } }, name: "RMVF")
++                    .WithFlag(25, FieldMode.Read, valueProviderCallback: _ => IsResetFlagSet(ResetFlag.BrownOut), name: "BORRSTF")
++                    .WithFlag(26, FieldMode.Read, valueProviderCallback: _ => IsResetFlagSet(ResetFlag.Pin), name: "PINRSTF")
++                    .WithFlag(27, FieldMode.Read, valueProviderCallback: _ => IsResetFlagSet(ResetFlag.PowerOn), name: "PORRSTF")
++                    .WithFlag(28, FieldMode.Read, valueProviderCallback: _ => IsResetFlagSet(ResetFlag.Software), name: "SFTRSTF")
++                    .WithFlag(29, FieldMode.Read, valueProviderCallback: _ => IsResetFlagSet(ResetFlag.IndependentWatchdog), name: "IWDGRSTF")
++                    .WithFlag(30, FieldMode.Read, valueProviderCallback: _ => IsResetFlagSet(ResetFlag.WindowWatchdog), name: "WWDGRSTF")
++                    .WithFlag(31, FieldMode.Read, valueProviderCallback: _ => IsResetFlagSet(ResetFlag.LowPower), name: "LPWRRSTF")
+                 },
+                 {(long)Registers.SpreadSpectrumClockGeneration, new DoubleWordRegister(this)
+                     .WithValueField(0, 13, name: "MODPER")
+@@ -362,6 +373,12 @@ public void Reset()
+             Timer9Reset.Unset();
+         }
+ 
++        // Records the source of a reset in RCC_CSR (the flag survives the system reset that follows).
++        public void SetResetFlag(ResetFlag flag)
++        {
++            resetFlags |= 1u << (int)flag;
++        }
++
+         public long Size => 0x400;
+ 
+         public DoubleWordRegisterCollection RegistersCollection { get; }
+@@ -371,6 +388,27 @@ public void Reset()
+         // introduce a clean solution for resetting peripherals; 
+         public GPIO Timer9Reset { get; } = new GPIO();
+ 
++        public enum ResetFlag
++        {
++            BrownOut = 0,
++            Pin = 1,
++            PowerOn = 2,
++            Software = 3,
++            IndependentWatchdog = 4,
++            WindowWatchdog = 5,
++            LowPower = 6,
++        }
++
++        private bool IsResetFlagSet(ResetFlag flag)
++        {
++            return (resetFlags & (1u << (int)flag)) != 0;
++        }
++
++        private uint resetFlags = PowerOnResetFlags;
++
++        // BORRSTF | PINRSTF | PORRSTF, i.e. 0x0E000000 in RCC_CSR
++        private const uint PowerOnResetFlags = 0x7;
++
+         private enum Registers
+         {
+             ClockControl = 0x0,
+diff --git a/src/Emulator/Peripherals/Peripherals/Timers/STM32_IndependentWatchdog.cs b/src/Emulator/Peripherals/Peripherals/Timers/STM32_IndependentWatchdog.cs
+index ff08a403b..0d8f6bfed 100644
+--- a/src/Emulator/Peripherals/Peripherals/Timers/STM32_IndependentWatchdog.cs
++++ b/src/Emulator/Peripherals/Peripherals/Timers/STM32_IndependentWatchdog.cs
+@@ -18,7 +18,6 @@ namespace Antmicro.Renode.Peripherals.Timers
+     public class STM32_IndependentWatchdog : BasicDoubleWordPeripheral, IKnownSize
+     {
+         //TODO: Stop timer on debug stop.
+-        //TODO: Use RCC to set restart cause.
+         public STM32_IndependentWatchdog(IMachine machine, ulong frequency, bool windowOption = true, uint defaultPrescaler = 0) : base(machine)
+         {
+             watchdogTimer = new LimitTimer(machine.ClockSource, frequency, this, "STM32_IWDG", DefaultReloadValue, workMode: WorkMode.OneShot, enabled: false, eventEnabled: true, autoUpdate: true, divider: DefaultPrescalerValue);
+@@ -41,6 +40,10 @@ public override void Reset()
+ 
+         public long Size => 0x400;
+ 
++        // Raised right before the watchdog requests a machine reset, so that a reset and clock controller
++        // can record the reset cause (e.g. STM32F4_RCC sets IWDGRSTF in RCC_CSR).
++        public event Action ResetTriggered;
++
+         private void DefineRegisters()
+         {
+             Registers.Key.Define(this)
+@@ -53,7 +56,7 @@ private void DefineRegisters()
+                     if(windowEnabled && watchdogTimer.Value > window)
+                     {
+                         this.Log(LogLevel.Warning, "Watchdog reloaded outside of window, triggering reset!");
+-                        machine.RequestReset();
++                        TriggerReset();
+                     }
+                     else
+                     {
+@@ -137,6 +140,12 @@ private void Reload()
+         private void TimerLimitReachedCallback()
+         {
+             this.Log(LogLevel.Warning, "Watchdog reset triggered!");
++            TriggerReset();
++        }
++
++        private void TriggerReset()
++        {
++            ResetTriggered?.Invoke();
+             machine.RequestReset();
+         }
+ 

@@ -29,6 +29,15 @@ fork 分支 `stm32-timer-encoder-wrap` commit `a8e98b0`(2026-09-17 rebase 到上
 
 fork:`wicanr2/renode-infrastructure` 分支 `stm32-timer-period-preload-fixes`(基於 1.16.1 的 commit),三個 commit(訊息英文):`STM32_Timer.cs` + `STM32_TimerTests.cs`;`NVIC.cs` + `NVIC_SysTickTests.cs`;`CANHub.cs` + `CANHubTests.cs`。
 
+| 檔案(重置旗標) | 用途 |
+|---|---|
+| `STM32F4_RCC.1.16.1.cs` / `STM32_IndependentWatchdog.1.16.1.cs` | 原版逐字副本(1.16.1 與上游 `master` 0ab5d08 逐 byte 相同) |
+| `STM32_ResetFlags.patch` | 對兩個原版檔的 diff:`RCC_CSR` 的七個重置旗標移出暫存器集合(系統重置保留、RMVF 清、上電 `0x0E000000`);看門狗要求重置前發 `ResetTriggered`,RCC 的建構參數 `independentWatchdog` 接上就設 IWDGRSTF |
+| `STM32F4_RCC_Fixed.cs` / `STM32_IndependentWatchdog_Fixed.cs` | 同一份修正、類名改 `_Fixed`,`i @` 執行期載入;`stm32f4-encoder-rccfix.repl` 用它們,`RCCFIX=1 ./run_loop.sh` 接進閉環 |
+| `STM32F4_RCCResetFlagsTests.cs` | 五條 NUnit(上電旗標、RMVF 清、系統重置保留、看門狗逾時設 IWDGRSTF、有餵狗不設);修正版 5/5、原版 1/5 |
+
+fork 分支 `stm32-rcc-reset-flags`(基於上游 `master` 0ab5d08)commit `09a1622`。上游 PR 的英文稿給使用者看過才送(2026-09-17 未送)。
+
 | 檔案(NVIC) | 用途 |
 |---|---|
 | `NVIC.1.16.1.cs` / `NVIC.patch` / `NVIC_Fixed.cs` | 同上三件套。改名版**只能用在 NUnit**:CPU 模型對 `nvic` 參數型別檢查,掛不進平台描述 |
