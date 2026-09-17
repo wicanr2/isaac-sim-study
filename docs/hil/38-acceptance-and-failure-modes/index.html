@@ -630,9 +630,41 @@
 <td>10 / 14–17</td>
 <td>綠</td>
 </tr>
+<tr>
+<td>head-on</td>
+<td>datasheet,<strong>Isaac 6.0.1</strong></td>
+<td>2.510 s(加速度計)</td>
+<td><strong>−20 ms</strong>(起點 2.530 s,碰撞 2.290 s)</td>
+<td>—</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>head-on</td>
+<td><code>accel-off</code>,Isaac</td>
+<td>3.590 s(陀螺儀)</td>
+<td><strong>+1060 ms</strong></td>
+<td>—</td>
+<td><strong>紅</strong></td>
+</tr>
+<tr>
+<td>Nav2 blind-scan</td>
+<td>datasheet,Isaac</td>
+<td>5.525 s(加速度計)</td>
+<td>−35 ms(轉角打滑起點 −15 ms)</td>
+<td>—</td>
+<td>綠,Nav2 <code>canceled</code>,odom 對真值 31 / 37 mm</td>
+</tr>
+<tr>
+<td>預設 / Nav2 90 s</td>
+<td>datasheet,Isaac</td>
+<td>沒亮</td>
+<td>—</td>
+<td>31 / —、10 / —</td>
+<td>綠(Nav2 46 mm)</td>
+</tr>
 </tbody>
 </table></div>
-<p>凍結碰撞與正常行駛的速度殘差最大 11–24 mm/s(σ 20 mg 那次 30),門檻 90。</p>
+<p>凍結碰撞與正常行駛的速度殘差最大 11–24 mm/s(σ 20 mg 那次 30),門檻 90。Isaac 的車被方塊擋住時是真的接觸求解,不是 <code>CONTACT</code> 旗標:head-on 車身停在 x 470 mm、原地轉了 0.6 rad,轉角打滑到 3.5 s 腳本轉向才出現,和假受控體的形態相同。Isaac 開機零偏在 0.67 s 才估出來:受控體前 0.37 s 輪子 CNT 還在 ±1 tick 之間抖,靜止要到 0.57 s 才滿 200 ms,再累計 20 筆。Isaac 端 2026-09-17 跑,受控體綁場域主機 2 核、lockstep。</p>
 <h3 id="15-航向陀螺儀進里程計c15">1.5 航向:陀螺儀進里程計(C15)</h3>
 <p>韌體的 odom θ 原本只由輪差積分。§1.3 的偵測讓上位知道打滑了,但 θ 已經錯了,而且只要上位不停(或偵測被關掉),就一直錯下去:<code>slip-off</code> 的假受控體末端 odom 對真值差 1813 / 1314 mm、θ 差 0.34 rad。</p>
 <p><strong>融合方式:依殘差切換,不做加權平均。</strong> 每步看 §1.3 的 50 ms 平均殘差:</p>
@@ -689,6 +721,7 @@
 </tbody>
 </table></div>
 <p><code>fusion-off</code> 的 0.917 rad 就是整段轉角打滑:輪差以為車轉了 0.92 rad,車身其實沒動。融合開時這段用陀螺儀,odom θ 跟著真值不動。距離仍用輪子,C3 的位置差在融合開時是 902 mm(odom 直線往前、車身沒動),另兩種設定航向也錯了,偏成 (836, 202) 與 (707, 630) mm。沒有接觸的場景(預設腳本、FreeRTOS、方形、Nav2 90 s,datasheet 零偏)航向用陀螺儀的步數都是 0;預設腳本的 CSV 與 GOAL 7 開頭(沒有零偏估計、沒有加速度計)比,只有 <code>flags</code> 欄開頭 38 步多了 <code>IMU_CAL</code>,odom 等其他欄位逐位相同。加陀螺儀白雜訊 σ 3 dps 時有 2 步換成陀螺儀。</p>
+<p>Isaac 6.0.1 同一個 long-slip 場景:融合開 <strong>0.001 rad</strong>(上限 0.100,航向用陀螺儀 325 步)、<code>fusion-off</code> <strong>0.915 rad</strong>,紅。Isaac 的車身被方塊擋住時連轉角也不動(末端 θ 0.000)。</p>
 <p>Nav2 blind-scan 版(只報):融合開 0.012 / 0.022 rad(兩次),<code>fusion-off</code> 0.103 / 0.821 rad(兩次;各有一次量在 ±2 g 的韌體上,航向融合的邏輯相同)——同一個負對照差 8 倍,就是改用決定性場景的理由。</p>
 <p>負對照:</p>
 <ul>
@@ -1244,7 +1277,7 @@
 <td>1</td>
 <td>預設 6 s 腳本,<code>WORLD=1 PLANT=remote</code></td>
 <td>900.8, 0.4, 0.8627</td>
-<td><strong>901.1, −1.0, 0.8603</strong>;C1–C12 全綠,C3 dx 0.1 / dy 1.0 mm、0.7 mrad;C9 2347;60 筆掃描;36.5 ms/步(受控體 + 隧道 22.4 ms)</td>
+<td><strong>901.1, −1.0, 0.8603</strong>(<code>IMU=0</code>);C1–C12 全綠,C3 dx 0.1 / dy 1.0 mm、0.7 mrad;C9 2347;60 筆掃描;36.5 ms/步(受控體 + 隧道 22.4 ms)。IMU 預設掛上後 <strong>850.0, −1.0, 0.8604</strong>:零偏 0.670 s 才估完,起步晚 0.17 s(<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.2),C3 1.0 / 1.0 mm</td>
 </tr>
 <tr>
 <td>2</td>
