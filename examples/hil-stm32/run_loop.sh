@@ -35,7 +35,7 @@ PLANT="${PLANT:-fake}"
 RESC=hilctl; [ "${TIMERFIX:-0}" = 1 ] && RESC=hilctl-timerfix
 CAN="${CAN:-hook}"
 # 編碼器:calib.json 的 encoder_source 決定韌體讀 TIM 還是 CAN;tim 時平台的 TIM2/TIM4 換成 upstream master 的
-# timer(1.16.1 沒有 encoder mode),注入法由 ENC=hook|gpio|cnt 選(預設 hook)
+# timer(1.16.1 沒有 encoder mode),注入法由 ENC=hook|gpio|cnt|cont 選(預設 lockstep hook、realtime cont)
 ENC_SRC=$(python3 -c "import json;print(json.load(open('calib.json')).get('encoder_source','can'))")
 ENC_PRE=()
 if [ "$ENC_SRC" = tim ]; then

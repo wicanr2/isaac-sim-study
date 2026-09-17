@@ -69,6 +69,17 @@ namespace Antmicro.Renode.Hil
             machine.SystemBus.SetHookBeforePeripheralWrite<uint>(timer, (value, offset) => { Rebase(value); return value; }, cnt);
         }
 
+        // Virtual time (microseconds) at which the plant was sampled; the next Update() anchors there instead of at
+        // the instant the update is handled. In lockstep both are the same; in realtime the update lands a few ms
+        // later and that latency jitters (2-7 ms per 5 ms wall step), which the error term would turn into speed.
+        public void SetSampleTime(long virtualMicros)
+        {
+            lock(sync)
+            {
+                sampleTime = virtualMicros / 1e6;
+            }
+        }
+
         // packed = (int32 plantTicks << 32) | uint32(rate in milli-ticks per second)
         public void Update(long packed)
         {
@@ -76,7 +87,8 @@ namespace Antmicro.Renode.Hil
             var rateMilli = unchecked((int)(packed & 0xFFFFFFFF));
             lock(sync)
             {
-                var t = Now();
+                var t = sampleTime ?? Now();
+                sampleTime = null;
                 var c = Position(t);
                 var e = ticks - c;
                 if(Math.Abs(e) > MaxAbsError) { MaxAbsError = Math.Abs(e); }
@@ -133,6 +145,7 @@ namespace Antmicro.Renode.Hil
         private readonly double tau;
         private readonly object sync = new object();
         private double anchor, rate, err, tA, offset;
+        private double? sampleTime;
     }
 
     // IMU gyroscope feeder (docs/hil/38 sec. 1.2, slip detection): sets AngularRateZ (dps) of an I2C gyroscope model

@@ -50,6 +50,7 @@ ID_ENCODER_STEPS = 0xFFFF0020   # i32 dl, i32 dr: quadrature counts to feed TIM2
 ID_ENC_CONT_CFG  = 0xFFFF0021   # i32 tau_us: install the continuous encoders on TIM2/TIM4 (hil_quadrature.cs)
 ID_ENC_CONT_L    = 0xFFFF0022   # i32 plant ticks, i32 rate (milli-ticks/s): update the left continuous encoder
 ID_ENC_CONT_R    = 0xFFFF0023   # same, right
+ID_ENC_CONT_TIME = 0xFFFF0025   # u64 virtual microseconds at which the plant was sampled (anchor time of the next updates)
 ID_GYRO_Z        = 0xFFFF0024   # i32 milli-dps: angular rate Z of the IMU gyroscope (sysbus.i2c3.gyro)
 ID_ACK           = 0xFFFF00AC
 TIM3_CCR1        = 0x40000434
@@ -178,6 +179,15 @@ def _cont_update(machine, key, ticks, rate_milli):
     else:
         enc.Update(packed)
 
+def _cont_time(machine, micros):
+    for key in ("left", "right"):
+        enc = _conts[key]
+        if emulationManager.CurrentEmulation.IsStarted:
+            machine.HandleTimeDomainEvent[System.Int64](System.Action[System.Int64](enc.SetSampleTime), System.Int64(micros),
+                                                        TimeDomainsManager.Instance.GetEffectiveVirtualTimeStamp())
+        else:
+            enc.SetSampleTime(System.Int64(micros))
+
 def mc_hil_enc_stats():
     for key in ("left", "right"):
         if key in _conts:
@@ -243,6 +253,10 @@ def _rx_loop():
                 _ack()
             elif rid == ID_PAUSE:
                 emulationManager.CurrentEmulation.PauseAll()
+                _ack()
+            elif rid == ID_ENC_CONT_TIME:
+                lo = _i32(data[0:4]) & 0xFFFFFFFF; hi = _i32(data[4:8]) & 0xFFFFFFFF
+                _cont_time(machine, (hi << 32) | lo)
                 _ack()
             elif rid == ID_GYRO_Z:
                 _gyro_set(machine, _i32(data[0:4]))

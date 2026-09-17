@@ -387,6 +387,17 @@ C12 只證明「上位知道要停」。停完還要能繼續:重啟後 odom 從
 
 另外兩個 Isaac 特有的數字:保險桿的超出量 44.8 mm 比假受控體多 7.6——馬達層之後車的減速由 PhysX 接觸與 drive damping 決定,不是公式;堵轉旗標晚 35 ms,同一個原因。
 
+**Isaac 上的 Nav2 realtime**(`WORLD=1 PLANT=remote UPPER=nav2 --mode realtime --seconds 90`,1 kHz 載波、連續注入,2026-09-17;本機 load 7.1、場域主機 load 1.2、受控體綁 2 核)。結論先說:**這台 Isaac 受控體跑不了 realtime。** 它每步要 21 ms(PhysX 步進 + 隧道),5 ms 的節拍守不住:橋接平均步距 25.0 ms、最長 325 ms,受控體等於 40 Hz 取樣、每步的 dt 是牆鐘的 25 ms;18000 步跑了 450 s 牆鐘。Renode 照樣 1.000× 實時,所以韌體 5 ms 一個控制週期,中間四個週期看到的是同一個受控體狀態。
+
+| | lockstep(§6.4 第 3 列) | realtime |
+|---|---|---|
+| Nav2 | `succeeded` | `succeeded` |
+| 真值離 goal / 碰撞 | 47 mm / 0 | **137 mm** / 0(C11 紅) |
+| odom 對真值 | 0.6 / 0.6 mm | 50 / 109 mm、0.046 rad(C3 紅) |
+| C9 | 2450 | 3029(紅) |
+
+realtime 下要讓 Isaac 當受控體,受控體的一步得壓到 5 ms 以內(或把控制週期拉長到受控體跟得上);在那之前 Isaac 只用 lockstep。
+
 ### 6.5 每個實驗一支俯視圖錄影
 
 數字表說「末端差 2162 mm、碰撞 16718 步」,看不出車是怎麼卡在方塊上的;§6.4 那一列要用看的。每一輪閉環現在都能多產一支俯視圖錄影([issue #6](https://github.com/wicanr2/isaac-sim-study/issues/6)):`RECORD=1 ./run_loop.sh …` 跑完叫 [`tools/topview.py`](../../../examples/hil-stm32/tools/topview.py)(uv 容器裡的 matplotlib + imageio-ffmpeg),從**同一份 CSV** 畫:真值車體與軌跡、odom 幽靈車(虛線)、雷射打到的點、碰撞步的紅叉、右欄的命令 / 輪速、CCR duty、旗標條(七個 bit 各一列 + 碰撞),底下一列狀態文字。雷射畫的是上位看到的那份——橋接多了 `--scan-log`,把送去 3801 的 `SCAN` 行原樣存檔(`blind-scan` 負對照存的就是全 5 m);沒有紀錄時才從 `world.json` 重算,畫面上會標「重算」。兩個不變量:**動畫末幀的位姿就是 CSV 末列**(工具印出來對照,不另外算);開了錄影的 CSV 與沒開的逐 byte 相同(錄影是跑完才做的,不碰迴圈)。產物在 `out/`(`.mp4` 全部、`.gif` 挑選版進 `docs/img/`,每支 ≤ 2 MB)。

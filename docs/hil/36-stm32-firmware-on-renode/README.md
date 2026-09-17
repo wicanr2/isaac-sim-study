@@ -73,9 +73,9 @@ CAN 濾波器的坑:`FMR` 的重置值是 `0x2A1C0E01`,其中 `CAN2SB`(bit 13:8)
 
 韌體(兩版同):TIM2(PA0/PA1 AF1)左輪、TIM4(PB6/PB7 AF2)右輪,`ARR=0xFFFF`、`CC1S/CC2S=01`、`CCER` 兩通道、`SMS=011`、`CEN`;控制步 `dl = (int16)(CNT − 上次)`,累計進里程計。`calib.json` 的 `encoder_source` 切換(`tim` / `can`),`ENC_SOURCE_TIM` 進 `calib.h`;CAN 0x181 收到只計數不採用。
 
-受控體的 tick 進 CNT 有三種注入法(橋接 `--enc`,37 篇 §5):`hook`(一筆紀錄,Renode 裡的 .NET `QuadratureFeeder` 對 TI1/TI2 打邊緣,走 encoder mode 本身)、`gpio`(每個邊緣一個 External Control RPC)、`cnt`(直接寫 CNT)。lockstep 三種末端逐字相同(900.8, 0.4, 0.8627),注入那一段每步 2.5 / 4.1 / 2.3 ms(load 7–8);負對照 A/B 對調 → 韌體量到負速度、正回饋跑掉 5.4 m、C3 紅。realtime 下每個邊緣在模型裡是一次 `LimitTimer.Value` 寫入(§5.1 的 50–100 µs),8k 邊緣/s 會把模擬執行緒吃掉,所以 realtime 預設 `cnt`。
+受控體的 tick 進 CNT 有三種注入法(橋接 `--enc`,37 篇 §5):`hook`(一筆紀錄,Renode 裡的 .NET `QuadratureFeeder` 對 TI1/TI2 打邊緣,走 encoder mode 本身)、`gpio`(每個邊緣一個 External Control RPC)、`cnt`(直接寫 CNT)。lockstep 三種末端逐字相同(900.8, 0.4, 0.8627),注入那一段每步 2.5 / 4.1 / 2.3 ms(load 7–8);負對照 A/B 對調 → 韌體量到負速度、正回饋跑掉 5.4 m、C3 紅。realtime 下每個邊緣在模型裡是一次 `LimitTimer.Value` 寫入(§5.1 的 50–100 µs),8k 邊緣/s 會把模擬執行緒吃掉,所以 realtime 不走邊緣。取樣式 `cnt` 在閒時 C9 一次都沒綠過,realtime 預設改成第四種 `cont`(CNT 在韌體讀的當下外插,37 篇 §5、35 篇 §5.1)。
 
-realtime 同腳本三次的末端:x = 902 × 驅動段的 Renode/牆鐘比(預測 883 / 771 / 665,實測 876 / 766 / 668)、θ = 0.9019 × 轉向段的比(0.620 / 0.682 / 0.598 vs 0.611 / 0.689 / 0.598)——**差全部在時鐘比裡**,一個數字解釋完。這就是 35 篇 §5.1 留下的開放項的結論。
+以下 realtime 同腳本三次(`cnt`)的末端:x = 902 × 驅動段的 Renode/牆鐘比(預測 883 / 771 / 665,實測 876 / 766 / 668)、θ = 0.9019 × 轉向段的比(0.620 / 0.682 / 0.598 vs 0.611 / 0.689 / 0.598)——**差全部在時鐘比裡**,一個數字解釋完。這就是 35 篇 §5.1 留下的開放項的結論。
 
 ## 4. 兩條觀測管道
 

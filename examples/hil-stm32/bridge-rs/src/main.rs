@@ -272,9 +272,9 @@ fn main() {
         .or_else(|_| ec.gpio(m, "gpioPortB"))
         .expect("gpioPortB");
     let mut hk = hook::Hook::connect_retry(a.hook.as_str(), Duration::from_secs(90)).expect("連 hil_hook");
-    // auto:lockstep 走 hook(正交脈衝經 encoder mode,驗的是模型);realtime 走 cnt——每個邊緣在模型裡是一次
-    // LimitTimer.Value 寫入(50–100 µs,同 36 篇 §5.1 的事件成本),8k 邊緣/s 會吃掉模擬執行緒
-    let enc_mode = if a.enc == "auto" { if !c.encoder_tim { "can" } else if a.mode == "realtime" { "cnt" } else { "hook" } } else { a.enc.as_str() }.to_string();
+    // auto:lockstep 走 hook(正交脈衝經 encoder mode,驗的是模型);realtime 走 cont——逐邊緣打脈衝在 realtime 付不起
+    // (每個邊緣一次 LimitTimer.Value 寫入 50–100 µs,36 篇 §5.1),取樣式 cnt 在閒時 C9 一次都沒綠過(35 篇 §5.1)
+    let enc_mode = if a.enc == "auto" { if !c.encoder_tim { "can" } else if a.mode == "realtime" { "cont" } else { "hook" } } else { a.enc.as_str() }.to_string();
     if c.encoder_tim && enc_mode == "can" { eprintln!("calib encoder_source=tim 但 --enc can:韌體不會讀 CAN 編碼器"); }
     if !c.encoder_tim && enc_mode != "can" { eprintln!("calib encoder_source=can 但 --enc {enc_mode}:韌體不會讀 TIM"); }
     let (tim_l, tim_r) = if enc_mode == "gpio" {
@@ -678,6 +678,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             cont_cnt = [ec.read_u32_at(bus, TIM2_CNT).unwrap(), ec.read_u32_at(bus, TIM4_CNT).unwrap()];
         }
         let t_us = ec.time_us().unwrap();
+        let t_us_wall = Instant::now();
         if realtime {
             let wall_us = wall0.elapsed().as_micros() as i64;
             let lag = wall_us - (t_us - renode_t_start) as i64;
@@ -758,6 +759,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         };
         // 堵轉注入:輪子被卡住——受控體不動、編碼器不動,不管韌體給多少 duty
         let cmd = if fault == "stall" && in_fault_window { MotorCmd { duty_l: 0.0, duty_r: 0.0, fwd_l: true, fwd_r: true, enabled: false } } else { cmd };
+        // 連續編碼器的錨點時間:受控體取樣的這一刻,Renode 走到哪了。lockstep 機器是停的 = t_us;
+        // realtime 機器在跑,從讀 t_us 到這裡的牆鐘 ≈ Renode 又走的虛擬時間(比值 1.01)
+        let sample_us = if realtime { t_us + t_us_wall.elapsed().as_micros() as u64 } else { t_us };
         let out = pl.step(k, plant_dt, cmd).expect("plant step");
         if fault != "none" && t_s >= a.fault_at && stop_step.is_none() && out.vl_mm_s.abs() < 5.0 && out.vr_mm_s.abs() < 5.0 { stop_step = Some(k); }
         if out.x_mm > x_max { x_max = out.x_mm; }
@@ -862,7 +866,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                     if k > 0 && e.abs() > cont_max_err { cont_max_err = e.abs(); }
                 }
                 max_step_ticks = max_step_ticks.max(dl.abs()).max(dr.abs());
-                hk.enc_cont_update(p, [rate_milli(out.vl_mm_s) * sgn, rate_milli(out.vr_mm_s) * sgn]).unwrap();
+                hk.enc_cont_update(sample_us, p, [rate_milli(out.vl_mm_s) * sgn, rate_milli(out.vr_mm_s) * sgn]).unwrap();
                 hk.wait_acks().unwrap();
             }
             "cnt" => {

@@ -134,7 +134,7 @@ Renode 1.16.1 把 CAN 訊框送到模擬器外面的**官方**管道只有 `Crea
 
 `--mode realtime` 用同一個迴圈,只換第 2 步:開跑前經 hook 送 `START`(`0xFFFF0010`,hook 呼叫 `StartAll()` 後 ack),每步不再 `run_for`,改 sleep 到下一個 5 ms 牆鐘刻度;受控體的 dt 用實際過了多久;跑完送 `PAUSE`(`0xFFFF0011`)。每步 5.0–5.2 ms(`ec_read` 1.8 + hook 2.4 + sleep 0.4),三個時鐘的分歧與後果量在 [35 篇](../35-hil-what-and-why/README.md) §5.1。
 
-**編碼器注入 `--enc hook|gpio|cnt|can`**(`auto`:calib `tim` 時 lockstep → `hook`、realtime → `cnt`;`can` 是第一版的訊框路):`hook` 一筆紀錄帶左右 Δtick,hook 端交給 [`renode/hil_quadrature.cs`](../../../examples/hil-stm32/renode/hil_quadrature.cs)——一個 .NET 類,把 Δtick 走成 A/B 相位序列、對 timer 的 `OnGPIO(0/1)` 打邊緣。為什麼是 .NET 不是 Python:機器在跑時這段工作要排進時間域、在模擬執行緒上執行,用 Python lambda 排進去會在 hook 執行緒還在 Python 裡時把模擬卡死(Renode 時間停在 0.535 s,量到的);.NET 方法沒有這個問題。`i @file.cs` 動態編譯的型別 IronPython `import` 不到,要從 `AppDomain` 的組件用反射拿。每步成本 lockstep:hook 2.9 ms、gpio 4.2 ms(約 40 個 RPC)、cnt 2.8 ms。C8 在 TIM 模式改驗兩個等式:`CNT == 受控體 tick mod 2^16`(注入沒掉)、韌體累計 == 前一步的 tick(一步延遲)。
+**編碼器注入 `--enc hook|gpio|cnt|can`**(`auto`:calib `tim` 時 lockstep → `hook`、realtime → `cont`,見下一段;`can` 是第一版的訊框路):`hook` 一筆紀錄帶左右 Δtick,hook 端交給 [`renode/hil_quadrature.cs`](../../../examples/hil-stm32/renode/hil_quadrature.cs)——一個 .NET 類,把 Δtick 走成 A/B 相位序列、對 timer 的 `OnGPIO(0/1)` 打邊緣。為什麼是 .NET 不是 Python:機器在跑時這段工作要排進時間域、在模擬執行緒上執行,用 Python lambda 排進去會在 hook 執行緒還在 Python 裡時把模擬卡死(Renode 時間停在 0.535 s,量到的);.NET 方法沒有這個問題。`i @file.cs` 動態編譯的型別 IronPython `import` 不到,要從 `AppDomain` 的組件用反射拿。每步成本 lockstep:hook 2.9 ms、gpio 4.2 ms(約 40 個 RPC)、cnt 2.8 ms。C8 在 TIM 模式改驗兩個等式:`CNT == 受控體 tick mod 2^16`(注入沒掉)、韌體累計 == 前一步的 tick(一步延遲)。
 
 **連續注入 `--enc cont`。** 上面三種都是**取樣式**:受控體走完一步,橋接把這一步的 tick 一口氣塞進 CNT,韌體在自己的 5 ms tick 讀。兩個節拍對不齊時,韌體一個控制週期吃到的筆數會在 n 與 n+1 之間跳,量測速度跟著跳,C9 紅([35 篇](../35-hil-what-and-why/README.md) §5.1 第 4 點)。真板沒有這件事:編碼器的邊緣是連續的,CNT 在韌體讀的那一刻就是那一刻的位置。候選有兩個:
 
@@ -147,9 +147,10 @@ Renode 1.16.1 把 CAN 訊框送到模擬器外面的**官方**管道只有 `Crea
 
 - **不打邊緣。** 8k 邊緣/s 在 realtime 付不起([36 篇](../36-stm32-firmware-on-renode/README.md) §5.1 的事件成本);代價是 encoder mode 的計數邏輯沒被這條路驗到——那是 `hook` 注入在 lockstep 驗的事。
 - **誤差分 τ 攤還,不跳。** 錨點更新時外插與受控體實際 tick 的差,在 τ 內線性補上;下一筆更新來晚了也不會超補。τ 小,追得緊;τ 大,更新時刻抖動造成的假速度小。
+- **錨點的時間由橋接給,不用「更新在 Renode 裡被處理的那一刻」。** realtime 下機器在跑,更新紀錄從橋接送出到被模擬執行緒處理要幾 ms,而且每步不同;受控體的位置卻是在另一個時刻取樣的。錨點若掛在處理的那一刻,兩個時刻的差每步抖動,誤差項在 τ 內補回去就成了假速度(量到韌體的輪速在轉向段一步跳 ±100 mm/s)。現在橋接每步多送一筆 `0xFFFF0025`:受控體取樣當下 Renode 的虛擬時間(讀 `t_us` 那一刻的虛擬時間 + 從那之後過的牆鐘)。lockstep 下機器是停的,兩個時刻相同——CSV 與不帶時間的版本逐 byte 相同。
 - **外插必然落後於「受控體還沒走的那一段」。** lockstep `--skew stall:100:10` 讓 Renode 一口氣先跑 50 ms、受控體之後才補那 50 ms:外插照舊速度推,受控體實際在減速,補上時差 98 tick,在 τ 內補完就是一段反向的假速度(韌體 `meas` −92 → +122 mm/s),C9 照樣紅。這不是注入法能補的——Renode 跑在受控體前面時,受控體的未來還不存在。
 
-C8 在 `cont` 下換定義:**步邊界讀到的 CNT 對同一時刻受控體 tick 的差 ≤ 一步的最大 tick 數 + 1,而且車停下後逐字相等**(沒有「一步延遲」這件事,CNT 外插到當下)。`--skew` 時只驗後半——時鐘被刻意拉開,步內追蹤的上界本來就不成立(均勻比值 R 下穩態落後 ≈ 輪速 × τ × (1−R)/R)。
+C8 在 `cont` 下換定義:**步邊界讀到的 CNT 對同一時刻受控體 tick 的差 ≤ 一步的最大 tick 數 + 1,而且車停下後逐字相等**(沒有「一步延遲」這件事,CNT 外插到當下)。`--skew` 時只驗後半——時鐘被刻意拉開,步內追蹤的上界本來就不成立(均勻比值 R 下穩態落後 ≈ 輪速 × τ × (1−R)/R)。realtime 下這個上界常常不成立:[35 篇](../35-hil-what-and-why/README.md) §5.1 的閒時 14 次裡 8 次超過(最多 110 對 87 tick),「車停下後逐字相等」14 次全部成立——步邊界的 CNT 是 External Control 在牆鐘上讀的,讀的那一刻與受控體取樣差幾 ms,這個上界在 realtime 量到的是兩個時刻的差,不只是外插誤差。
 
 lockstep 預設腳本(2026-09-17,現行韌體,取樣式參考 900.8 / 0.4 / 0.8627):
 

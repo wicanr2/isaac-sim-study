@@ -17,7 +17,7 @@ IMU=1 ./run_loop.sh                     # I2C3 掛 LSM330 陀螺儀(上游 maste
 IMU=1 UPPER=nav2 CONTACT=slip ./run_loop.sh --seconds 60 --negative blind-scan   # 假受控體撞到後車體不動、輪子照轉;SLIP → driver 鎖住;--negative slip-off 關偵測 → Nav2 假成功
 UPPER=nav2 LOCALIZER=amcl RELOC=1 ./run_loop.sh --seconds 150 --fault hang --fault-at 8   # 重啟後 AMCL 重定位、解鎖、重送 goal;C14;--negative static-map-odom 不重定位 → 紅
 RCCFIX=1 ./run_loop.sh --fault hang     # RCC/IWDG 換修正版:看門狗重啟後 RCC_CSR = 0x20000000(IWDGRSTF);--negative noinit-off 橋接清 .noinit,韌體只剩 RCC_CSR 可信 → 原版紅、修正版綠
-./run_loop.sh --mode realtime    # Renode 自由跑,橋接每 5 ms 牆鐘取樣;Renode 容器自動 4 核(2 核會被 CFS 每 100 ms 凍 50 ms);QUANTUM=0.001 改同步量子;tools/rt_stats.py 算節拍統計
+./run_loop.sh --mode realtime    # Renode 自由跑,橋接每 5 ms 牆鐘取樣;編碼器預設連續注入(ENC=cont,--enc-tau-ms 20;ENC=cnt 是取樣式);Renode 容器自動 4 核(2 核會被 CFS 每 100 ms 凍 50 ms);QUANTUM=0.001 改同步量子;tools/rt_stats.py 算節拍統計
 RECORD=1 ./run_loop.sh --fault bumper   # 跑完多產俯視圖錄影 out/run.mp4 + _topview.svg/png(RECORD_GIF=1 多 gif);既有 CSV 用 tools/topview.sh 補
 ./run_loop.sh --skew uniform:0.5 # lockstep 的時鐘偏斜實驗(決定性):每步 Renode 只推進 0.5×dt;stall:100:10 = 每 100 步一次 50 ms 停頓(35 篇 §5.1 第 4 點)
 UPPER=ros ./run_loop.sh --seconds 45   # 上位換 ROS 2 Jazzy(ros:jazzy-ros-base 容器):base driver + 里程計閉環的方形
@@ -35,7 +35,7 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 
 | 路徑 | 內容 | 驗證 |
 |---|---|---|
-| `calib.json`(`encoder_source`) | `tim`:韌體從 TIM2/TIM4 encoder mode 讀 CNT(預設);`can`:第一版的 CAN 0x181 訊框。`ENC=hook\|gpio\|cnt` 選注入法 | 三種 lockstep 末端逐字相同 |
+| `calib.json`(`encoder_source`) | `tim`:韌體從 TIM2/TIM4 encoder mode 讀 CNT(預設);`can`:第一版的 CAN 0x181 訊框。`ENC=hook\|gpio\|cnt\|cont` 選注入法;`cont` = CNT 在韌體讀的當下外插(`renode/hil_quadrature.cs` 的 `ContinuousEncoder`,realtime 預設) | hook/gpio/cnt 三種 lockstep 末端逐字相同;cont 900.6 / 0.5 / 0.8626 |
 | `calib.json` | 韌體、橋接、受控體共用的唯一參數來源;`tools/gen_calib.py` 產 `firmware/calib.h`。`pwm_prescaler` 0 = 10 kHz 載波(Renode 自由跑 0.46×)、9 = 1 kHz(1.0×);不影響 lockstep 結果。`accel_limit_mm_s2` / `alpha_limit_mrad_s2`(韌體斜坡)、`ff_gain_q8`、`pi_kp_q8` / `pi_ki_q8`、`motor_tau_s` / `motor_accel_max_mm_s2` / `motor_deadband_duty`(三個受控體共用的馬達層) | 步階與 C9,[38 篇 §1.1](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
 | `tools/io_check.sh` | 在 Renode 容器裡跑 `renode/io_check.resc`:monitor 扮演板子(pull-up、PING、CNT、PC 腳),A–J 十項含 IWDG 重啟 | 實測 |
 | `tools/topview.py`、`tools/topview.sh` | 閉環 CSV(+ `--scan-log` 的雷射 + world.json + `--plan` 的 Nav2 路徑)→ 俯視圖錄影 mp4/gif + 靜態軌跡圖:真值車、odom 幽靈車、雷射、Nav2 `/plan`、碰撞、旗標條、輪速、CCR;末幀 = CSV 末列 | 實測,[38 篇 §6.5](../../docs/hil/38-acceptance-and-failure-modes/README.md) |
@@ -83,7 +83,12 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 - Isaac 6.0.1 受控體(遠端,`ssh -L`):每步 52 ms;odom 對真值 3.4 / 2.0 mm、0.028 rad;滑移 3.1%;兩次 CSV 逐 byte 相同(CPU 求解)
 - 編碼器走 TIM encoder mode:注入 hook 2.9 / gpio 4.2 / cnt 2.8 ms/步;負對照 `--negative enc-swap` C3 紅;realtime 末端 = lockstep × Renode/牆鐘比(三次誤差 < 1%)
 - CAN 走 vcan(`CAN=socketcan`):1.16.1 原版 `CANHub` lockstep 下 14/399 訊框到韌體;修正版 399/399、ALL PASS、末端與 hook 路逐字相同、兩次 CSV 相同、每步 10 ms
+- RCC 重置旗標(`RCCFIX=1`,2026-09-17):上電 `RCC_CSR` 0x0E000000、IWDG 重啟後 0x20000000;`--negative noinit-off` 原版 C10 紅、修正版綠;開機前寫進 flash 的 `g_cfg` 在 IWDG 重啟後被 `LoadELF` 蓋回預設
+- 打滑偵測(`IMU=1`,C13):正常四情境 yaw 殘差最大 9–11 mrad/s(Isaac 10–27,門檻 45)、誤報 0;blind-scan 假受控體 `CONTACT=slip` 對轉角打滑 +115 ms、Isaac +10 ms,Nav2 `canceled`;`slip-off` 兩個受控體都 Nav2 假成功(真值離 goal 2.2 m)、紅;原版 `STM32F4_I2C` 第二筆交易起壞(陀螺儀恆 −1687 mrad/s)
+- 重啟後重定位(`LOCALIZER=amcl RELOC=1`,C14):初始猜測離真值 366 mm → 3.3 s 收斂到 27 mm / 0.001 rad、解鎖、到 goal 27 mm;`static-map-odom` 1544 mm 紅;只畫牆的地圖 180° 對稱,全域定位分不出鏡像
+- Isaac:預設腳本兩次 CSV 逐 byte 相同;realtime 下受控體每步 21 ms、跟不上 5 ms 節拍(Nav2 真值 137 mm);MPPI 對 DWB(假受控體):到達 16.2 / 15.5 s、停下 42.1 / 17.8 s、離方塊 161 / 96 mm
 - 上位對安全旗標的反應(C12):路上 8.0 s 死機、9.0 s 重啟 → driver 看到 WDT_RESET 鎖住(cmd_vel=0、cancel goal),重啟後最遠再走 16 mm;`no-latch` 負對照 Nav2 重送 goal 從歸零的 odom 開走(1170 步在動)紅
 - Nav2 in the loop(NavFn + DWB,map→odom 靜態):到達 goal 46 mm、碰撞 0、路徑 3.85 m;`blind-scan` 負對照撞方塊(第一次 @5.5 s)C11 紅;`default_server_timeout` 20 → 1000 ms 才過(load 15);上位 byte 按 115200 bps 分批注入(否則 ring buffer 溢位 114 B、4 個壞 CRC)
 - ROS 2 方形閉環(0.6 m 邊、里程計判段):無斜坡版 lockstep 閉合 35 mm / 0.075 rad、realtime 70 mm / 0.141 rad;斜坡版 + 上位煞車模型含延遲 24 mm / −0.062 rad(lockstep);odom 對真值 5 mm / 1 mrad;ALL PASS
+- realtime 連續注入(2026-09-17 閒時 load 3.2–5.9,1 kHz):v2 τ 20 / 50 各五次 C9 綠 3 次、末端 x 896.4–902.3;取樣式 `cnt` 同條件紅;lockstep `--skew` 表連續注入下只剩 `stall:100:10` 紅([35 篇 §5.1](../../docs/hil/35-hil-what-and-why/README.md))
 - `--mode realtime`(主機閒時 load 3.6–5.7、Renode 4 核,現行韌體,2026-09-17):每步 4.88 ms 牆鐘、橋接有時間 sleep;`pwm_prescaler` 0 → Renode 0.85× 實時、車走一半(C1–C8 PASS + `[warn]`);9 → 1.008–1.015×,五次末端對 lockstep 差 0.7–7 mm / ≤ 0.010 rad(第一版韌體在 2 核 + load 7–9 時是 17–125 mm)。斜坡版:C9 紅——真因不是負載或停頓,是 Renode 每 5 ms 牆鐘推進的虛擬時間抖 2–7 ms,韌體一個控制週期吃到 0 或 2 筆注入(`--skew` 拆開量,[35 篇 §5.1](../../docs/hil/35-hil-what-and-why/README.md) 第 4 點);「每 100 ms 停 50 ms」是 `--cpus 2` 的 CFS 配額,不是主機

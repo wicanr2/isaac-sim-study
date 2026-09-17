@@ -15,6 +15,7 @@ pub const ID_ENC_CONT_CFG: u32 = 0xFFFF_0021;
 pub const ID_ENC_CONT_L: u32 = 0xFFFF_0022;
 pub const ID_ENC_CONT_R: u32 = 0xFFFF_0023;
 pub const ID_GYRO_Z: u32 = 0xFFFF_0024;
+pub const ID_ENC_CONT_TIME: u32 = 0xFFFF_0025;
 pub const ID_ACK: u32 = 0xFFFF_00AC;
 
 #[derive(Debug, Clone)]
@@ -84,8 +85,10 @@ impl Hook {
         Ok(())
     }
 
-    /// 每步一次:受控體累計 tick 與輪速(milli-tick/s),左右各一筆。
-    pub fn enc_cont_update(&mut self, ticks: [i32; 2], rate_milli: [i32; 2]) -> io::Result<()> {
+    /// 每步一次:受控體累計 tick 與輪速(milli-tick/s),左右各一筆。sample_us = 受控體取樣當下的 Renode 虛擬時間(錨點)。
+    pub fn enc_cont_update(&mut self, sample_us: u64, ticks: [i32; 2], rate_milli: [i32; 2]) -> io::Result<()> {
+        self.write_rec(ID_ENC_CONT_TIME, &sample_us.to_le_bytes())?;
+        self.pending_acks += 1;
         for (w, id) in [(0usize, ID_ENC_CONT_L), (1usize, ID_ENC_CONT_R)] {
             let mut d = [0u8; 8];
             d[..4].copy_from_slice(&ticks[w].to_le_bytes());

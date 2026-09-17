@@ -966,6 +966,39 @@
 </table></div>
 <p>第 4 列是這一節的重點,也是假受控體做不出來的失敗形態:<strong>撞上去之後車不動、編碼器照數,上位以為到了。</strong> 假受控體撞到就凍結編碼器,odom 跟著停,Nav2 看得出來沒到;Isaac 的球輪對方塊打滑(drive 的 <code>maxForce</code> 20 N·m 換到輪緣是 400 N,9 kg 的車摩擦力上限只有幾十 N),韌體的堵轉判斷(§1.2:|duty| ≥ 60% 且輪速 &lt; 20 mm/s)<strong>永遠不會觸發</strong>——輪速是編碼器量的,輪子在轉。真車撞牆是哪一種(馬達堵轉、還是輪子打滑)看馬達扭矩對摩擦,兩種都會發生;純軟體 HIL 到這裡才第一次能把「打滑」這一支做出來,而它的後果是上位的自述(<code>succeeded</code>、<code>dist_to_goal 0.042</code>)與真值(差 2.2 m)完全脫鉤。要抓它得靠外部真值(場域的定位系統、或這裡的受控體真值——C11 看的是真值不是 odom),不是靠底盤回報。</p>
 <p>另外兩個 Isaac 特有的數字:保險桿的超出量 44.8 mm 比假受控體多 7.6——馬達層之後車的減速由 PhysX 接觸與 drive damping 決定,不是公式;堵轉旗標晚 35 ms,同一個原因。</p>
+<p><strong>Isaac 上的 Nav2 realtime</strong>(<code>WORLD=1 PLANT=remote UPPER=nav2 --mode realtime --seconds 90</code>,1 kHz 載波、連續注入,2026-09-17;本機 load 7.1、場域主機 load 1.2、受控體綁 2 核)。結論先說:<strong>這台 Isaac 受控體跑不了 realtime。</strong> 它每步要 21 ms(PhysX 步進 + 隧道),5 ms 的節拍守不住:橋接平均步距 25.0 ms、最長 325 ms,受控體等於 40 Hz 取樣、每步的 dt 是牆鐘的 25 ms;18000 步跑了 450 s 牆鐘。Renode 照樣 1.000× 實時,所以韌體 5 ms 一個控制週期,中間四個週期看到的是同一個受控體狀態。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th></th>
+<th>lockstep(§6.4 第 3 列)</th>
+<th>realtime</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Nav2</td>
+<td><code>succeeded</code></td>
+<td><code>succeeded</code></td>
+</tr>
+<tr>
+<td>真值離 goal / 碰撞</td>
+<td>47 mm / 0</td>
+<td><strong>137 mm</strong> / 0(C11 紅)</td>
+</tr>
+<tr>
+<td>odom 對真值</td>
+<td>0.6 / 0.6 mm</td>
+<td>50 / 109 mm、0.046 rad(C3 紅)</td>
+</tr>
+<tr>
+<td>C9</td>
+<td>2450</td>
+<td>3029(紅)</td>
+</tr>
+</tbody>
+</table></div>
+<p>realtime 下要讓 Isaac 當受控體,受控體的一步得壓到 5 ms 以內(或把控制週期拉長到受控體跟得上);在那之前 Isaac 只用 lockstep。</p>
 <h3 id="65-每個實驗一支俯視圖錄影">6.5 每個實驗一支俯視圖錄影</h3>
 <p>數字表說「末端差 2162 mm、碰撞 16718 步」,看不出車是怎麼卡在方塊上的;§6.4 那一列要用看的。每一輪閉環現在都能多產一支俯視圖錄影(<a href="https://github.com/wicanr2/isaac-sim-study/issues/6">issue #6</a>):<code>RECORD=1 ./run_loop.sh …</code> 跑完叫 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/tools/topview.py"><code>tools/topview.py</code></a>(uv 容器裡的 matplotlib + imageio-ffmpeg),從<strong>同一份 CSV</strong> 畫:真值車體與軌跡、odom 幽靈車(虛線)、雷射打到的點、碰撞步的紅叉、右欄的命令 / 輪速、CCR duty、旗標條(七個 bit 各一列 + 碰撞),底下一列狀態文字。雷射畫的是上位看到的那份——橋接多了 <code>--scan-log</code>,把送去 3801 的 <code>SCAN</code> 行原樣存檔(<code>blind-scan</code> 負對照存的就是全 5 m);沒有紀錄時才從 <code>world.json</code> 重算,畫面上會標「重算」。兩個不變量:<strong>動畫末幀的位姿就是 CSV 末列</strong>(工具印出來對照,不另外算);開了錄影的 CSV 與沒開的逐 byte 相同(錄影是跑完才做的,不碰迴圈)。產物在 <code>out/</code>(<code>.mp4</code> 全部、<code>.gif</code> 挑選版進 <code>docs/img/</code>,每支 ≤ 2 MB)。</p>
 <p>四支挑選版(每支左邊是俯視圖:真值車體、odom 幽靈車、雷射點、碰撞叉;右邊是輪速、CCR、旗標條):</p>
