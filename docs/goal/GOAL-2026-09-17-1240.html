@@ -9,18 +9,19 @@
 <body>
 <header class="top">
   <a class="brand" href="../">Isaac Sim 實戰筆記</a>
-  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/">5.1</a><a href="../6.0.1/">6.0.1</a><a href="../fleet/">車隊</a><a href="../hil/" class="on">HIL</a><a href="../version-matrix.html">版本差異</a></nav>
+  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/">5.1</a><a href="../6.0.1/">6.0.1</a><a href="../fleet/">車隊</a><a href="../hil/">HIL</a><a href="../version-matrix.html">版本差異</a></nav>
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#你是誰在哪">你是誰、在哪</a></li><li class="l2"><a href="#第-0-步收-goal-5-的尾使用者-2026-09-17-已同意">第 0 步:收 GOAL 5 的尾(使用者 2026-09-17 已同意)</a></li><li class="l2"><a href="#四條線ac-1-不擋b-先做離線分析c-2-要重建映像d-要場域主機">四條線(A、C-1 不擋;B 先做離線分析;C-2 要重建映像;D 要場域主機)</a></li><li class="l3"><a href="#a-realtime-的連續注入1-開放項35-篇-51-第-4-點">A. realtime 的連續注入(#1 開放項,35 篇 §5.1 第 4 點)</a></li><li class="l3"><a href="#b-打滑偵測isaac-blind-scan-的nav2-假成功38-篇-64-第-4-列">B. 打滑偵測(Isaac blind-scan 的「Nav2 假成功」,38 篇 §6.4 第 4 列)</a></li><li class="l3"><a href="#c-重啟之後iwdgrstf-與重定位38-篇-1263">C. 重啟之後:IWDGRSTF 與重定位(38 篇 §1.2、§6.3)</a></li><li class="l3"><a href="#d-isaac-側次要項場域主機">D. Isaac 側次要項(場域主機)</a></li><li class="l2"><a href="#工作順序">工作順序</a></li><li class="l2"><a href="#硬規則">硬規則</a></li><li class="l2"><a href="#完成的定義">完成的定義</a></li></ul></aside>
+  <aside class="side"><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#你是誰在哪">你是誰、在哪</a></li><li class="l2"><a href="#第-0-步收-goal-5-的尾使用者-2026-09-17-已同意">第 0 步:收 GOAL 5 的尾(使用者 2026-09-17 已同意)</a></li><li class="l2"><a href="#四條線ac-1-不擋b-先做離線分析c-2-要重建映像d-要場域主機">四條線(A、C-1 不擋;B 先做離線分析;C-2 要重建映像;D 要場域主機)</a></li><li class="l3"><a href="#a-realtime-的連續注入1-開放項35-篇-51-第-4-點">A. realtime 的連續注入(#1 開放項,35 篇 §5.1 第 4 點)</a></li><li class="l3"><a href="#b-打滑偵測isaac-blind-scan-的nav2-假成功38-篇-64-第-4-列">B. 打滑偵測(Isaac blind-scan 的「Nav2 假成功」,38 篇 §6.4 第 4 列)</a></li><li class="l3"><a href="#c-重啟之後iwdgrstf-與重定位38-篇-1263">C. 重啟之後:IWDGRSTF 與重定位(38 篇 §1.2、§6.3)</a></li><li class="l3"><a href="#d-isaac-側次要項場域主機">D. Isaac 側次要項(場域主機)</a></li><li class="l2"><a href="#工作順序">工作順序</a></li><li class="l2"><a href="#硬規則">硬規則</a></li><li class="l2"><a href="#完成的定義">完成的定義</a></li></ul></aside>
   <main class="doc">
 <h1 id="goal-6讓系統自己知道出事了realtime-連續注入打滑偵測重啟後重定位">GOAL 6:讓系統自己知道出事了——realtime 連續注入、打滑偵測、重啟後重定位</h1>
-<p>產生時間:2026-09-17 12:40。接續 <a href="../hil/GOAL-2026-09-16-1846.html">GOAL 5</a>(五線完成,結果在 <a href="https://github.com/wicanr2/isaac-sim-study/issues/1">issue #1</a> 最後一則「GOAL 5 總結」與 #3–#6 的最後一則)。</p>
+<p>產生時間:2026-09-17 12:40。接續 <a href="../goal/GOAL-2026-09-16-1846.html">GOAL 5</a>(五線完成,結果在 <a href="https://github.com/wicanr2/isaac-sim-study/issues/1">issue #1</a> 最後一則「GOAL 5 總結」與 #3–#6 的最後一則)。</p>
 <p>GOAL 5 留下的三個缺口有同一個形狀:<strong>判準看真值抓得到,系統裡卻沒有任何一方知道。</strong> realtime 下 C9 紅,根因是取樣式注入,韌體自己分不出來;Isaac 上的車頂著方塊打滑、odom 走到 goal、Nav2 回 <code>succeeded</code>,只有看真值的 C11 知道;IWDG 重啟後 odom 歸零,driver 會鎖住,但 ack 之後 <code>map → odom</code> 仍是錯的 identity。這一輪把這三件事收進系統本身,每一條照舊先紅再綠、有數字、有負對照。第四條線是 Isaac 側的次要項。</p>
 <h2 id="你是誰在哪">你是誰、在哪</h2>
 <ul>
 <li>repo:<code>isaac-sim-study</code>(公開)。先讀 issue #1 最後兩則與 #2–#6 最後一則,不重問已定案的事。</li>
+<li>GOAL 檔從 2026-09-17 起集中在 <code>docs/goal/</code>(GOAL 1–5 原本在 <code>docs/hil/</code>,issue 留言與記憶裡的舊路徑指的是同一批檔案)。下一輪的 GOAL 檔也放這裡,並登記到 <code>docs/goal/index.md</code>。</li>
 <li><code>git config user.email</code> 必須是 <code>wicanr2@gmail.com</code>;<code>git log --format=%ae | sort -u</code> 只能有這一個。</li>
 <li>起點:<code>./run_loop.sh</code>、<code>FW=freertos</code>、<code>CAN=socketcan CANHUBFIX=1</code>、<code>UPPER=ros --seconds 45</code>、<code>UPPER=nav2 --seconds 90</code> 五個都 ALL PASS,末端 900.8 / 0.4 / 0.8627。<strong>先各跑一次</strong>;<code>tools/io_check.sh</code> 十項也跑一次。</li>
 <li>主機 14 核,load 常 6–19(其他 session 的容器)。realtime 的數字要等 load &lt; 6(沿用 GOAL 5 的等待腳本:load1 &lt; 5 連續兩次才開跑)。</li>
@@ -117,7 +118,7 @@
 <li>B:離線分離度表;選定的方案實作完成;假受控體重現得了打滑;C13 綠、<code>slip-off</code> 紅,假受控體與 Isaac 都跑過</li>
 <li>C:Renode 修正與 NUnit 測試;<code>noinit-off</code> 在修正後綠、stock 紅;上游草稿已給使用者看;C14 綠、<code>static-map-odom</code> 紅;對稱風險有量測結論</li>
 <li>D:Isaac Nav2 realtime 有表;決定性有結論;MPPI/DWB 對照表;俯視圖畫出 <code>/plan</code></li>
-<li>每個 issue 回填、issue #1 總結;<code>check_docs.py</code> 全綠;沒做到的寫明為什麼</li>
+<li>每個 issue 回填、issue #1 總結;<code>docs/goal/index.md</code> 第 6 輪的狀態已更新;<code>check_docs.py</code> 全綠;沒做到的寫明為什麼</li>
 </ul>
   </main>
 </div>

@@ -21,7 +21,7 @@
 | 12 | 長跑維運(狀態分歧、看門狗分層、靜默失敗) | `docs/12-long-run-operations/` | 第一版完成(2026-07-26) |
 | 19 | 調參實驗的方法論(正對照、交錯 A/B、連續量、檢定力) | `docs/19-tuning-experiment-methodology/` | 第一版完成(2026-08-02) |
 | 20 | 用 Claude Code 跑調參的工作法(監看、守門、成本分工) | `docs/20-claude-code-driven-tuning/` | 第一版完成(2026-08-02) |
-| 35–39 | HIL:STM32(Renode)下位控制器 + Rust 橋接 + Isaac 受控體;39 為 FreeRTOS 版 | `docs/hil/` + `examples/hil-stm32/` | 第一版完成(2026-09-15);Isaac 6.0.1 側同日實測;Renode 四項修正在 fork(未送 PR);GOAL 3 四線完成(2026-09-16,上游 PR #250、renode#1003/#1004);GOAL 4 四線完成(同日:encoder mode、斜坡與馬達層、安全 I/O 五項、Nav2 in the loop;issue #2–#5);下一階段 `docs/hil/GOAL-2026-09-16-1846.md`(閒時量測、兩版韌體去重、Isaac 側補齊、上位對安全旗標的反應);決定與結果在 issue #1 |
+| 35–39 | HIL:STM32(Renode)下位控制器 + Rust 橋接 + Isaac 受控體;39 為 FreeRTOS 版 | `docs/hil/` + `examples/hil-stm32/` | 第一版完成(2026-09-15);Isaac 6.0.1 側同日實測;Renode 四項修正在 fork(未送 PR);GOAL 3 四線完成(2026-09-16,上游 PR #250、renode#1003/#1004);GOAL 4 四線完成(同日:encoder mode、斜坡與馬達層、安全 I/O 五項、Nav2 in the loop;issue #2–#5);下一階段 `docs/goal/GOAL-2026-09-16-1846.md`(閒時量測、兩版韌體去重、Isaac 側補齊、上位對安全旗標的反應);決定與結果在 issue #1 |
 
 ## R4(2026-08-02 完成)
 

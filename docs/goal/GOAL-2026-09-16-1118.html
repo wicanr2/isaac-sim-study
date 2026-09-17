@@ -9,14 +9,14 @@
 <body>
 <header class="top">
   <a class="brand" href="../">Isaac Sim 實戰筆記</a>
-  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/">5.1</a><a href="../6.0.1/">6.0.1</a><a href="../fleet/">車隊</a><a href="../hil/" class="on">HIL</a><a href="../version-matrix.html">版本差異</a></nav>
+  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/">5.1</a><a href="../6.0.1/">6.0.1</a><a href="../fleet/">車隊</a><a href="../hil/">HIL</a><a href="../version-matrix.html">版本差異</a></nav>
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#你是誰在哪">你是誰、在哪</a></li><li class="l2"><a href="#目標一句話">目標(一句話)</a></li><li class="l2"><a href="#四條線a-主線bcd-依序不互相擋">四條線(A 主線;B、C、D 依序,不互相擋)</a></li><li class="l3"><a href="#a-圖解-去-ai-味過稿不動程式">A. 圖解 + 去 AI 味過稿(不動程式)</a></li><li class="l3"><a href="#b-renode-stm32_timer-的-pwm-事件成本fork-第三個-commit">B. Renode STM32_Timer 的 PWM 事件成本(fork 第三個 commit)</a></li><li class="l3"><a href="#c-vcan-②③-對照實測主機已載入-vcan">C. vcan ②③ 對照實測(主機已載入 vcan)</a></li><li class="l3"><a href="#d-開放項-上游-pr">D. 開放項 + 上游 PR</a></li><li class="l2"><a href="#工作順序">工作順序</a></li><li class="l2"><a href="#硬規則">硬規則</a></li><li class="l2"><a href="#完成的定義">完成的定義</a></li></ul></aside>
+  <aside class="side"><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#你是誰在哪">你是誰、在哪</a></li><li class="l2"><a href="#目標一句話">目標(一句話)</a></li><li class="l2"><a href="#四條線a-主線bcd-依序不互相擋">四條線(A 主線;B、C、D 依序,不互相擋)</a></li><li class="l3"><a href="#a-圖解-去-ai-味過稿不動程式">A. 圖解 + 去 AI 味過稿(不動程式)</a></li><li class="l3"><a href="#b-renode-stm32_timer-的-pwm-事件成本fork-第三個-commit">B. Renode STM32_Timer 的 PWM 事件成本(fork 第三個 commit)</a></li><li class="l3"><a href="#c-vcan-②③-對照實測主機已載入-vcan">C. vcan ②③ 對照實測(主機已載入 vcan)</a></li><li class="l3"><a href="#d-開放項-上游-pr">D. 開放項 + 上游 PR</a></li><li class="l2"><a href="#工作順序">工作順序</a></li><li class="l2"><a href="#硬規則">硬規則</a></li><li class="l2"><a href="#完成的定義">完成的定義</a></li></ul></aside>
   <main class="doc">
 <h1 id="goal-3hil-區補圖過稿修掉-renode-的-pwm-事件成本vcan-對照開放項與上游-pr">GOAL 3:HIL 區補圖過稿、修掉 Renode 的 PWM 事件成本、vcan 對照、開放項與上游 PR</h1>
-<p>產生時間:2026-09-16 11:18。接續 <a href="../hil/GOAL-2026-09-15-1705.html">GOAL 2</a>(四線完成、已 push,原 <code>affa266</code>,改寫作者信箱後為 <code>a59b2bc</code>);決定與結果在 <a href="https://github.com/wicanr2/isaac-sim-study/issues/1">issue #1</a>。</p>
+<p>產生時間:2026-09-16 11:18。接續 <a href="../goal/GOAL-2026-09-15-1705.html">GOAL 2</a>(四線完成、已 push,原 <code>affa266</code>,改寫作者信箱後為 <code>a59b2bc</code>);決定與結果在 <a href="https://github.com/wicanr2/isaac-sim-study/issues/1">issue #1</a>。</p>
 <h2 id="你是誰在哪">你是誰、在哪</h2>
 <ul>
 <li>repo:<code>isaac-sim-study</code>(公開)。先讀 issue #1 最後一則回填,不重問已定案的事。</li>
