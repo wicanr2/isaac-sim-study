@@ -10,7 +10,7 @@
 #   FW=freertos ./run_loop.sh           # 韌體換成 FreeRTOS 版(firmware-freertos/)
 #   RECORD=1 ./run_loop.sh --fault bumper  # 跑完多產一支俯視圖錄影 out/run.mp4(+ _topview.svg/png;RECORD_GIF=1 多 gif);issue #6
 #   ./run_loop.sh --mode realtime       # Renode 自由跑、橋接每 5 ms 牆鐘取樣;Renode 容器自動給 4 核(CPUS= 覆蓋;2 核會被 CFS 每 100 ms 凍 50 ms)
-#   IMU=1 UPPER=nav2 CONTACT=slip ./run_loop.sh --seconds 60 --negative blind-scan   # 陀螺儀打滑偵測,C13
+#   UPPER=nav2 CONTACT=slip ./run_loop.sh --seconds 60 --negative blind-scan   # 陀螺儀打滑偵測,C13(IMU 預設開;IMU=0 拔掉陀螺儀)
 #   RCCFIX=1 ./run_loop.sh --fault hang # RCC/IWDG 換成修正版:看門狗重置後 RCC_CSR.IWDGRSTF = 1(docs/hil/38 §1.2)
 #   TIMERFIX=1 ./run_loop.sh            # TIM3 換成 renode/upstream/STM32_Timer_Fixed.cs(執行期載入的修正版)
 #   PLANT=remote ./run_loop.sh          # 受控體在場域 GPU 主機:自動開 ssh -L 隧道,受控體那端要先起好(埠 3700,TCP;
@@ -37,28 +37,24 @@ CAN="${CAN:-hook}"
 # 編碼器:calib.json 的 encoder_source 決定韌體讀 TIM 還是 CAN;tim 時平台的 TIM2/TIM4 換成 upstream master 的
 # timer(1.16.1 沒有 encoder mode),注入法由 ENC=hook|gpio|cnt|cont 選(預設 lockstep hook、realtime cont)
 ENC_SRC=$(python3 -c "import json;print(json.load(open('calib.json')).get('encoder_source','can'))")
+# IMU:I2C3 換上游 master 的 STM32F1_I2C、掛 LSM330 陀螺儀(修正版);橋接每步寫真值 yaw rate、驗 C13(打滑)。
+# encoder_source=tim 且沒有 TIMERFIX 時預設開(IMU=0 關);平台描述只有 tim 那一系列有 I2C3 修正
+# RCCFIX=1:RCC 與 IWDG 換成修正版(RCC_CSR 的重置旗標跨系統重置保留、看門狗重置設 IWDGRSTF;renode/upstream/STM32_ResetFlags.patch)
+# 兩者獨立:Renode 1.16.1 的平台描述不能在 using 之後重宣告週邊,所以四種組合各一份完整的 .repl
+if [ "$ENC_SRC" = tim ] && [ "${TIMERFIX:-0}" != 1 ]; then IMU="${IMU:-1}"; else IMU="${IMU:-0}"; fi
 ENC_PRE=()
 if [ "$ENC_SRC" = tim ]; then
   [ "${TIMERFIX:-0}" = 1 ] && { echo "TIMERFIX=1 與 encoder_source=tim 目前不同時用(兩份平台描述)"; exit 2; }
-  ENC_PRE=(-e "i @/w/renode/upstream/STM32_Timer_Master.cs" -e "i @/w/renode/hil_quadrature.cs" -e '$repl=@/w/renode/upstream/stm32f4-encoder.repl')
+  REPL=stm32f4-encoder
+  ENC_PRE=(-e "i @/w/renode/upstream/STM32_Timer_Master.cs" -e "i @/w/renode/hil_quadrature.cs")
+  [ "$IMU" = 1 ] && { REPL=$REPL-imu; ENC_PRE+=(-e "i @/w/renode/upstream/STM32F1_I2C.master-0ab5d08.cs" -e "i @/w/renode/upstream/LSM330_Gyroscope_Fixed.cs"); }
+  [ "${RCCFIX:-0}" = 1 ] && { REPL=$REPL-rccfix; ENC_PRE+=(-e "i @/w/renode/upstream/STM32_IndependentWatchdog_Fixed.cs" -e "i @/w/renode/upstream/STM32F4_RCC_Fixed.cs"); }
+  ENC_PRE+=(-e "\$repl=@${IMU_REPL:-/w/renode/upstream/$REPL.repl}")   # IMU_REPL:原版模型對照用
+else
+  [ "${RCCFIX:-0}" = 1 ] && { echo "RCCFIX=1 目前只接 encoder_source=tim 的平台描述"; exit 2; }
+  [ "$IMU" = 1 ] && { echo "IMU=1 目前只接 encoder_source=tim 的平台描述"; exit 2; }
 fi
-# RCCFIX=1:RCC 與 IWDG 換成修正版(RCC_CSR 的重置旗標跨系統重置保留、看門狗重置設 IWDGRSTF;renode/upstream/STM32_ResetFlags.patch)
-if [ "${RCCFIX:-0}" = 1 ]; then
-  [ "$ENC_SRC" = tim ] || { echo "RCCFIX=1 目前只接 encoder_source=tim 的平台描述"; exit 2; }
-  ENC_PRE=(-e "i @/w/renode/upstream/STM32_Timer_Master.cs" -e "i @/w/renode/hil_quadrature.cs"
-           -e "i @/w/renode/upstream/STM32_IndependentWatchdog_Fixed.cs" -e "i @/w/renode/upstream/STM32F4_RCC_Fixed.cs"
-           -e '$repl=@/w/renode/upstream/stm32f4-encoder-rccfix.repl')
-fi
-# IMU=1:I2C3 換上游 master 的 STM32F1_I2C、掛 LSM330 陀螺儀(修正版),含 RCCFIX;橋接每步寫真值 yaw rate、驗 C13(打滑)
-IMU_ARG=()
-if [ "${IMU:-0}" = 1 ]; then
-  [ "$ENC_SRC" = tim ] || { echo "IMU=1 目前只接 encoder_source=tim 的平台描述"; exit 2; }
-  ENC_PRE=(-e "i @/w/renode/upstream/STM32_Timer_Master.cs" -e "i @/w/renode/hil_quadrature.cs"
-           -e "i @/w/renode/upstream/STM32_IndependentWatchdog_Fixed.cs" -e "i @/w/renode/upstream/STM32F4_RCC_Fixed.cs"
-           -e "i @/w/renode/upstream/STM32F1_I2C.master-0ab5d08.cs" -e "i @/w/renode/upstream/LSM330_Gyroscope_Fixed.cs"
-           -e "\$repl=@${IMU_REPL:-/w/renode/upstream/stm32f4-encoder-imu.repl}")   # IMU_REPL:原版模型對照用
-  IMU_ARG=(--imu 1)
-fi
+IMU_ARG=(); [ "$IMU" = 1 ] && IMU_ARG=(--imu 1)
 # CONTACT=slip:假受控體碰撞時車體不動、輪子照轉(Isaac 上量到的形態);預設 freeze
 CONTACT_ARG=(); PLANT_CONTACT=()
 [ "${CONTACT:-freeze}" = slip ] && { CONTACT_ARG=(--contact slip); PLANT_CONTACT=(--contact slip); }

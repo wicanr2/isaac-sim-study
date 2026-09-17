@@ -45,7 +45,7 @@ struct Args {
     enc: String,
     /// --enc cont 的誤差攤還時間(ms):錨點更新時的追蹤誤差在這段虛擬時間內線性補上
     enc_tau_ms: f64,
-    /// IMU:I2C3 上有 LSM330 陀螺儀(平台描述 stm32f4-encoder-imu.repl);每步把受控體真值 yaw rate 寫進去,C13 驗打滑偵測
+    /// IMU:I2C3 上有 LSM330 陀螺儀(平台描述 stm32f4-encoder-imu*.repl);每步把受控體真值 yaw rate 寫進去,C13 驗打滑偵測
     imu: bool,
     /// C14:上位會在底盤重啟後重定位、解鎖、重送 goal(RELOC=1)——C12 只驗到解鎖為止,到達由 C14 驗
     expect_reloc: bool,
@@ -428,7 +428,7 @@ fn main() {
     let imu_whoami = ec.read_u32_at(bus, dbg_base + 4 * dbg::IMU_WHOAMI).unwrap();
     println!("[effect] imu: bridge --imu {} contact={};韌體讀到 WHO_AM_I_G=0x{:03x}({});g_cfg slip_mrad_s={} slip_ms={}",
         a.imu as u8, a.contact, imu_whoami, if imu_whoami == 0xD4 { "LSM330 在" } else { "沒有 IMU,打滑偵測不做" }, cfgv[12] as i32, cfgv[13] as i32);
-    if a.imu && imu_whoami != 0xD4 { eprintln!("--imu 1 但韌體沒讀到 LSM330(平台描述要 stm32f4-encoder-imu.repl)"); std::process::exit(1); }
+    if a.imu && imu_whoami != 0xD4 { eprintln!("--imu 1 但韌體沒讀到 LSM330(平台描述要 stm32f4-encoder-imu*.repl;run_loop.sh 在 encoder_source=tim 時預設給)"); std::process::exit(1); }
     let cfg_accel = if neg == "no-ramp" { calib_accel } else { cfgv[3] as i32 };
     let cfg_alpha = if neg == "no-ramp" { calib_alpha } else { cfgv[5] as i32 };
     let wheel_accel_limit = cfg_accel as f64 + cfg_alpha as f64 * c.track_mm / 2.0 / 1000.0;
@@ -486,6 +486,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let mut renode_advanced_us: u64 = 0;   // lockstep:實際 run_for 的總和(--skew 時 ≠ steps·dt)
     let mut skew_stalls = 0u32;
     let mut plant_dt_mult = 1.0f64;
+    let mut last_gyro_t_us: Option<u64> = None;
+    const GYRO_WIN: usize = 40;   // 200 ms
+    let mut gyro_win: std::collections::VecDeque<(u64, u64)> = std::collections::VecDeque::new();
     let mut plant_t_s = 0.0f64;
     let mut max_lag_us: i64 = 0;
     // 每步各段的牆鐘累計(realtime 模式下步長由這些決定,不是由 dt)
@@ -803,12 +806,22 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         }
         let body_mm = ((out.x_mm - last_plant.x_mm).powi(2) + (out.y_mm - last_plant.y_mm).powi(2)).sqrt();
         path_len_mm += body_mm;
-        // IMU:受控體真值 yaw rate → 陀螺儀(三個受控體同一份公式:位姿差分;橋接算,不經受控體協定)
+        // IMU:受控體真值 yaw rate → 陀螺儀(三個受控體同一份公式:位姿差分;橋接算,不經受控體協定)。
+        // 陀螺儀要活在韌體的時鐘:韌體量到的輪速 = 受控體位移 / Renode 時間,只用受控體 dt 的話,兩個時鐘一分開
+        // (--skew、realtime 跟不上)時鐘比就被當成打滑。所以 yaw rate = 受控體角速度 × 最近 GYRO_WIN 步的
+        // (受控體時間 / Renode 時間)。不用單步的 Renode 時間當分母:realtime 下一步可能只走 0.02 ms,dθ 會被放大上百倍。
+        // lockstep 無 skew 時比值恰為 1.0(整數 µs 相等),數值與只用受控體 dt 逐位相同
+        let renode_step_us = match last_gyro_t_us { Some(p) if t_us >= p => t_us - p, _ => (plant_dt * 1e6).round() as u64 };
+        last_gyro_t_us = Some(t_us);
+        gyro_win.push_back(((plant_dt * 1e6).round() as u64, renode_step_us));
+        if gyro_win.len() > GYRO_WIN { gyro_win.pop_front(); }
+        let (win_p, win_r) = gyro_win.iter().fold((0u64, 0u64), |(p, r), &(a, b)| (p + a, r + b));
+        let clock_ratio = if win_r > 0 && win_p > 0 { win_p as f64 / win_r as f64 } else { 1.0 };
         if a.imu {
             let mut dth = out.th_rad - last_plant.th_rad;
             while dth > std::f64::consts::PI { dth -= 2.0 * std::f64::consts::PI; }
             while dth < -std::f64::consts::PI { dth += 2.0 * std::f64::consts::PI; }
-            let mdps = if plant_dt > 0.0 { (dth / plant_dt).to_degrees() * 1000.0 } else { 0.0 };
+            let mdps = if plant_dt > 0.0 { (dth / plant_dt * clock_ratio).to_degrees() * 1000.0 } else { 0.0 };
             hk.gyro_z(mdps.round() as i32).unwrap();
             hk.wait_acks().unwrap();
         }

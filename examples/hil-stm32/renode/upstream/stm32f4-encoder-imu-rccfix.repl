@@ -1,7 +1,8 @@
-// stm32f4-encoder.repl + IMU: I2C3 is upstream master's STM32F1_I2C (0ab5d08; 1.16.1's STM32F4_I2C never calls
+// stm32f4-encoder-rccfix.repl + IMU: I2C3 is upstream master's STM32F1_I2C (0ab5d08; 1.16.1's STM32F4_I2C never calls
 // FinishTransmission, so a second transaction to the same child is taken as data), and an LSM330 gyroscope at 0x6A
-// (LSM330_Gyroscope_Fixed: datasheet sensitivity, WHO_AM_I_G). RCC/IWDG stay stock; stm32f4-encoder-imu-rccfix.repl has both.
-// Renode 1.16.1 cannot redefine a peripheral from a `using` file (E02), so each combination is a full copy. docs/hil/38 sec. 1.3.
+// (LSM330_Gyroscope_Fixed: datasheet sensitivity, WHO_AM_I_G). docs/hil/38 sec. 1.2, 1.3.
+// stm32f4-encoder.repl with IWDG/RCC replaced by STM32_IndependentWatchdog_Fixed / STM32F4_RCC_Fixed
+// (RCC_CSR reset flags survive system reset, IWDGRSTF set on watchdog reset; renode/upstream/STM32_ResetFlags.patch).
 // stm32f4-1.16.1.repl with TIM2/TIM4 replaced by STM32_Timer_Master (upstream master timer, has encoder mode).
 // Renode 1.16.1 內建 platforms/cpus/stm32f4.repl 的逐字副本,只拿掉最後的
 // ApplySVD(它會上網抓暫存器名稱表,--network none 下失敗五次才放棄;只影響 log 可讀性)。
@@ -165,7 +166,7 @@ dma2: DMA.STM32DMA @ sysbus 0x40026400
 rng: Miscellaneous.STM32F4_RNG @ sysbus 0x50060800
     -> nvic@80
 
-iwdg: Timers.STM32_IndependentWatchdog @ sysbus 0x40003000
+iwdg: Timers.STM32_IndependentWatchdog_Fixed @ sysbus 0x40003000
     frequency: 32000
     windowOption: false
     defaultPrescaler: 0x4
@@ -175,8 +176,9 @@ rtc: Timers.STM32F4_RTC @ sysbus 0x40002800
 
 gyro: Sensors.LSM330_Gyroscope_Fixed @ i2c3 0x6A
 
-rcc: Miscellaneous.STM32F4_RCC @ sysbus 0x40023800
+rcc: Miscellaneous.STM32F4_RCC_Fixed @ sysbus 0x40023800
     rtcPeripheral: rtc
+    independentWatchdog: iwdg
     Timer9Reset -> timer9@255
 
 timer1: Timers.STM32_Timer @ sysbus 0x40010000

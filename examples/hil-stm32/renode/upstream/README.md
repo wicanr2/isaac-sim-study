@@ -43,7 +43,7 @@ fork 分支 `stm32-rcc-reset-flags`(基於上游 `master` 0ab5d08)commit `09a162
 | `STM32F1_I2C.master-0ab5d08.cs` | 上游 `master` 的 `STM32F1_I2C` 逐字副本(檔頭加兩行註解)。1.16.1 只有 `STM32F4_I2C`,它在 STOP 與 repeated START 不呼叫從端的 `FinishTransmission()`,同一個從端的第二筆交易會被當成資料;`master` 換成這個模型(commit 033ee44)。F1/F2/F4 是同一代 I2C,`i @` 執行期載入,類名不變 |
 | `LSM330_Gyroscope.1.16.1.cs` / `LSM330_Gyroscope.patch` / `LSM330_Gyroscope_Fixed.cs` | 原版副本(1.16.1 與 `master` 相同)/ diff / 改名執行期載入版:靈敏度照 datasheet(8.75 / 17.5 / 70 mdps/digit,原版 130 digit/dps)、輸出飽和、補 WHO_AM_I_G = 0xD4 與 CTRL_REG1..3_G |
 | `LSM330_GyroscopeTests.cs` | 五條 NUnit;修正版 5/5、原版 0/5 |
-| `stm32f4-encoder-imu.repl` | `stm32f4-encoder-rccfix.repl` + I2C3 換 `STM32F1_I2C` + `gyro: Sensors.LSM330_Gyroscope_Fixed @ i2c3 0x6A`;`IMU=1 ./run_loop.sh` |
+| `stm32f4-encoder-imu.repl` / `stm32f4-encoder-imu-rccfix.repl` | `stm32f4-encoder.repl` / `stm32f4-encoder-rccfix.repl` + I2C3 換 `STM32F1_I2C` + `gyro: Sensors.LSM330_Gyroscope_Fixed @ i2c3 0x6A`。`run_loop.sh` 在 `encoder_source=tim` 時預設用它(`IMU=0` 拔掉);`RCCFIX=1` 選後者。Renode 1.16.1 的平台描述不能在 `using` 之後重宣告週邊(`E02: Variable 'i2c3' was already declared`),所以 IMU × RCCFIX 四種組合各一份完整副本,彼此 `diff` 只差對應的那幾行 |
 
 fork 分支 `lsm330-gyro-datasheet-sensitivity`(基於 `master` 0ab5d08)commit `4edd246` → [renode-infrastructure PR #254](https://github.com/renode/renode-infrastructure/pull/254)。`I2CPeripheralBase` 不看子位址 MSb 的自動遞增、`Read(count)` 永遠回 1 byte——韌體每筆交易只讀一個暫存器,這一項沒修。
 

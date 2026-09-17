@@ -115,7 +115,7 @@
 </tr>
 <tr>
 <td>C13</td>
-<td>打滑(<code>IMU=1</code>):沒有接觸 → SLIP 不得亮;轉角打滑(輪差轉角比車體多 0.02 rad)開始後 500 ms 內 SLIP,外部上位時亮起 0.5 s 後輪子停;只有平移打滑 → 只報延遲不判(§1.3)</td>
+<td>打滑(IMU 預設開;<code>IMU=0</code> 不驗):沒有接觸 → SLIP 不得亮;轉角打滑(輪差轉角比車體多 0.02 rad)開始後 500 ms 內 SLIP,外部上位時亮起 0.5 s 後輪子停;只有平移打滑 → 只報延遲不判(§1.3)</td>
 <td>車頂著障礙物打滑、上位以為到了</td>
 <td>誤報 0(四種情境);<code>slip-off</code> 紅</td>
 </tr>
@@ -287,7 +287,7 @@
 </table></div>
 <p>兩件事從表上讀得出來。一,(c) 最好,但 <strong>blind-scan 這個場景把雷射全改成最大距離</strong>——系統裡拿不到它;這個場景下能用的只有 (a) 與 (b)。二,(a) 只在車體與輪子的<strong>轉角</strong>分開時看得到:打滑 10 s 之後車頂住方塊不再轉(真值 θ 停在 1.571),輪子照轉、兩輪等速,陀螺儀與輪差都是 0。(b) 只抓得到撞上那一下。選 (a) 做在韌體;車體不轉的打滑留著當陀螺儀的盲區,表上寫明。</p>
 <p><strong>韌體。</strong> I2C3(PA8/PC9)接 LSM330 陀螺儀(7-bit 0x6A),暫存器與靈敏度照 datasheet(DocID023426 Rev 3):開機讀 WHO_AM_I_G = 0xD4、寫 CTRL_REG1_G = 0x0F;每個控制步讀 OUT_Z_L/H_G(每筆交易一個暫存器)。殘差 = |陀螺儀 − (右輪速 − 左輪速)/輪距| 的 10 步(50 ms)平均——輪速的量子是 1 tick / 5 ms = 15 mm/s,換成輪差 yaw rate 是 50 mrad/s,不平均就淹在量化裡。殘差 &gt; 45 mrad/s(離線表的 30 × 1.5)持續 50 ms → <code>SLIP</code>(flags 第 8 位,odom 框包末尾加 1 byte <code>flags_hi</code>)。韌體<strong>只回報不切</strong>:要停、要退是上位的事;driver 把 <code>SLIP</code> 與 <code>STALL</code>、<code>WDT_RESET</code> 同樣鎖住(§6.3)。命令歸零才解。沒有 IMU 的平台上 I2C 位址沒人回應(AF),韌體記下 <code>imu_whoami = 0x104</code>、不做打滑偵測;預設閉環的 CSV 與加 IMU 程式碼之前<strong>逐 byte 相同</strong>。</p>
-<p><strong>橋接扮演陀螺儀的機械部分。</strong> 每步用受控體真值位姿差分算 yaw rate,經 hook 寫進 Renode 裡感測器模型的 <code>AngularRateZ</code>——三個受控體同一份公式,不經受控體協定。韌體讀到的值對真值:落後一步,最大差 20 mrad/s、平均 2.1(轉向段 582 vs 580 mrad/s)。</p>
+<p><strong>橋接扮演陀螺儀的機械部分。</strong> 每步用受控體真值位姿差分算 yaw rate,經 hook 寫進 Renode 裡感測器模型的 <code>AngularRateZ</code>——三個受控體同一份公式,不經受控體協定。韌體讀到的值對真值:落後一步,最大差 20 mrad/s、平均 2.1(轉向段 582 vs 580 mrad/s)。陀螺儀要活在韌體的時鐘:韌體量到的輪速是「受控體位移 ÷ Renode 時間」,只用受控體的 dt 的話,兩個時鐘一分開,時鐘比就被當成打滑。所以寫進去的是<strong>受控體角速度 × 最近 200 ms 的時鐘比</strong>(受控體時間 ÷ Renode 時間,每步讀回 <code>t_us</code>)。不用單步的 Renode 時間當分母:realtime 下一步可能只走 0.02 ms,dθ 被放大上百倍。lockstep 沒有偏斜時比值恰為 1,預設腳本的 CSV 改前改後逐 byte 相同;<code>--skew</code>(35 篇 §5.1)下只用受控體 dt 時,沒有接觸也亮 SLIP——uniform:0.5 殘差最大 288 mrad/s、uniform:0.8 147——乘上時鐘比後 11 與 35,不亮;stall:100:2 停頓那一步殘差 71,未達 50 ms,不亮;<strong>stall:100:10 仍亮</strong>(殘差 1123):Renode 先跑 50 ms、這段時間編碼器不動而受控體還在轉,與同一列 C9 紅是同一件事——受控體的未來還不存在,感測器怎麼算都補不了。</p>
 <p><strong>Renode 的兩個缺口,都在閉環裡量到。</strong> 陀螺儀的模型與 I2C 主控端都不夠用(<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3):</p>
 <ul>
 <li>1.16.1 的 <code>STM32F4_I2C</code> 在 STOP 與 repeated START 都不呼叫從端的 <code>FinishTransmission()</code>。閉環量到:WHO_AM_I_G(開機第一筆交易)讀得對,之後陀螺儀恆為 −1687 mrad/s,0.545 s 誤報 SLIP。上游 <code>master</code> 已換成 <code>STM32F1_I2C</code>,執行期載入它的逐字副本。</li>
@@ -298,7 +298,7 @@
 <div class="tw"><table>
 <thead>
 <tr>
-<th>場景(<code>IMU=1</code>)</th>
+<th>場景(IMU 開)</th>
 <th>受控體</th>
 <th>沒接觸時 yaw 殘差最大</th>
 <th>SLIP</th>
@@ -410,6 +410,7 @@
 </tbody>
 </table></div>
 <p>Isaac 上的打滑是沿著方塊側滑、車體跟著轉,轉角在碰撞後 205 ms 就分開,SLIP 晚 10 ms 亮;driver 鎖住之後輪子不再推,odom 對真值只差 31 / 37 mm(§6.4 第 4 列的同一個場景沒有偵測時是 1631 / 1353 mm)。假受控體的 <code>slip-off</code> 重現了 Isaac 上的假成功——Nav2 以為到了、車頂在 1.16 m 外。打滑偵測開著時同一個場景 <code>canceled</code>:上位不知道車在哪,但至少知道自己不知道。</p>
+<p><strong>陀螺儀預設掛上</strong>(<code>run_loop.sh</code> 在 <code>encoder_source=tim</code> 時,<code>IMU=0</code> 拔掉;<code>RCCFIX</code> 與它獨立,四種組合各一份平台描述)。掛上之後全部重跑一輪(2026-09-17,lockstep,假受控體):預設腳本、FreeRTOS、<code>CAN=socketcan</code>、方形、Nav2 90 s、五個故障注入全綠,末端 900.8 / 0.4 / 0.8627 不變、兩次 CSV 逐 byte 相同;十一個負對照與 <code>blind-scan</code>、<code>no-latch</code> 照舊紅,<code>noinit-off</code> 原版 RCC 紅、<code>RCCFIX=1</code> 綠;C14 綠(末端 21 mm)、<code>static-map-odom</code> 紅(1502 mm)。<code>IMU=0</code> 的預設腳本末端與掛上時相同——陀螺儀只進打滑偵測,不進控制。<strong>realtime 下的 C13 還沒在閒時量過</strong>:realtime 的輪速量測在控制週期之間會跳(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1 的閒時 C9),50 ms 平均的輪差 yaw rate 跟著跳,這條判準在 realtime 會不會誤報要在閒時量,定因的紀錄在 <a href="https://github.com/wicanr2/isaac-sim-study/issues/7">issue #7</a>。</p>
 <h2 id="2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</h2>
 <p><code>./run_loop.sh --negative bad-crc</code> 把每個 cmd_vel 的最後一個 byte 反相:</p>
 <pre><code>[run] fw ... cmd_frames=0 enc_frames=1199 bad_crc=300 rx_overflow=0
@@ -422,7 +423,7 @@
 <p>紅在對的地方(C2),而且 C6 說明了<strong>為什麼</strong>紅:300 個壞框包全部被韌體擋下,一個都沒漏。沒有 C6 的話,「車不動」與「UART 根本沒接上」在 C2 上長得一樣。</p>
 <p>負對照要跟正對照用同一條指令、同一份腳本,只差一個旗標。它不是額外的測試,是「這套測試有效」的證據。</p>
 <h2 id="3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</h2>
-<p>同一腳本跑兩次,1201 行 CSV(每步 32 個欄位;realtime 多一欄 <code>wall_ms</code>:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)<strong>逐 byte 相同</strong>。靠的是 <a href="../../hil/37-bus-signal-bridging/">37 篇</a> §3 的 ack:每筆注入確認進了週邊才推進時間。</p>
+<p>同一腳本跑兩次,1201 行 CSV(每步 32 個欄位,掛陀螺儀時多 <code>gyro_z</code>、<code>yaw_resid</code> 兩欄;realtime 多一欄 <code>wall_ms</code>:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)<strong>逐 byte 相同</strong>。靠的是 <a href="../../hil/37-bus-signal-bridging/">37 篇</a> §3 的 ack:每筆注入確認進了週邊才推進時間。</p>
 <p>但換一個「同一個模型」的實作就不一樣了。<code>plant/fake_plant.py</code>(Python,走 UDP)與橋接內建的 Rust <code>Fake</code> 是同一組公式、同一份 calib:</p>
 <ul>
 <li>末端位姿 x 900.8、y 0.4、θ 0.8627 相同</li>

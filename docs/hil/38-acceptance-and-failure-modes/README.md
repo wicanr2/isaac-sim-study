@@ -35,7 +35,7 @@
 | C10 | 安全 I/O:`--fault` 注入的那一項在時限內反應(§1.2 的表) | 看門狗沒餵/沒起動、故障腳沒接、保險桿不擋、堵轉不鎖、心跳沒驗 | 沒注入時不驗;五項各自綠、五個 `*-off` 各自紅 |
 | C11 | Nav2:受控體真值到達 `world.goal` 0.1 m 內、途中沒撞(§6.2) | 規劃器沒避開雷射才看得到的方塊 | 只在 `UPPER=nav2` 驗;46 mm、碰撞 0;`blind-scan` 紅 |
 | C12 | 上位對 `WDT_RESET` 的反應:重啟 0.5 s 後車不再動;有重定位時(`RELOC=1`)只驗到解鎖為止(§6.3) | 上位不知道底盤重啟過、照送命令 | 只在 hang + 外部上位驗;`no-latch` 紅 |
-| C13 | 打滑(`IMU=1`):沒有接觸 → SLIP 不得亮;轉角打滑(輪差轉角比車體多 0.02 rad)開始後 500 ms 內 SLIP,外部上位時亮起 0.5 s 後輪子停;只有平移打滑 → 只報延遲不判(§1.3) | 車頂著障礙物打滑、上位以為到了 | 誤報 0(四種情境);`slip-off` 紅 |
+| C13 | 打滑(IMU 預設開;`IMU=0` 不驗):沒有接觸 → SLIP 不得亮;轉角打滑(輪差轉角比車體多 0.02 rad)開始後 500 ms 內 SLIP,外部上位時亮起 0.5 s 後輪子停;只有平移打滑 → 只報延遲不判(§1.3) | 車頂著障礙物打滑、上位以為到了 | 誤報 0(四種情境);`slip-off` 紅 |
 | C14 | 重啟後重定位(`RELOC=1`):解鎖 ≥ 重啟 + 1 s、最後真值到 goal 0.1 m 內、碰撞 0(§6.3) | 重啟後 odom 歸零、`map → odom` 仍是 identity | `static-map-odom` 紅 |
 
 任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 [30 篇](../../common/30-acceptance-probes-and-preregistration/README.md)。末端位姿 x 900.8、y 0.4、θ 0.8627 是這份 calib 下的參考值,裸機與 FreeRTOS 兩版韌體、三種編碼器注入法、UDP 受控體、vcan 路都要對上它(§3、[36 篇](../36-stm32-firmware-on-renode/README.md) §3.1、[39 篇](../39-freertos-firmware-in-the-loop/README.md) §3)。
@@ -113,7 +113,7 @@ C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌
 
 **韌體。** I2C3(PA8/PC9)接 LSM330 陀螺儀(7-bit 0x6A),暫存器與靈敏度照 datasheet(DocID023426 Rev 3):開機讀 WHO_AM_I_G = 0xD4、寫 CTRL_REG1_G = 0x0F;每個控制步讀 OUT_Z_L/H_G(每筆交易一個暫存器)。殘差 = \|陀螺儀 − (右輪速 − 左輪速)/輪距\| 的 10 步(50 ms)平均——輪速的量子是 1 tick / 5 ms = 15 mm/s,換成輪差 yaw rate 是 50 mrad/s,不平均就淹在量化裡。殘差 > 45 mrad/s(離線表的 30 × 1.5)持續 50 ms → `SLIP`(flags 第 8 位,odom 框包末尾加 1 byte `flags_hi`)。韌體**只回報不切**:要停、要退是上位的事;driver 把 `SLIP` 與 `STALL`、`WDT_RESET` 同樣鎖住(§6.3)。命令歸零才解。沒有 IMU 的平台上 I2C 位址沒人回應(AF),韌體記下 `imu_whoami = 0x104`、不做打滑偵測;預設閉環的 CSV 與加 IMU 程式碼之前**逐 byte 相同**。
 
-**橋接扮演陀螺儀的機械部分。** 每步用受控體真值位姿差分算 yaw rate,經 hook 寫進 Renode 裡感測器模型的 `AngularRateZ`——三個受控體同一份公式,不經受控體協定。韌體讀到的值對真值:落後一步,最大差 20 mrad/s、平均 2.1(轉向段 582 vs 580 mrad/s)。
+**橋接扮演陀螺儀的機械部分。** 每步用受控體真值位姿差分算 yaw rate,經 hook 寫進 Renode 裡感測器模型的 `AngularRateZ`——三個受控體同一份公式,不經受控體協定。韌體讀到的值對真值:落後一步,最大差 20 mrad/s、平均 2.1(轉向段 582 vs 580 mrad/s)。陀螺儀要活在韌體的時鐘:韌體量到的輪速是「受控體位移 ÷ Renode 時間」,只用受控體的 dt 的話,兩個時鐘一分開,時鐘比就被當成打滑。所以寫進去的是**受控體角速度 × 最近 200 ms 的時鐘比**(受控體時間 ÷ Renode 時間,每步讀回 `t_us`)。不用單步的 Renode 時間當分母:realtime 下一步可能只走 0.02 ms,dθ 被放大上百倍。lockstep 沒有偏斜時比值恰為 1,預設腳本的 CSV 改前改後逐 byte 相同;`--skew`(35 篇 §5.1)下只用受控體 dt 時,沒有接觸也亮 SLIP——uniform:0.5 殘差最大 288 mrad/s、uniform:0.8 147——乘上時鐘比後 11 與 35,不亮;stall:100:2 停頓那一步殘差 71,未達 50 ms,不亮;**stall:100:10 仍亮**(殘差 1123):Renode 先跑 50 ms、這段時間編碼器不動而受控體還在轉,與同一列 C9 紅是同一件事——受控體的未來還不存在,感測器怎麼算都補不了。
 
 **Renode 的兩個缺口,都在閉環裡量到。** 陀螺儀的模型與 I2C 主控端都不夠用([36 篇](../36-stm32-firmware-on-renode/README.md) §3):
 
@@ -124,7 +124,7 @@ C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌
 
 **C13 的判準分兩部分,依陀螺儀看得到什麼來分。** **轉角打滑**(輪差轉角比車體轉角累計多 0.02 rad 起算)要求 500 ms 內 SLIP(離線表 +165 ms 的 3 倍);**只有平移打滑**(輪行程比車體多 20 mm 起算,但轉角沒分開)只報延遲、不判——車正面頂住時陀螺儀要等 Nav2 開始修正方向、輪差出現才看得到,量到的延遲是 +750 ms 與 +1280 ms(下表兩次),這段時間 odom 多走 280–441 mm。沒有接觸的場景 SLIP 不得亮。負對照 `--negative slip-off` = 同一個 blind-scan 場景、`g_cfg` 關掉打滑偵測(不涉及重啟,`g_cfg` 的改動留得住)。
 
-| 場景(`IMU=1`) | 受控體 | 沒接觸時 yaw 殘差最大 | SLIP | 延遲(對轉角打滑 / 對平移打滑) | Nav2 結果 | C13 |
+| 場景(IMU 開) | 受控體 | 沒接觸時 yaw 殘差最大 | SLIP | 延遲(對轉角打滑 / 對平移打滑) | Nav2 結果 | C13 |
 |---|---|---|---|---|---|---|
 | 預設 6 s 腳本 | 假 | 9 mrad/s | 沒亮 | — | — | 綠 |
 | 預設 6 s 腳本,FreeRTOS | 假 | 9 | 沒亮 | — | — | 綠 |
@@ -139,6 +139,8 @@ C3 的容差寫成三項相加:韌體數值誤差(25 mm / 0.03 rad;0.9 mm 是韌
 | `slip-off` | Isaac 6.0.1 | 10 | **沒亮** | — | **`succeeded`,真值離 goal 2154 mm**;odom 對真值 1643 / 1334 mm | **紅** |
 
 Isaac 上的打滑是沿著方塊側滑、車體跟著轉,轉角在碰撞後 205 ms 就分開,SLIP 晚 10 ms 亮;driver 鎖住之後輪子不再推,odom 對真值只差 31 / 37 mm(§6.4 第 4 列的同一個場景沒有偵測時是 1631 / 1353 mm)。假受控體的 `slip-off` 重現了 Isaac 上的假成功——Nav2 以為到了、車頂在 1.16 m 外。打滑偵測開著時同一個場景 `canceled`:上位不知道車在哪,但至少知道自己不知道。
+
+**陀螺儀預設掛上**(`run_loop.sh` 在 `encoder_source=tim` 時,`IMU=0` 拔掉;`RCCFIX` 與它獨立,四種組合各一份平台描述)。掛上之後全部重跑一輪(2026-09-17,lockstep,假受控體):預設腳本、FreeRTOS、`CAN=socketcan`、方形、Nav2 90 s、五個故障注入全綠,末端 900.8 / 0.4 / 0.8627 不變、兩次 CSV 逐 byte 相同;十一個負對照與 `blind-scan`、`no-latch` 照舊紅,`noinit-off` 原版 RCC 紅、`RCCFIX=1` 綠;C14 綠(末端 21 mm)、`static-map-odom` 紅(1502 mm)。`IMU=0` 的預設腳本末端與掛上時相同——陀螺儀只進打滑偵測,不進控制。**realtime 下的 C13 還沒在閒時量過**:realtime 的輪速量測在控制週期之間會跳([35 篇](../35-hil-what-and-why/README.md) §5.1 的閒時 C9),50 ms 平均的輪差 yaw rate 跟著跳,這條判準在 realtime 會不會誤報要在閒時量,定因的紀錄在 [issue #7](https://github.com/wicanr2/isaac-sim-study/issues/7)。
 
 ## 2. 負對照:全綠證明不了測試在驗東西
 
@@ -159,7 +161,7 @@ Isaac 上的打滑是沿著方塊側滑、車體跟著轉,轉角在碰撞後 205
 
 ## 3. 決定性:逐 byte 比,而且是每個實作各自成立
 
-同一腳本跑兩次,1201 行 CSV(每步 32 個欄位;realtime 多一欄 `wall_ms`:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)**逐 byte 相同**。靠的是 [37 篇](../37-bus-signal-bridging/README.md) §3 的 ack:每筆注入確認進了週邊才推進時間。
+同一腳本跑兩次,1201 行 CSV(每步 32 個欄位,掛陀螺儀時多 `gyro_z`、`yaw_resid` 兩欄;realtime 多一欄 `wall_ms`:設定點、量測、CCR、腳位、旗標、受控體位姿、tick、odom、CAN duty)**逐 byte 相同**。靠的是 [37 篇](../37-bus-signal-bridging/README.md) §3 的 ack:每筆注入確認進了週邊才推進時間。
 
 但換一個「同一個模型」的實作就不一樣了。`plant/fake_plant.py`(Python,走 UDP)與橋接內建的 Rust `Fake` 是同一組公式、同一份 calib:
 
