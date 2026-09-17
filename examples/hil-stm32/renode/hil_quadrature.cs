@@ -173,4 +173,29 @@ namespace Antmicro.Renode.Hil
         private readonly object sensor;
         private readonly System.Reflection.PropertyInfo property;
     }
+
+    // 加速度計前進軸:hook 在模擬執行緒上把 micro-g 寫進感測器的 AccelerationX(單位 g),同 AngularRateFeeder
+    public class AccelerationFeeder
+    {
+        public AccelerationFeeder(object sensor)
+        {
+            this.sensor = sensor;
+            property = sensor.GetType().GetProperty("AccelerationX");
+            if(property == null)
+            {
+                throw new ArgumentException("sensor has no AccelerationX property");
+            }
+        }
+
+        public void Set(int microG)
+        {
+            property.SetValue(sensor, (decimal)microG / 1000000m);
+            Updates++;
+        }
+
+        public long Updates { get; private set; }
+
+        private readonly object sensor;
+        private readonly System.Reflection.PropertyInfo property;
+    }
 }

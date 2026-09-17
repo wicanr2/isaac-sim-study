@@ -12,6 +12,6 @@
 | 4 | [GOAL-2026-09-16-1547](GOAL-2026-09-16-1547.md) | 編碼器 encoder mode、加減速與馬達層、安全 I/O 五項、Nav2 in the loop | [#2](https://github.com/wicanr2/isaac-sim-study/issues/2)–[#5](https://github.com/wicanr2/isaac-sim-study/issues/5) | 完成 |
 | 5 | [GOAL-2026-09-16-1846](GOAL-2026-09-16-1846.md) | 閒時量測、兩版韌體去重、Isaac 側補齊、上位對安全旗標的反應、俯視圖錄影 | [#1](https://github.com/wicanr2/isaac-sim-study/issues/1)、[#3](https://github.com/wicanr2/isaac-sim-study/issues/3)–[#6](https://github.com/wicanr2/isaac-sim-study/issues/6) | 完成 |
 | 6 | [GOAL-2026-09-17-1240](GOAL-2026-09-17-1240.md) | realtime 連續注入、打滑偵測、IWDGRSTF 與 AMCL 重定位、Isaac 側次要項 | [#7](https://github.com/wicanr2/isaac-sim-study/issues/7)–[#10](https://github.com/wicanr2/isaac-sim-study/issues/10)、[#1](https://github.com/wicanr2/isaac-sim-study/issues/1) | 部分完成:#8–#10 完成;#7 realtime 閒時 C9 3/5、未達五次全綠,開放 |
-| 7 | [GOAL-2026-09-17-1700](GOAL-2026-09-17-1700.md) | IMU 優先:感測器誤差模型、加速度計補平移打滑、yaw 融合進 odom;#7 的 realtime 抖動 | 待開 | 未開始 |
+| 7 | [GOAL-2026-09-17-1700](GOAL-2026-09-17-1700.md) | IMU 優先:感測器誤差模型、加速度計補平移打滑、yaw 融合進 odom;#7 的 realtime 抖動 | [#11](https://github.com/wicanr2/isaac-sim-study/issues/11)–[#13](https://github.com/wicanr2/isaac-sim-study/issues/13)、[#7](https://github.com/wicanr2/isaac-sim-study/issues/7) | 進行中 |
 
 GOAL 1–3 的檔案產生時放在 `docs/hil/`,2026-09-17 集中到這個目錄;issue 留言裡引用的舊路徑沒有改寫。

@@ -52,6 +52,7 @@ ID_ENC_CONT_L    = 0xFFFF0022   # i32 plant ticks, i32 rate (milli-ticks/s): upd
 ID_ENC_CONT_R    = 0xFFFF0023   # same, right
 ID_ENC_CONT_TIME = 0xFFFF0025   # u64 virtual microseconds at which the plant was sampled (anchor time of the next updates)
 ID_GYRO_Z        = 0xFFFF0024   # i32 milli-dps: angular rate Z of the IMU gyroscope (sysbus.i2c3.gyro)
+ID_ACCEL_X       = 0xFFFF0026   # i32 micro-g: forward acceleration of the IMU accelerometer (sysbus.i2c3.accel)
 ID_ACK           = 0xFFFF00AC
 TIM3_CCR1        = 0x40000434
 TIM3_CCR2        = 0x40000438
@@ -197,6 +198,21 @@ def mc_hil_enc_stats():
 # IMU gyroscope: the property is set by a .NET helper for the same reason as the encoder feeder
 _gyro = {}
 
+_accel = {}
+
+def _accel_set(machine, micro_g):
+    if "feeder" not in _accel:
+        sensor = self.Machine["sysbus.i2c3.accel"]
+        asms = [a for a in System.AppDomain.CurrentDomain.GetAssemblies() if a.GetType("Antmicro.Renode.Hil.AccelerationFeeder") is not None]
+        T = asms[0].GetType("Antmicro.Renode.Hil.AccelerationFeeder")
+        _accel["feeder"] = System.Activator.CreateInstance(T, System.Array[System.Object]([sensor]))
+    fd = _accel["feeder"]
+    if emulationManager.CurrentEmulation.IsStarted:
+        machine.HandleTimeDomainEvent[System.Int32](System.Action[System.Int32](fd.Set), System.Int32(micro_g),
+                                                    TimeDomainsManager.Instance.GetEffectiveVirtualTimeStamp())
+    else:
+        fd.Set(int(micro_g))
+
 def _gyro_set(machine, milli_dps):
     if "feeder" not in _gyro:
         sensor = self.Machine["sysbus.i2c3.gyro"]
@@ -260,6 +276,9 @@ def _rx_loop():
                 _ack()
             elif rid == ID_GYRO_Z:
                 _gyro_set(machine, _i32(data[0:4]))
+                _ack()
+            elif rid == ID_ACCEL_X:
+                _accel_set(machine, _i32(data[0:4]))
                 _ack()
             elif rid == ID_ENC_CONT_CFG:
                 _cont_install(machine, tim_left, tim_right, _i32(data[0:4]))

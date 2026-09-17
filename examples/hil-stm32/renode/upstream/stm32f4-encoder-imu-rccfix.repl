@@ -176,6 +176,10 @@ rtc: Timers.STM32F4_RTC @ sysbus 0x40002800
 
 gyro: Sensors.LSM330_Gyroscope_Fixed @ i2c3 0x6A
 
+// accelerometer half of the same LSM330 (LSM330_Accelerometer_Fixed: datasheet sensitivity, WHO_AM_I_A, CTRL_REG4/5/7_A).
+// 7-bit address: datasheet sec. 6.1.1 text and Table 15 disagree on SDO_A; 0x1E here, same as the firmware. docs/hil/38 sec. 1.4.
+accel: Sensors.LSM330_Accelerometer_Fixed @ i2c3 0x1E
+
 rcc: Miscellaneous.STM32F4_RCC_Fixed @ sysbus 0x40023800
     rtcPeripheral: rtc
     independentWatchdog: iwdg

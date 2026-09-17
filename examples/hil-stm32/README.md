@@ -13,7 +13,10 @@ PLANT=udp ./run_loop.sh          # 受控體改走 UDP(plant/fake_plant.py,另�
 PLANT=remote ./run_loop.sh       # 受控體在場域 GPU 主機(先 tools/isaac_plant_ctl.sh sync + start),自動開 ssh -L
 WORLD=1 PLANT=remote ./run_loop.sh   # Isaac 版含牆與方塊(碰撞體)+ PhysX 射線雷射:那端要 WORLD=1 tools/isaac_plant_ctl.sh start;UPPER=nav2 / --fault 同樣可接
 FW=freertos ./run_loop.sh        # 韌體換 FreeRTOS 版;TIMERFIX=1 換修正版 STM32_Timer(renode/upstream/)
-./run_loop.sh                           # I2C3 預設掛 LSM330 陀螺儀(上游 master 的 STM32F1_I2C + 修正版陀螺儀):韌體算 yaw 殘差、打滑亮 SLIP;C13。IMU=0 拔掉;RCCFIX 與它獨立
+./run_loop.sh                           # I2C3 預設掛 LSM330 陀螺儀 + 加速度計(上游 master 的 STM32F1_I2C + 兩個修正版模型):韌體靜止時估零偏(之前亮 IMU_CAL、命令當 0)、陀螺儀抓轉角打滑、加速度計(±16 g)抓平移打滑、打滑片段航向改用陀螺儀;C13、C15。IMU=0 拔掉;RCCFIX 與它獨立
+./run_loop.sh --imu-noise datasheet     # 陀螺儀零偏 +10 dps、加速度計零點 +60 mg(LSM330 datasheet 典型值);--gyro-noise-mdps / --acc-noise-mg 加白雜訊(--imu-seed 固定);--negative gyro-bias-uncomp 關零偏估計 → C13 紅
+WORLD=1 CONTACT=slip ./run_loop.sh --scene head-on --world /w/world-headon.json   # 正面頂住方塊的決定性場景(C13 平移打滑);--negative accel-off / slip-off → 紅;不加 CONTACT 是凍結碰撞(SLIP 不得亮)
+WORLD=1 CONTACT=slip ./run_loop.sh --scene long-slip --world /w/world-headon.json # 打滑回報關掉、弧線頂住方塊(C15 航向);--negative fusion-off → 紅
 UPPER=nav2 CONTACT=slip ./run_loop.sh --seconds 60 --negative blind-scan   # 假受控體撞到後車體不動、輪子照轉;SLIP → driver 鎖住;--negative slip-off 關偵測 → Nav2 假成功
 UPPER=nav2 LOCALIZER=amcl RELOC=1 ./run_loop.sh --seconds 150 --fault hang --fault-at 8   # 重啟後 AMCL 重定位、解鎖、重送 goal;C14;--negative static-map-odom 不重定位 → 紅
 RCCFIX=1 ./run_loop.sh --fault hang     # RCC/IWDG 換修正版:看門狗重啟後 RCC_CSR = 0x20000000(IWDGRSTF);--negative noinit-off 橋接清 .noinit,韌體只剩 RCC_CSR 可信 → 原版紅、修正版綠
@@ -85,7 +88,8 @@ CAN=socketcan CANHUBFIX=1 ./run_loop.sh  # CAN 改走 Renode SocketCANBridge →
 - CAN 走 vcan(`CAN=socketcan`):1.16.1 原版 `CANHub` lockstep 下 14/399 訊框到韌體;修正版 399/399、ALL PASS、末端與 hook 路逐字相同、兩次 CSV 相同、每步 10 ms
 - RCC 重置旗標(`RCCFIX=1`,2026-09-17):上電 `RCC_CSR` 0x0E000000、IWDG 重啟後 0x20000000;`--negative noinit-off` 原版 C10 紅、修正版綠;開機前寫進 flash 的 `g_cfg` 在 IWDG 重啟後被 `LoadELF` 蓋回預設
 - 陀螺儀預設掛上之後全部重跑(2026-09-17,lockstep):正對照全綠、末端 900.8 / 0.4 / 0.8627 不變,十一個負對照照舊紅;陀螺儀乘上 200 ms 的時鐘比(受控體 ÷ Renode 時間),`--skew uniform:0.5` 沒有接觸時的殘差 288 → 11 mrad/s(38 篇 §1.3)
-- 打滑偵測(IMU 預設開,C13):正常四情境 yaw 殘差最大 9–11 mrad/s(Isaac 10–27,門檻 45)、誤報 0;blind-scan 假受控體 `CONTACT=slip` 對轉角打滑 +115 ms、Isaac +10 ms,Nav2 `canceled`;`slip-off` 兩個受控體都 Nav2 假成功(真值離 goal 2.2 m)、紅;原版 `STM32F4_I2C` 第二筆交易起壞(陀螺儀恆 −1687 mrad/s)
+- IMU 誤差與加速度計(2026-09-17,lockstep,datasheet 零偏):零偏 0.190 s 內估出(174 mrad/s、588 mm/s²),正常情境殘差最大 yaw 10 / 速度 11–24、誤報 0;`gyro-bias-uncomp` 0.545 s 誤報紅;head-on 加速度計 SLIP 在平移打滑起點前 15 ms、兩次逐 byte 相同,`accel-off` +1405 ms 紅、凍結碰撞不亮;±2 g 會在撞擊時飽和(漏判 + 凍結誤報),所以用 ±16 g;C15 融合開 0.002 rad、`fusion-off` 0.917、`gyro-bias-uncomp` 1.041(上限 0.100);陀螺儀白雜訊 σ 3 dps 撐得住、10 dps 誤報([36 篇 §3.2](../../docs/hil/36-stm32-firmware-on-renode/README.md)、[38 篇 §1.4–1.5](../../docs/hil/38-acceptance-and-failure-modes/README.md))
+- 打滑偵測(IMU 預設開,C13):正常四情境 yaw 殘差最大 9–11 mrad/s(Isaac 10–27,門檻 45)、誤報 0;blind-scan 假受控體 `CONTACT=slip` 只有平移打滑(陀螺儀 +750 / +1280 ms)、Isaac 轉角打滑 +0 ms,Nav2 `canceled`;`slip-off` 兩個受控體都 Nav2 假成功(真值離 goal 2.2 m)、紅;原版 `STM32F4_I2C` 第二筆交易起壞(陀螺儀恆 −1687 mrad/s)
 - 重啟後重定位(`LOCALIZER=amcl RELOC=1`,C14):初始猜測離真值 366 mm → 3.3 s 收斂到 27 mm / 0.001 rad、解鎖、到 goal 27 mm;`static-map-odom` 1544 mm 紅;只畫牆的地圖 180° 對稱,全域定位分不出鏡像
 - Isaac:預設腳本兩次 CSV 逐 byte 相同;realtime 下受控體每步 21 ms、跟不上 5 ms 節拍(Nav2 真值 137 mm);MPPI 對 DWB(假受控體):到達 16.2 / 15.5 s、停下 42.1 / 17.8 s、離方塊 161 / 96 mm
 - 上位對安全旗標的反應(C12):路上 8.0 s 死機、9.0 s 重啟 → driver 看到 WDT_RESET 鎖住(cmd_vel=0、cancel goal),重啟後最遠再走 16 mm;`no-latch` 負對照 Nav2 重送 goal 從歸零的 odom 開走(1170 步在動)紅

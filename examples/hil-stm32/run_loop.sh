@@ -47,7 +47,7 @@ if [ "$ENC_SRC" = tim ]; then
   [ "${TIMERFIX:-0}" = 1 ] && { echo "TIMERFIX=1 與 encoder_source=tim 目前不同時用(兩份平台描述)"; exit 2; }
   REPL=stm32f4-encoder
   ENC_PRE=(-e "i @/w/renode/upstream/STM32_Timer_Master.cs" -e "i @/w/renode/hil_quadrature.cs")
-  [ "$IMU" = 1 ] && { REPL=$REPL-imu; ENC_PRE+=(-e "i @/w/renode/upstream/STM32F1_I2C.master-0ab5d08.cs" -e "i @/w/renode/upstream/LSM330_Gyroscope_Fixed.cs"); }
+  [ "$IMU" = 1 ] && { REPL=$REPL-imu; ENC_PRE+=(-e "i @/w/renode/upstream/STM32F1_I2C.master-0ab5d08.cs" -e "i @/w/renode/upstream/LSM330_Gyroscope_Fixed.cs" -e "i @/w/renode/upstream/LSM330_Accelerometer_Fixed.cs"); }
   [ "${RCCFIX:-0}" = 1 ] && { REPL=$REPL-rccfix; ENC_PRE+=(-e "i @/w/renode/upstream/STM32_IndependentWatchdog_Fixed.cs" -e "i @/w/renode/upstream/STM32F4_RCC_Fixed.cs"); }
   ENC_PRE+=(-e "\$repl=@${IMU_REPL:-/w/renode/upstream/$REPL.repl}")   # IMU_REPL:原版模型對照用
 else
@@ -95,10 +95,21 @@ test -f "${ELF#/w/}" || { echo "沒有 ${ELF#/w/},先 BUILD=1"; exit 2; }
 test -x bridge-rs/target/release/hil-bridge || { echo "沒有橋接執行檔,先 BUILD=1"; exit 2; }
 
 mkdir -p out renode/out
+save_logs() {
+  [ -n "${LOGS_SAVED:-}" ] && return 0
+  LOGS_SAVED=1
+  docker logs "$NAME" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > out/renode.log || true
+  { [ "$UPPER" = ros ] || [ "$UPPER" = nav2 ]; } && { docker logs "$RNAME" > out/ros.log 2>&1 || true; }
+  [ "$PLANT" = "udp" ] && { docker logs "$PNAME" > out/plant.log 2>&1 || true; }
+  return 0
+}
+# 容器沒用 --rm:跑完要先 docker logs 存下來(中途失敗退出也要存),存完才停、才移除——只動這一輪自己起的三個名字
 cleanup() {
+  save_logs
   docker stop -t 2 "$NAME" >/dev/null 2>&1 || true
   docker stop -t 2 "$PNAME" >/dev/null 2>&1 || true
   docker stop -t 2 "$RNAME" >/dev/null 2>&1 || true
+  docker rm "$NAME" "$PNAME" "$RNAME" >/dev/null 2>&1 || true
   # remote.sh 用 exec 起 ssh,所以 TUNNEL_PID 就是 ssh 本身
   [ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null || true
 }
@@ -209,11 +220,9 @@ if [ "${RECORD:-0}" = 1 ]; then
   echo "[record] tools/topview.sh $LOG"
   tools/topview.sh "$LOG" "${TV_ARGS[@]}"
 fi
-docker logs "$NAME" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' > out/renode.log || true
+save_logs
 if [ "$UPPER" = ros ] || [ "$UPPER" = nav2 ]; then
-  docker logs "$RNAME" > out/ros.log 2>&1 || true
   grep "^\[square\]\|^\[scan_check\]\|^\[nav\]" out/ros.log || echo "[ros] 沒有結果行(看 out/ros.log)"
 fi
-[ "$PLANT" = "udp" ] && docker logs "$PNAME" > out/plant.log 2>&1 || true
 echo "[done] rc=$rc  CSV: $LOG  Renode log: out/renode.log  USART2: renode/out/usart2.txt"
 exit $rc

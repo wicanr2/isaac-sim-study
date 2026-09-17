@@ -13,13 +13,14 @@
 #include "crc16.h"
 #include "control.h"
 
-static dbg_common_t *D;   /* g_dbg 的共同前 23 字 */
+static dbg_common_t *D;   /* g_dbg 的共同前 30 字 */
 
 noinit_t g_noinit __attribute__((section(".noinit"), aligned(4)));
 
 cfg_t g_cfg __attribute__((aligned(4))) = { 0x48494C43u, PI_KP_Q8, PI_KI_Q8, ACCEL_LIMIT_MM_S2, FF_GAIN_Q8, ALPHA_LIMIT_MRAD_S2,
                                             IWDG_TIMEOUT_MS, 0, HB_TIMEOUT_MS, STALL_DUTY, STALL_MS, SAFETY_MASK,
-                                            SLIP_RESID_MRAD_S, SLIP_MS };
+                                            SLIP_RESID_MRAD_S, SLIP_MS, GYRO_BIAS_STILL_MS,
+                                            SLIP_VEL_MM_S, YAW_FUSION };
 
 void ctl_bind_dbg(dbg_common_t *dbg) { D = dbg; D->magic = 0x48494C31u; }
 
@@ -166,10 +167,23 @@ void ctl_encoder_init(void)
 #define LSM330_CTRL_REG1  0x20
 #define LSM330_OUT_Z_L    0x2C
 #define LSM330_OUT_Z_H    0x2D
+/* 加速度計(同一顆 LSM330 的另一半,DocID023426 Rev 3 Table 17)。7-bit 位址:§6.1.1 正文與 Table 15 對 SDO_A 的描述
+ * 不一致,這裡取 0x1E,與平台描述一致(docs/hil/38 §1.4) */
+#define ACC_ADDR            0x1E
+#define LSM330_WHO_AM_I_A   0x0F
+#define LSM330_WHO_AM_I_A_V 0x40
+#define LSM330_CTRL_REG5_A  0x20
+#define LSM330_CTRL_REG6_A  0x24
+#define LSM330_OUT_X_L_A    0x28
+#define LSM330_OUT_X_H_A    0x29
 #define I2C_SPIN          20000u     /* 每個等待的輪詢上限;沒回應就放棄,不卡控制步 */
 #define SLIP_WINDOW       10         /* 殘差滑動平均 10 個控制步 = 50 ms */
+#define GYRO_BIAS_N       256        /* 零偏移動平均的長度:256 步 = 1.28 s */
+#define GYRO_BIAS_MIN_N   20         /* 零偏累計不到 20 筆(100 ms)之前不做打滑判斷 */
+#define ACC_RESID_LAMBDA  0.99005f   /* exp(−5 ms / 0.5 s):速度殘差的漏積分,τ 0.5 s(docs/hil/38 §1.4) */
 
 static int s_imu_ok;
+static int s_acc_ok;
 
 /* 等 SR1 的某個位元;AF(沒有 ACK)或逾時就回負值 */
 static int i2c_wait(uint32_t mask)
@@ -253,6 +267,16 @@ void ctl_imu_init(void)
     D->imu_whoami = who;
     /* CTRL_REG1_G:PD = 1(normal mode)、Zen Yen Xen = 1 */
     s_imu_ok = who == LSM330_WHO_AM_I && i2c_write_reg(IMU_ADDR, LSM330_CTRL_REG1, 0x0F) == 0;
+
+    /* 加速度計:WHO_AM_I_A = 0x40;CTRL_REG5_A = 0111 0111(400 Hz、BDU 0、XYZ);CTRL_REG6_A = 0010 0000(±16 g、BW 800 Hz)。
+     * ±16 g 不是 ±2 g:受控體撞上障礙物時一步(5 ms)內把 300 mm/s 煞到 0,約 6 g;±2 g 飽和只積得出三分之一的速度變化,
+     * 平移打滑漏判、凍結碰撞反而誤報(docs/hil/38 §1.4) */
+    uint8_t wa = 0;
+    e = i2c_read_reg(ACC_ADDR, LSM330_WHO_AM_I_A, &wa);
+    if (e) { D->acc_whoami = 0x100u | (uint32_t)(-e); s_acc_ok = 0; return; }
+    D->acc_whoami = wa;
+    s_acc_ok = wa == LSM330_WHO_AM_I_A_V && i2c_write_reg(ACC_ADDR, LSM330_CTRL_REG5_A, 0x77) == 0
+            && i2c_write_reg(ACC_ADDR, LSM330_CTRL_REG6_A, 0x20) == 0;
 }
 
 void ctl_pwm_init(void)
@@ -419,6 +443,12 @@ static int32_t s_yaw_hist[SLIP_WINDOW];     /* 打滑:每步的(陀螺儀 − �
 static int s_yaw_idx;
 static int32_t s_slip_ms;                   /* 殘差超過門檻的累計毫秒 */
 static int s_slipped;                       /* 打滑鎖住,命令歸零才解 */
+static int32_t s_still_ms;                  /* 陀螺儀零偏:連續靜止(命令 0、兩輪 CNT 不動)的毫秒 */
+static int32_t s_bias_sum, s_bias_n;        /* 零偏移動平均:前 GYRO_BIAS_N 筆算術平均,之後 sum += gz − sum/N */
+static int32_t s_abias_sum, s_abias_n;      /* 加速度計前進軸的零偏,同上 */
+static float s_vel_resid;                   /* 平移打滑:漏積分的速度殘差 mm/s */
+static int32_t s_v_wheel_prev;              /* 上一步的輪速(兩輪平均)mm/s */
+static int32_t s_slip_acc_ms;               /* 速度殘差超過門檻的累計毫秒 */
 
 /* 里程計用浮點(soft-float,由 libgcc 提供);沒有 libm,所以 sin/cos 自己寫。 */
 static float s_x_mm, s_y_mm, s_th_rad;
@@ -474,34 +504,86 @@ void ctl_control_step(uint32_t now)
         s_enc_new = 0;
     }
 
-    /* 里程計:差速模型,中點法 */
+    /* 打滑(轉角):陀螺儀量到的 yaw rate 對輪差推出的 yaw rate。輪子頂著障礙物打滑時編碼器照數、車體不照轉,
+     * 兩者分開;車體沒轉的打滑(正面頂住)這裡看不到,交給下面的加速度計(docs/hil/38 §1.3、§1.4)。殘差取
+     * SLIP_WINDOW 步的平均,因為輪速的量子是 1 tick / 5 ms = 15 mm/s → 輪差 yaw rate 一步 50 mrad/s。
+     * 零偏:datasheet 的典型零點 ±10 dps = 174.5 mrad/s,是打滑門檻的好幾倍(docs/hil/36 §3.2)。車靜止(命令 0、
+     * 兩輪 CNT 都不動)滿 gyro_bias_still_ms 才累計;前 GYRO_BIAS_N 筆算術平均,之後移動平均。零偏累計不到
+     * GYRO_BIAS_MIN_N 之前不做打滑判斷。gyro_bias_still_ms = 0 不估,零偏固定 0。加速度計用同一個靜止條件。 */
+    int32_t yaw_resid = 0;
+    int bias_ok = 1, acc_bias_ok = 1, have_gyro = 0;
+    int32_t gz = 0, gbias = 0;
+    /* 靜止 = 斜坡後的命令為 0(上一步的值)且兩輪 CNT 都不動。看斜坡後而不是收到的命令:校正期間命令被閘成 0,
+     * 上位一直送非零命令也要能靜止下來估完 */
+    int still = (s_v_ramp == 0 && s_w_ramp == 0 && dl == 0 && dr == 0);
+    s_still_ms = still ? s_still_ms + CONTROL_PERIOD_MS : 0;
+    int bias_window = g_cfg.gyro_bias_still_ms > 0 && s_still_ms >= g_cfg.gyro_bias_still_ms;
+    if (g_cfg.gyro_bias_still_ms <= 0) { s_bias_sum = 0; s_bias_n = 0; s_abias_sum = 0; s_abias_n = 0; }
+    if (s_imu_ok) {
+        uint8_t lo = 0, hi = 0;
+        if (i2c_read_reg(IMU_ADDR, LSM330_OUT_Z_L, &lo) == 0 && i2c_read_reg(IMU_ADDR, LSM330_OUT_Z_H, &hi) == 0) {
+            int16_t raw = (int16_t)(lo | (hi << 8));
+            gz = (int32_t)raw * 1527 / 10000;                       /* 8.75 mdps/digit = 0.1527 mrad/s */
+            have_gyro = 1;
+            if (bias_window) {
+                if (s_bias_n < GYRO_BIAS_N) { s_bias_sum += gz; s_bias_n++; }
+                else s_bias_sum += gz - s_bias_sum / GYRO_BIAS_N;
+            }
+            gbias = (g_cfg.gyro_bias_still_ms > 0 && s_bias_n > 0) ? s_bias_sum / s_bias_n : 0;
+            int32_t ww = (s_meas_r - s_meas_l) * 1000 / TRACK_MM;   /* mrad/s */
+            s_yaw_hist[s_yaw_idx] = (gz - gbias) - ww;
+            s_yaw_idx = (s_yaw_idx + 1) % SLIP_WINDOW;
+            D->gyro_z = gz;
+        }
+        if (g_cfg.gyro_bias_still_ms > 0) bias_ok = s_bias_n >= GYRO_BIAS_MIN_N;
+        D->gyro_bias = bias_ok ? gbias : 0x7FFFFFFF;
+        int32_t sum = 0;
+        for (int i = 0; i < SLIP_WINDOW; i++) sum += s_yaw_hist[i];
+        yaw_resid = (sum < 0 ? -sum : sum) / SLIP_WINDOW;
+        D->yaw_resid = yaw_resid;
+    }
+
+    /* 里程計:差速模型,中點法。航向增量預設用輪差;yaw_fusion 開、零偏已估出、而且上面的殘差平均超過打滑門檻時,
+     * 這一步改用「陀螺儀 − 零偏」(gyrodometry:兩者對不上的片段才換陀螺儀,正常行駛完全不吃陀螺儀的零偏漂移;
+     * docs/hil/38 §1.5)。距離仍用輪子。 */
     float dl_mm = (float)dl * ((float)WHEEL_CIRC_UM / 1000.0f) / (float)ENC_TICKS_PER_REV;
     float dr_mm = (float)dr * ((float)WHEEL_CIRC_UM / 1000.0f) / (float)ENC_TICKS_PER_REV;
     float ds = (dl_mm + dr_mm) * 0.5f;
     float dth = (dr_mm - dl_mm) / (float)TRACK_MM;
+    if (g_cfg.yaw_fusion && s_imu_ok && have_gyro && bias_ok && yaw_resid > g_cfg.slip_mrad_s) {
+        dth = (float)(gz - gbias) * 0.001f * (float)CONTROL_PERIOD_MS * 0.001f;
+        D->gyro_steps++;
+    }
     float th_mid = s_th_rad + dth * 0.5f;
     s_x_mm += ds * fcos(th_mid);
     s_y_mm += ds * fsin(th_mid);
     s_th_rad += dth;
 
-    /* 打滑:陀螺儀量到的 yaw rate 對輪差推出的 yaw rate。輪子頂著障礙物打滑時編碼器照數、車體不照轉,
-     * 兩者分開;車體沒轉的打滑(正面頂住)這裡看不到(docs/hil/38 §1.2)。殘差取 SLIP_WINDOW 步的平均,
-     * 因為輪速的量子是 1 tick / 5 ms = 15 mm/s → 輪差 yaw rate 一步 50 mrad/s。 */
-    int32_t yaw_resid = 0;
-    if (s_imu_ok) {
+    /* 打滑(平移):加速度計前進軸對輪速。e = 漏積分(a_x − 零偏 − 輪速微分),τ = ACC_RESID_TAU_S;車體與輪子一起動時
+     * e ≈ 0,輪子轉而車體不動時 e 跟著輪速長出來(撞上的那一步就跳到車速)。靜止時清零。離線分離度與門檻的出處:
+     * docs/hil/38 §1.4。0.732 mg/digit(±16 g)= 7.178 mm/s²/digit。 */
+    int32_t vel_resid = 0;
+    if (s_acc_ok) {
         uint8_t lo = 0, hi = 0;
-        if (i2c_read_reg(IMU_ADDR, LSM330_OUT_Z_L, &lo) == 0 && i2c_read_reg(IMU_ADDR, LSM330_OUT_Z_H, &hi) == 0) {
+        int32_t v_wheel = (s_meas_l + s_meas_r) / 2;
+        if (i2c_read_reg(ACC_ADDR, LSM330_OUT_X_L_A, &lo) == 0 && i2c_read_reg(ACC_ADDR, LSM330_OUT_X_H_A, &hi) == 0) {
             int16_t raw = (int16_t)(lo | (hi << 8));
-            int32_t gz = (int32_t)raw * 1527 / 10000;               /* 8.75 mdps/digit = 0.1527 mrad/s */
-            int32_t ww = (s_meas_r - s_meas_l) * 1000 / TRACK_MM;   /* mrad/s */
-            s_yaw_hist[s_yaw_idx] = gz - ww;
-            s_yaw_idx = (s_yaw_idx + 1) % SLIP_WINDOW;
-            D->gyro_z = gz;
+            int32_t ax = (int32_t)raw * 7178 / 1000;                 /* mm/s² */
+            if (bias_window) {
+                if (s_abias_n < GYRO_BIAS_N) { s_abias_sum += ax; s_abias_n++; }
+                else s_abias_sum += ax - s_abias_sum / GYRO_BIAS_N;
+            }
+            int32_t abias = (g_cfg.gyro_bias_still_ms > 0 && s_abias_n > 0) ? s_abias_sum / s_abias_n : 0;
+            if (g_cfg.gyro_bias_still_ms > 0) acc_bias_ok = s_abias_n >= GYRO_BIAS_MIN_N;
+            if (still || !acc_bias_ok) s_vel_resid = 0.0f;
+            else s_vel_resid = s_vel_resid * ACC_RESID_LAMBDA
+                             + (float)(ax - abias) * (float)CONTROL_PERIOD_MS * 0.001f - (float)(v_wheel - s_v_wheel_prev);
+            D->acc_x = ax;
+            D->acc_bias = acc_bias_ok ? abias : 0x7FFFFFFF;
         }
-        int32_t sum = 0;
-        for (int i = 0; i < SLIP_WINDOW; i++) sum += s_yaw_hist[i];
-        yaw_resid = (sum < 0 ? -sum : sum) / SLIP_WINDOW;
-        D->yaw_resid = yaw_resid;
+        s_v_wheel_prev = v_wheel;
+        vel_resid = (int32_t)(s_vel_resid < 0 ? -s_vel_resid : s_vel_resid);
+        D->vel_resid = vel_resid;
     }
 
     /* 安全閘門。兩種處置:「切」= 致能關、duty 0、積分清(急停、命令逾時、驅動器故障、堵轉);
@@ -514,6 +596,8 @@ void ctl_control_step(uint32_t now)
     if (!s_have_cmd || now - s_last_cmd_ms > CMD_TIMEOUT_MS) { flags |= ODOM_FLAG_CMD_STALE; enable = 0; }
     if ((mask & SAFETY_DRV_FAULT) && drv_fault_asserted()) { flags |= ODOM_FLAG_DRV_FAULT; enable = 0; }
     if ((mask & SAFETY_BUMPER) && bumper_asserted()) { flags |= ODOM_FLAG_BUMPER; if (cmd_v > 0) cmd_v = 0; }
+    /* IMU 零偏還沒估出來:打滑偵測與航向融合都不能用,命令當 0 讓車靜止下來估(真板開機校正陀螺儀的做法;docs/hil/36 §3.2) */
+    if ((s_imu_ok && !bias_ok) || (s_acc_ok && !acc_bias_ok)) { flags |= ODOM_FLAG_IMU_CAL; cmd_v = 0; cmd_w = 0; }
     if ((mask & SAFETY_HB) && g_cfg.hb_timeout_ms > 0
         && (!s_have_ping || now - s_last_ping_ms > (uint32_t)g_cfg.hb_timeout_ms)) {
         flags |= ODOM_FLAG_HB_LOST; cmd_v = 0; cmd_w = 0;
@@ -529,12 +613,16 @@ void ctl_control_step(uint32_t now)
         if (s_stalled) { flags |= ODOM_FLAG_STALL; enable = 0; }
     }
     /* 打滑:只回報,不切——車頂著東西時要停還是要退是上位的決定(driver 鎖住,§6.3 的 C12 同一套) */
-    if ((mask & SAFETY_SLIP) && s_imu_ok) {
+    if ((mask & SAFETY_SLIP) && s_imu_ok && bias_ok) {
         s_slip_ms = yaw_resid > g_cfg.slip_mrad_s ? s_slip_ms + CONTROL_PERIOD_MS : 0;
-        if (s_slip_ms >= g_cfg.slip_ms) s_slipped = 1;
-        if (s_cmd_v == 0 && s_cmd_w == 0) { s_slipped = 0; s_slip_ms = 0; }
-        if (s_slipped) flags |= ODOM_FLAG_SLIP;
+        if (s_slip_ms >= g_cfg.slip_ms && !s_slipped) { s_slipped = 1; D->slip_src |= 1; }
     }
+    if ((mask & SAFETY_SLIP_ACC) && s_acc_ok && acc_bias_ok) {
+        s_slip_acc_ms = vel_resid > g_cfg.slip_vel_mm_s ? s_slip_acc_ms + CONTROL_PERIOD_MS : 0;
+        if (s_slip_acc_ms >= g_cfg.slip_ms && !s_slipped) { s_slipped = 1; D->slip_src |= 2; }
+    }
+    if (s_cmd_v == 0 && s_cmd_w == 0) { s_slipped = 0; s_slip_ms = 0; s_slip_acc_ms = 0; }
+    if (s_slipped) flags |= ODOM_FLAG_SLIP;
 
     if (enable) {
         flags |= ODOM_FLAG_ENABLED;

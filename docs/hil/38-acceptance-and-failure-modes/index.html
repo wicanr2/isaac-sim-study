@@ -13,14 +13,14 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十四項判準在開跑前寫死">1. 十四項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l3"><a href="#13-打滑陀螺儀-yaw-rate-對輪差-yaw-ratec13">1.3 打滑:陀螺儀 yaw rate 對輪差 yaw rate(C13)</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l3"><a href="#62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</a></li><li class="l3"><a href="#63-上位對安全旗標的反應c12">6.3 上位對安全旗標的反應:C12</a></li><li class="l3"><a href="#64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</a></li><li class="l3"><a href="#65-每個實驗一支俯視圖錄影">6.5 每個實驗一支俯視圖錄影</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十五項判準在開跑前寫死">1. 十五項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l3"><a href="#13-打滑陀螺儀-yaw-rate-對輪差-yaw-ratec13">1.3 打滑:陀螺儀 yaw rate 對輪差 yaw rate(C13)</a></li><li class="l3"><a href="#14-平移打滑加速度計c13-第二部分">1.4 平移打滑:加速度計(C13 第二部分)</a></li><li class="l3"><a href="#15-航向陀螺儀進里程計c15">1.5 航向:陀螺儀進里程計(C15)</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l3"><a href="#62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</a></li><li class="l3"><a href="#63-上位對安全旗標的反應c12">6.3 上位對安全旗標的反應:C12</a></li><li class="l3"><a href="#64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</a></li><li class="l3"><a href="#65-每個實驗一支俯視圖錄影">6.5 每個實驗一支俯視圖錄影</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="38-驗收與失敗形態先閉環再換-isaac">38 · 驗收與失敗形態:先閉環,再換 Isaac</h1>
 <p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後是把受控體換成 Isaac Sim 6.0.1 時七件事各量到什麼。</p>
 <blockquote>
 <p><strong>驗證狀態</strong>:§1–§5 在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 在場域 GPU 主機實測(Isaac Sim 6.0.1 pip 版,PhysX、CPU 求解、TGS;Renode 與橋接留在本機,受控體經 <code>ssh -L</code> 隧道,同日)。</p>
 </blockquote>
-<h2 id="1-十四項判準在開跑前寫死">1. 十四項判準,在開跑前寫死</h2>
+<h2 id="1-十五項判準在開跑前寫死">1. 十五項判準,在開跑前寫死</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/run_loop.sh"><code>run_loop.sh</code></a> 一條指令:起 Renode 容器(<code>--network none</code>)、橋接容器共用它的 netns、跑完只停自己起的那一個。橋接開頭先印生效證明:</p>
 <pre><code>[effect] encoder: calib=tim inject=hook
 [effect] renode ec=127.0.0.1:3500 hook=127.0.0.1:3600 machine=hilctl boot_ms=102 t0_us=102000
@@ -115,9 +115,15 @@
 </tr>
 <tr>
 <td>C13</td>
-<td>打滑(IMU 預設開;<code>IMU=0</code> 不驗):沒有接觸 → SLIP 不得亮;轉角打滑(輪差轉角比車體多 0.02 rad)開始後 500 ms 內 SLIP,外部上位時亮起 0.5 s 後輪子停;只有平移打滑 → 只報延遲不判(§1.3)</td>
+<td>打滑(IMU 預設開;<code>IMU=0</code> 不驗):沒有接觸 → SLIP 不得亮;轉角打滑(輪差轉角比車體多 0.02 rad)開始後 500 ms 內 SLIP(陀螺儀,§1.3);平移打滑(輪行程比車體多 20 mm)開始後 150 ms 內 SLIP(加速度計,§1.4);接觸但沒打滑(輪子凍結)→ SLIP 不得亮;外部上位時亮起 0.5 s 後輪子停</td>
 <td>車頂著障礙物打滑、上位以為到了</td>
-<td>誤報 0(四種情境);<code>slip-off</code> 紅</td>
+<td>誤報 0(四種情境);<code>slip-off</code>、<code>accel-off</code>、<code>gyro-bias-uncomp</code> 紅</td>
+</tr>
+<tr>
+<td>C15</td>
+<td>長打滑下的航向(<code>--scene long-slip</code>):第一次碰撞之後,odom θ 對真值的最大誤差 ≤ 上限(§1.5)</td>
+<td>odom 航向只看輪差,打滑時一路錯</td>
+<td><code>fusion-off</code> 紅</td>
 </tr>
 <tr>
 <td>C14</td>
@@ -128,7 +134,7 @@
 </tbody>
 </table></div>
 <p>任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 <a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a>。末端位姿 x 900.8、y 0.4、θ 0.8627 是這份 calib 下的參考值,裸機與 FreeRTOS 兩版韌體、三種編碼器注入法、UDP 受控體、vcan 路都要對上它(§3、<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.1、<a href="../../hil/39-freertos-firmware-in-the-loop/">39 篇</a> §3)。</p>
-<p>負對照有十一個,每一個只差一個旗標:<code>--negative bad-crc</code>(§2)、<code>--negative enc-swap</code>(編碼器 A/B 對調:韌體量到負速度,PI 正回饋把車推到 5.3 m,C3、C8、C9 紅)、<code>--negative no-ramp</code>(§1.1)、五個安全 I/O 的 <code>*-off</code> 與 <code>noinit-off</code>(§1.2)、<code>slip-off</code>(§1.3)、<code>static-map-odom</code>(§6.3)。上位側的 <code>no-latch</code>、<code>blind-scan</code> 另計。</p>
+<p>負對照有十二個,每一個只差一個旗標:<code>--negative bad-crc</code>(§2)、<code>--negative enc-swap</code>(編碼器 A/B 對調:韌體量到負速度,PI 正回饋把車推到 5.3 m,C3、C8、C9 紅)、<code>--negative no-ramp</code>(§1.1)、五個安全 I/O 的 <code>*-off</code> 與 <code>noinit-off</code>(§1.2)、<code>slip-off</code> 與 <code>gyro-bias-uncomp</code>(§1.3)、<code>static-map-odom</code>(§6.3)。上位側的 <code>no-latch</code>、<code>blind-scan</code> 另計。</p>
 <h3 id="11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</h3>
 <p>第一版韌體的 PI 直接追上位的階躍,受控體的馬達是「duty 乘滿速再一階趨近」——沒有死區、沒有扭矩上限。300 mm/s 的步階在假受控體上升 40 ms、超調 15%、最大加速度 9300 mm/s²;在 Isaac 上 <code>DriveAPI</code> 直接吃 duty,超調 60%、最大加速度 91400 mm/s²,在 ±2% 帶外晃了 525 ms。這兩個數字都不是「車」的行為,是「沒有動態限制的控制器 + 沒有物理上限的馬達」的行為。改了三件事,每一件放在它該在的那一層:</p>
 <p align="center"><img src="../../img/hil-ramp-and-motor-layer.svg" width="860" alt="命令到輪速的鏈:斜坡與 PI 在韌體、馬達層在受控體;兩張步階圖是假受控體與 Isaac 的前後對照"></p>
@@ -294,7 +300,8 @@
 <li><code>LSM330_Gyroscope</code> 的靈敏度是 130 digit/dps(datasheet 114.3),WHO_AM_I_G 讀 0。修在模型(<a href="https://github.com/renode/renode-infrastructure/pull/254">PR #254</a>);原版陀螺儀上韌體讀到 WHO_AM_I_G = 0,當成沒有 IMU。</li>
 </ul>
 <p><strong>假受控體要能打滑。</strong> <code>CONTACT=slip</code>:碰撞時車體停在原地,輪子照馬達層轉、編碼器照數(Rust <code>Fake</code> 與 <code>fake_plant.py</code> 同一份)。預設 <code>freeze</code> 不變——凍結時是 <code>STALL</code> 接手。</p>
-<p><strong>C13 的判準分兩部分,依陀螺儀看得到什麼來分。</strong> <strong>轉角打滑</strong>(輪差轉角比車體轉角累計多 0.02 rad 起算)要求 500 ms 內 SLIP(離線表 +165 ms 的 3 倍);<strong>只有平移打滑</strong>(輪行程比車體多 20 mm 起算,但轉角沒分開)只報延遲、不判——車正面頂住時陀螺儀要等 Nav2 開始修正方向、輪差出現才看得到,量到的延遲是 +750 ms 與 +1280 ms(下表兩次),這段時間 odom 多走 280–441 mm。沒有接觸的場景 SLIP 不得亮。負對照 <code>--negative slip-off</code> = 同一個 blind-scan 場景、<code>g_cfg</code> 關掉打滑偵測(不涉及重啟,<code>g_cfg</code> 的改動留得住)。</p>
+<p><strong>C13 的判準分兩部分,依陀螺儀看得到什麼來分。</strong> <strong>轉角打滑</strong>(第一次碰撞之後,輪差轉角減車體轉角的<strong>帶號</strong>累計超過 0.02 rad 起算)要求 500 ms 內 SLIP(離線表 +165 ms 的 3 倍)。累計要帶號:逐步取絕對值會把編碼器量化(每步 ±1 tick = 0.26 mrad)一起加進去,沒有接觸的正常行駛(假受控體預設腳本、方形、Nav2 90 s,Isaac Nav2 90 s)動起來 0.8–3.7 s 就累計到 0.02 rad,帶號累計最大只有 0.0007 rad。<strong>只有平移打滑</strong>(輪行程比車體多 20 mm 起算,但轉角沒分開)在沒有加速度計時只報延遲、不判(§1.4 補上)——車正面頂住時陀螺儀要等 Nav2 開始修正方向、輪差出現才看得到,量到的延遲是 +750 ms 與 +1280 ms(下表兩次),這段時間 odom 多走 280–441 mm。沒有接觸的場景 SLIP 不得亮。負對照 <code>--negative slip-off</code> = 同一個 blind-scan 場景、<code>g_cfg</code> 關掉打滑偵測(不涉及重啟,<code>g_cfg</code> 的改動留得住)。</p>
+<p><strong>感測器帶誤差時,C13 的定義不變。</strong> 橋接 <code>--imu-noise datasheet</code> 給陀螺儀一個典型零點(+10 dps,<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.2 的 datasheet 表),韌體靜止時估零偏、扣掉再算殘差;門檻 45 mrad/s、持續 50 ms、500 ms 期限都不動。負對照 <strong><code>--negative gyro-bias-uncomp</code></strong> = 同樣注入 +10 dps 零偏、<code>g_cfg.gyro_bias_still_ms = 0</code> 關掉估計:沒有接觸的場景 C13 要紅(殘差恆在零偏那一帶)。</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -358,9 +365,9 @@
 <td>假</td>
 <td>8–9</td>
 <td>亮</td>
-<td>第二次 <strong>+115 ms</strong> / +750 ms;第一次 — / +1280 ms</td>
+<td>只有平移打滑(轉角帶號累計 0.002 / 0.015 rad):— / +750 ms;— / +1280 ms</td>
 <td><code>canceled</code></td>
-<td>綠(第二次)</td>
+<td>只報(沒有加速度計時)</td>
 </tr>
 <tr>
 <td><code>slip-off</code></td>
@@ -394,7 +401,7 @@
 <td>Isaac 6.0.1</td>
 <td>11</td>
 <td>亮(碰撞後 215 ms)</td>
-<td><strong>+10 ms</strong> / −30 ms(轉角先分開)</td>
+<td><strong>+0 ms</strong> / −30 ms(轉角先分開)</td>
 <td><code>canceled</code>;odom 對真值 31 / 37 mm</td>
 <td>綠</td>
 </tr>
@@ -409,8 +416,285 @@
 </tr>
 </tbody>
 </table></div>
-<p>Isaac 上的打滑是沿著方塊側滑、車體跟著轉,轉角在碰撞後 205 ms 就分開,SLIP 晚 10 ms 亮;driver 鎖住之後輪子不再推,odom 對真值只差 31 / 37 mm(§6.4 第 4 列的同一個場景沒有偵測時是 1631 / 1353 mm)。假受控體的 <code>slip-off</code> 重現了 Isaac 上的假成功——Nav2 以為到了、車頂在 1.16 m 外。打滑偵測開著時同一個場景 <code>canceled</code>:上位不知道車在哪,但至少知道自己不知道。</p>
+<p>Isaac 上的打滑是沿著方塊側滑、車體跟著轉,轉角在碰撞後 215 ms 分開(帶號累計過 0.02 rad),SLIP 在同一步亮;假受控體 <code>CONTACT=slip</code> 的碰撞是正面頂住,轉角沒有分開,兩次都只有平移打滑;driver 鎖住之後輪子不再推,odom 對真值只差 31 / 37 mm(§6.4 第 4 列的同一個場景沒有偵測時是 1631 / 1353 mm)。假受控體的 <code>slip-off</code> 重現了 Isaac 上的假成功——Nav2 以為到了、車頂在 1.16 m 外。打滑偵測開著時同一個場景 <code>canceled</code>:上位不知道車在哪,但至少知道自己不知道。</p>
 <p><strong>陀螺儀預設掛上</strong>(<code>run_loop.sh</code> 在 <code>encoder_source=tim</code> 時,<code>IMU=0</code> 拔掉;<code>RCCFIX</code> 與它獨立,四種組合各一份平台描述)。掛上之後全部重跑一輪(2026-09-17,lockstep,假受控體):預設腳本、FreeRTOS、<code>CAN=socketcan</code>、方形、Nav2 90 s、五個故障注入全綠,末端 900.8 / 0.4 / 0.8627 不變、兩次 CSV 逐 byte 相同;十一個負對照與 <code>blind-scan</code>、<code>no-latch</code> 照舊紅,<code>noinit-off</code> 原版 RCC 紅、<code>RCCFIX=1</code> 綠;C14 綠(末端 21 mm)、<code>static-map-odom</code> 紅(1502 mm)。<code>IMU=0</code> 的預設腳本末端與掛上時相同——陀螺儀只進打滑偵測,不進控制。<strong>realtime 下的 C13 還沒在閒時量過</strong>:realtime 的輪速量測在控制週期之間會跳(<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1 的閒時 C9),50 ms 平均的輪差 yaw rate 跟著跳,這條判準在 realtime 會不會誤報要在閒時量,定因的紀錄在 <a href="https://github.com/wicanr2/isaac-sim-study/issues/7">issue #7</a>。</p>
+<h3 id="14-平移打滑加速度計c13-第二部分">1.4 平移打滑:加速度計(C13 第二部分)</h3>
+<p>§1.3 的陀螺儀看不到車體沒轉的打滑。車正面頂住障礙物、兩輪等速時,陀螺儀與輪差都是 0,C13 原本只能報延遲。GOAL 6 的離線表量過「真值前進加速度 − 輪速微分」這個直接比法:只抓得到撞上那一下,打滑期間超過門檻的步數只佔 0.1%。持續打滑時車體加速度是 0,輪速也不變,兩邊都沒有訊號。所以候選換成能留住狀態的訊號,先離線比。</p>
+<p><strong>離線分離度</strong>(2026-09-17)。資料:假受控體 blind-scan <code>CONTACT=slip</code> 三次、Isaac 6.0.1 blind-scan 兩次、凍結碰撞一次,正常段是假受控體的預設腳本、方形、Nav2 90 s 與 Isaac 的預設腳本、Nav2 90 s。</p>
+<ul>
+<li><strong>加速度計的理想值</strong>:受控體真值位姿的二次差分,取車體前進軸。</li>
+<li><strong>誤差</strong>:零點 +60 mg(datasheet 典型值,<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.2),開機靜止段取平均扣掉;白雜訊 σ 掃 0 / 1 / 5 / 20 mg(datasheet 沒寫)。</li>
+<li><strong>輪速</strong>:ticks 一步差分,15 mm/s 量子,與韌體一樣。</li>
+<li><strong>門檻</strong>:正常段最大 × 1.5,用雜訊 seed 11 定;判定與誤報用 seed 12 的雜訊,門檻不拿來驗自己。</li>
+<li><strong>判定起點</strong>:平移打滑起點 = 接觸後輪行程比車體行程多 20 mm,與 C13 的定義相同。</li>
+</ul>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>候選</th>
+<th>σ</th>
+<th>正常段最大 → 門檻</th>
+<th>假受控體三次(判定對平移打滑起點)</th>
+<th>Isaac 兩次</th>
+<th>凍結碰撞(沒打滑)的最大值</th>
+<th>正常五段誤報</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>(b1) 撞擊事件:50 ms 平均的 |a_x − 輪速微分| 過門檻,之後 100 ms 輪速仍 &gt; 50 mm/s</td>
+<td>0 / 5 / 20 mg</td>
+<td>1196 / 1189 / 1172 → 1794 / 1784 / 1757 mm/s²</td>
+<td>+35 ms ×3</td>
+<td>+25 ms ×2</td>
+<td>389 / 368 / 306</td>
+<td>0</td>
+</tr>
+<tr>
+<td>(b2) 速度殘差:e = 漏積分(a_x − 輪速微分),τ 0.5 s;|e| 過門檻持續 50 ms</td>
+<td>0 / 5 / 20 mg</td>
+<td>53 / 60 / 87 → 79 / 90 / 131 mm/s</td>
+<td><strong>−20 ms ×3</strong></td>
+<td><strong>−30 ms ×2</strong></td>
+<td>5 / 11 / 43</td>
+<td>0</td>
+</tr>
+<tr>
+<td>(b3) 加減速段:設定點斜坡加速度 − a_x 的 50 ms 平均</td>
+<td>0 / 5 / 20 mg</td>
+<td>1329 / 1360 / 1455 → 1993 / 2041 / 2182 mm/s²</td>
+<td>—</td>
+<td>—</td>
+<td>0</td>
+<td>0</td>
+</tr>
+</tbody>
+</table></div>
+<p>(b2) 的 τ 取 0.2 s 與 1.0 s 時,判定時刻相同,門檻分別是 70–89 與 85–184 mm/s。三件事從表上讀得出來:</p>
+<ol>
+<li><strong>(b2) 在 20 mm 起點之前就過門檻。</strong> 撞上那一刻車體速度被吃掉,輪速沒掉,殘差一步就跳到車速那麼大;(b1) 要等 100 ms 確認輪子還在轉。</li>
+<li><strong>(b2) 對「車貼著障礙物起步」也成立,(b1) 不成立。</strong> 沒有撞擊時殘差跟著輪速累積——這一點是由式子推的,表中的場景都有撞擊,沒有量到。</li>
+<li><strong>(b3) 抓不到</strong>:持續打滑時設定點不再變。</li>
+</ol>
+<p>凍結碰撞的輪子也停了,(b2) 最大 5–43 mm/s,沒有過門檻——那一類交給 <code>STALL</code>,C13 要求這種接觸 SLIP 不得亮。</p>
+<p><strong>上表沒有算量程。</strong> 兩個受控體撞上障礙物時,一步(5 ms)之內就把車速煞到 0:假受控體每步最大 5.9–6.1 g,Isaac 4.9–5.2 g;沒有碰撞時最大 0.8–0.9 g。加上飽和與量化(datasheet LA_So)重算 (b2),τ 0.5 s、門檻 90 mm/s:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>量程</th>
+<th>σ</th>
+<th>假受控體三次(對平移打滑起點)</th>
+<th>Isaac 兩次</th>
+<th>凍結碰撞</th>
+<th>正常五段誤報</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>不限(上表)</td>
+<td>0 / 5 mg</td>
+<td>−20 ms ×3</td>
+<td>−30 ms ×2</td>
+<td>最大 5 / 11,不判</td>
+<td>0</td>
+</tr>
+<tr>
+<td>±2 g(0.061 mg/digit)</td>
+<td>0 / 5 mg</td>
+<td>+1435 / +910 / +260 ms(σ 5 時第三次 −20)</td>
+<td>−25 / +190 ms</td>
+<td><strong>最大 200 / 194,+45 ms 誤判</strong></td>
+<td>0</td>
+</tr>
+<tr>
+<td>±16 g(0.732 mg/digit)</td>
+<td>0 / 5 mg</td>
+<td>−20 ms ×3</td>
+<td>−30 ms ×2</td>
+<td>最大 5 / 11,不判</td>
+<td>0</td>
+</tr>
+</tbody>
+</table></div>
+<p>±2 g 飽和在 19.6 m/s²,撞上那一步只積得出三分之一的速度變化。打滑時殘差不夠大;凍結時輪速掉了 300 mm/s、加速度只記到 100 mm/s,差值本身就過門檻——閉環第一次跑的就是這個樣子(2026-09-17,±2 g:打滑那次撞上後殘差過門檻只撐 2 步、沒滿 50 ms,SLIP 是陀螺儀 +450 ms 才亮的;凍結那次加速度計在碰撞後 50 ms 亮)。所以用 <strong>±16 g</strong>。datasheet 的典型零點 ±60 mg 只列在 ±2 g 那一檔,±16 g 沿用同一個值,是假設。表的限制:Isaac 的 CSV 只有平面位姿,真元件在急停時的車身俯仰會把重力漏進前進軸,這張表沒有算到。加速度計假設裝在兩輪軸線中點,不含轉動造成的切向與向心項。</p>
+<p><strong>選 (b2),做在韌體。</strong></p>
+<ul>
+<li><strong>門檻</strong>:90 mm/s,取 σ 5 mg 那一列。datasheet 沒寫雜訊,這一列涵蓋 0–5 mg;σ 20 mg 時門檻要 131,寫明不涵蓋。</li>
+<li><strong>持續時間</strong>:50 ms,τ 0.5 s。</li>
+<li><strong>零偏</strong>:與陀螺儀同一套靜止估計(36 篇 §3.2)。</li>
+</ul>
+<p><strong>韌體與模型。</strong> 加速度計是 LSM330 的另一半,掛同一條 I2C3。</p>
+<ul>
+<li><strong>位址</strong>:datasheet 對 SDO_A 的描述前後不一致(§6.1.1 正文說接電源是 0011101b,Table 15 對應的是 0011110b)。這裡沒有板子可以決定,取 <strong>0x1E</strong>,平台描述與韌體一致即可。</li>
+<li><strong>初始化</strong>:開機讀 WHO_AM_I_A(預期 0x40),寫 CTRL_REG5_A = 0x77(400 Hz、三軸)、CTRL_REG6_A = 0x20(±16 g)。</li>
+<li><strong>每步讀取</strong>:OUT_X_L/H_A,每筆交易一個暫存器。</li>
+<li><strong>Renode 1.16.1 的 <code>LSM330_Accelerometer</code></strong>(與上游 master 相同)沒定義 WHO_AM_I_A(讀 0)與 CTRL_REG4/5_A,靈敏度用 <code>65536 / 量程 − 1</code>:±2 g 16383 digit/g,datasheet 0.061 mg/digit = 16393;±16 g 2047,datasheet 0.732 mg/digit = 1366,差 50%。修在模型,方式同陀螺儀。</li>
+</ul>
+<p><strong>旗標</strong>:沿用 <code>SLIP</code>(flags 第 8 位),driver 的鎖住不變。<code>g_dbg.slip_src</code> 記是誰先亮(1 = 陀螺儀,2 = 加速度計);<code>safety_mask</code> 第 6 位是加速度計這一半(calib 0x7F)。</p>
+<p><strong>C13 第二部分</strong>:平移打滑開始後 <strong>150 ms</strong> 內 SLIP——離線判定不晚於起點,延遲的下限是 50 ms 的持續時間,取 3 倍,同 §1.3 取離線延遲 3 倍的做法。一次跑同時有轉角與平移打滑時,兩個期限都要成立。負對照:</p>
+<ul>
+<li><code>slip-off</code> 關掉兩半(mask 第 5、6 位),要紅;</li>
+<li><code>accel-off</code> 只關加速度計(第 6 位),平移打滑的期限要紅——陀螺儀要等轉角分開。</li>
+</ul>
+<p>Nav2 的 blind-scan 場景裡,車頂住方塊之後 Nav2 會修方向,轉角什麼時候分開每次不同(量到 +110 ms 到 +1280 ms),<code>accel-off</code> 在這個場景紅不紅看運氣。所以平移打滑另外有一個決定性場景 <strong><code>--scene head-on</code></strong>:<code>world-headon.json</code> 在正前方 0.75 m 放一個方塊,內建腳本直線開過去,正面頂住、兩輪等速;3.5 s 腳本原地轉向時才出現轉角打滑。lockstep、沒有 Nav2,每次逐 byte 相同。C13 的平移打滑在這個場景判,<code>accel-off</code> 也在這個場景要紅。</p>
+<p><strong>閉環結果</strong>(2026-09-17,lockstep,假受控體,±16 g;<code>--imu-noise datasheet</code> = 陀螺儀零偏 +10 dps、加速度計零點 +60 mg):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>場景</th>
+<th>設定</th>
+<th>SLIP(來源)</th>
+<th>對平移打滑起點</th>
+<th>沒有接觸時殘差最大(yaw / 速度)</th>
+<th>C13</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>head-on <code>CONTACT=slip</code></td>
+<td>datasheet,兩次</td>
+<td>2.170 s(加速度計)</td>
+<td><strong>−15 ms</strong>(起點 2.185 s,碰撞 2.120 s)</td>
+<td>0 / 14</td>
+<td>綠;兩次 CSV 逐 byte 相同</td>
+</tr>
+<tr>
+<td>head-on</td>
+<td>datasheet + 陀螺儀 σ 3 dps + 加速度計 σ 5 mg</td>
+<td>2.170 s(加速度計)</td>
+<td>−15 ms</td>
+<td>39 / 15</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>head-on</td>
+<td>datasheet + 加速度計 σ 20 mg</td>
+<td>2.170 s(加速度計)</td>
+<td>−15 ms</td>
+<td>0 / 24</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>head-on</td>
+<td>datasheet,FreeRTOS</td>
+<td>2.170 s(加速度計)</td>
+<td>−15 ms</td>
+<td>0 / 14</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>head-on</td>
+<td><code>accel-off</code></td>
+<td>3.590 s(陀螺儀,轉向開始後)</td>
+<td><strong>+1405 ms</strong></td>
+<td>—</td>
+<td><strong>紅</strong></td>
+</tr>
+<tr>
+<td>head-on</td>
+<td><code>slip-off</code></td>
+<td>沒亮</td>
+<td>—</td>
+<td>—</td>
+<td><strong>紅</strong></td>
+</tr>
+<tr>
+<td>head-on <code>CONTACT=freeze</code></td>
+<td>datasheet</td>
+<td>沒亮</td>
+<td>沒有打滑</td>
+<td>0 / 14</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>Nav2 blind-scan <code>CONTACT=slip</code></td>
+<td>datasheet</td>
+<td>4.985 s(加速度計)</td>
+<td>−15 ms</td>
+<td>9 / 13</td>
+<td>綠,Nav2 <code>canceled</code></td>
+</tr>
+<tr>
+<td>Nav2 blind-scan <code>CONTACT=freeze</code></td>
+<td>datasheet</td>
+<td>沒亮</td>
+<td>沒有打滑</td>
+<td>8 / 11</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>預設 / FreeRTOS / 方形 / Nav2 90 s</td>
+<td>datasheet</td>
+<td>沒亮</td>
+<td>—</td>
+<td>10 / 14–17</td>
+<td>綠</td>
+</tr>
+</tbody>
+</table></div>
+<p>凍結碰撞與正常行駛的速度殘差最大 11–24 mm/s(σ 20 mg 那次 30),門檻 90。</p>
+<h3 id="15-航向陀螺儀進里程計c15">1.5 航向:陀螺儀進里程計(C15)</h3>
+<p>韌體的 odom θ 原本只由輪差積分。§1.3 的偵測讓上位知道打滑了,但 θ 已經錯了,而且只要上位不停(或偵測被關掉),就一直錯下去:<code>slip-off</code> 的假受控體末端 odom 對真值差 1813 / 1314 mm、θ 差 0.34 rad。</p>
+<p><strong>融合方式:依殘差切換,不做加權平均。</strong> 每步看 §1.3 的 50 ms 平均殘差:</p>
+<ul>
+<li><strong>不超過 <code>slip_mrad_s</code></strong>:θ 增量用輪差,與原本逐位相同;</li>
+<li><strong>超過</strong>:θ 增量改用「陀螺儀 − 零偏」× dt。</li>
+</ul>
+<p>文獻上這種做法叫 gyrodometry(<a href="https://doi.org/10.1109/ROBOT.1996.503813">Borenstein &amp; Feng,ICRA 1996,DOI 10.1109/ROBOT.1996.503813</a>:大部分時間只用里程計,兩者差很多的短暫片段才換成陀螺儀)。不用互補濾波,是因為互補濾波的低頻取自輪差航向:打滑時輪差航向永久偏掉,融合結果會以濾波時間常數被拉回錯的值。切換式在正常行駛時完全不引入陀螺儀的零偏漂移;打滑時只在打滑那段吃零偏殘差。距離(ds)仍用輪子,平移打滑的位置誤差不在這一條處理。</p>
+<ul>
+<li><code>g_cfg.yaw_fusion</code>(calib 1)開關;</li>
+<li><code>g_dbg.gyro_steps</code> 記用了陀螺儀增量的步數;</li>
+<li>FreeRTOS 版的 <code>control.c</code> 用 hard-float 編,同一份原始碼。</li>
+</ul>
+<p><strong>判準 C15</strong>(<code>--scene long-slip</code>:<code>world-headon.json</code>、假受控體 <code>CONTACT=slip</code>、<code>safety_mask</code> 關掉兩半打滑回報;內建腳本 0.5 s 起直線頂住方塊,3.5 s 起改成前進 300 mm/s + 轉向 600 mrad/s 的弧線——位置一動就撞,車身整個凍住,輪差轉角全部成為轉角打滑,約 0.9 rad;lockstep,逐 byte 可重現)。Nav2 blind-scan 版(driver 不鎖、Nav2 一路推)轉角打滑的量每次不同(量到累計 0.07–0.40 rad),<code>fusion-off</code> 在那個場景紅不紅看運氣,只報數字。第一次碰撞之後,每步 |odom θ − 真值 θ| 的最大值 ≤ 上限:</p>
+<p>上限 = max|ω_輪差 − ω_真值| × 100 ms + 1 mrad/s × T + 0.03 rad</p>
+<ul>
+<li><strong>第一項</strong>:殘差平均要 50 ms 才過門檻,乘 2 保守;max|ω_輪差 − ω_真值| 取同一次跑、第一次碰撞之後逐步量到的(受控體真值的輪子 tick 對車體轉角)。</li>
+<li><strong>第二項</strong>:零偏估計的殘差,韌體取整到 1 mrad/s;T = 第一次碰撞到跑完的秒數。</li>
+<li><strong>第三項</strong>:C3 的角度容差。</li>
+</ul>
+<p><strong>閉環結果</strong>(2026-09-17,lockstep,假受控體,<code>--imu-noise datasheet</code>):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>設定</th>
+<th>第一次碰撞之後航向誤差最大</th>
+<th>上限(max|ω_輪差 − ω_真值| × 0.1 + 0.001 × T + 0.03)</th>
+<th>航向用陀螺儀的步數</th>
+<th>C15</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>融合開(兩次;另跑 FreeRTOS、理想感測器)</td>
+<td><strong>0.002 rad</strong></td>
+<td>0.100(0.665 rad/s、T 3.9 s)</td>
+<td>326</td>
+<td>綠;兩次 CSV 逐 byte 相同</td>
+</tr>
+<tr>
+<td><code>fusion-off</code></td>
+<td><strong>0.917 rad</strong></td>
+<td>0.100</td>
+<td>0</td>
+<td><strong>紅</strong></td>
+</tr>
+<tr>
+<td><code>gyro-bias-uncomp</code>(零偏 +10 dps 不扣)</td>
+<td><strong>1.041 rad</strong></td>
+<td>0.100</td>
+<td>1189(每一步)</td>
+<td><strong>紅</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><code>fusion-off</code> 的 0.917 rad 就是整段轉角打滑:輪差以為車轉了 0.92 rad,車身其實沒動。融合開時這段用陀螺儀,odom θ 跟著真值不動。距離仍用輪子,C3 的位置差在融合開時是 902 mm(odom 直線往前、車身沒動),另兩種設定航向也錯了,偏成 (836, 202) 與 (707, 630) mm。沒有接觸的場景(預設腳本、FreeRTOS、方形、Nav2 90 s,datasheet 零偏)航向用陀螺儀的步數都是 0;預設腳本的 CSV 與 GOAL 7 開頭(沒有零偏估計、沒有加速度計)比,只有 <code>flags</code> 欄開頭 38 步多了 <code>IMU_CAL</code>,odom 等其他欄位逐位相同。加陀螺儀白雜訊 σ 3 dps 時有 2 步換成陀螺儀。</p>
+<p>Nav2 blind-scan 版(只報):融合開 0.012 / 0.022 rad(兩次),<code>fusion-off</code> 0.103 / 0.821 rad(兩次;各有一次量在 ±2 g 的韌體上,航向融合的邏輯相同)——同一個負對照差 8 倍,就是改用決定性場景的理由。</p>
+<p>負對照:</p>
+<ul>
+<li><code>fusion-off</code>(同場景、<code>yaw_fusion = 0</code>)要紅;</li>
+<li><code>gyro-bias-uncomp</code> 在正常場景 C13 紅(§1.3)。融合開時,零偏沒扣,殘差恆超過門檻,每一步都改用帶 174 mrad/s 零偏的陀螺儀——C3 在預設腳本也要紅。</li>
+</ul>
 <h2 id="2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</h2>
 <p><code>./run_loop.sh --negative bad-crc</code> 把每個 cmd_vel 的最後一個 byte 反相:</p>
 <pre><code>[run] fw ... cmd_frames=0 enc_frames=1199 bad_crc=300 rx_overflow=0
@@ -909,6 +1193,35 @@
 </table></div>
 <p>同一流程另兩次(nav_client 重啟時還沒主動取消 goal、而是等它自己失敗的版本):收斂到離真值 16.5 mm / 0.059 rad(5.9 s),解鎖拖到重啟後 27.3 s,C14 綠 13 mm;沒呼叫 <code>request_nomotion_update</code> 那次見上面第一點。</p>
 <p>沒有故障的 AMCL 導航(<code>LOCALIZER=amcl --seconds 90</code>)到達 23 mm、碰撞 0,與靜態 identity 的 46 mm 同一級。</p>
+<p><strong>C14 在主機負載高時不穩,原因在時鐘,不在重定位。</strong> 2026-09-17 同一個 C14 設定跑了五次:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>load</th>
+<th>感測器</th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>15.9</td>
+<td>理想</td>
+<td>綠,21 mm</td>
+</tr>
+<tr>
+<td>14.9</td>
+<td>理想</td>
+<td>綠,24 mm——但第一次 goal 已經失敗過一次、重試才到</td>
+</tr>
+<tr>
+<td>22.0 / 17.0 / 10.8</td>
+<td>datasheet 零偏</td>
+<td>紅 ×3:故障注入之前,goal 就連續兩次失敗,重試用完</td>
+</tr>
+</tbody>
+</table></div>
+<p>失敗的 log 都一樣:DWB 報 <code>Transform data too old when converting from map to odom</code>,資料時間比 TF 時間新 0.31–1.23 s,超過 <code>FollowPath.transform_tolerance</code> 0.3 s。</p>
+<p>機制:Nav2 用牆鐘(<code>use_sim_time: false</code>),lockstep 的模擬由橋接推進,主機忙時比牆鐘慢。AMCL 的 <code>map → odom</code> 只在收到掃描時更新,而掃描是按模擬時間每 100 ms 一筆,牆鐘上的間隔就被拉長,TF 變舊。靜態 identity 的 <code>map → odom</code> 沒有時間戳問題,所以 C11 不受影響。三次紅的 IMU 旗標都正常(<code>IMU_CAL</code> 在 0.19 s 解除、沒有 SLIP),跟感測器誤差模型無關。把容忍度調大只是把門檻挪開;根本的做法是讓 Nav2 跟模擬同一個時鐘(橋接發 <code>/clock</code>、<code>use_sim_time: true</code>),列為開放項。</p>
 <h3 id="64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</h3>
 <p>§6 的七件事之後,Isaac 版與兩個假受控體差三樣:沒有雷射、沒有牆、五個故障注入沒在它上面跑過。補齊的原則是<strong>同一份 <code>world.json</code>、同一份判準</strong>;做法上只有一處必須不同——假受控體的牆是公式(撞到就凍結),Isaac 的牆是 PhysX 碰撞體,車真的會被頂住。</p>
 <ul>

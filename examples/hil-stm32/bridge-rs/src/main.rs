@@ -47,6 +47,18 @@ struct Args {
     enc_tau_ms: f64,
     /// IMU:I2C3 上有 LSM330 陀螺儀(平台描述 stm32f4-encoder-imu*.repl);每步把受控體真值 yaw rate 寫進去,C13 驗打滑偵測
     imu: bool,
+    /// IMU 誤差模型:none(理想感測器,真值)| datasheet(LSM330 DocID023426 Rev 3 Table 3 的典型零點:陀螺儀 +10 dps;
+    /// 雜訊密度 datasheet 沒寫,白雜訊 0)。--gyro-bias-mdps / --gyro-noise-mdps 覆蓋,--imu-seed 固定亂數
+    imu_noise: String,
+    gyro_bias_mdps: Option<f64>,
+    gyro_noise_mdps: f64,
+    imu_seed: u64,
+    /// 加速度計(前進軸)誤差:零點 mg(datasheet 模式預設 +60,DocID023426 Rev 3 Table 3 LA_TyOff)、白雜訊 σ mg(datasheet 沒寫)
+    acc_bias_mg: Option<f64>,
+    acc_noise_mg: f64,
+    /// 場景:none | long-slip(打滑回報兩半都關;內建腳本時配 world-headon.json、3.5 s 起前進 + 轉向頂住方塊,Nav2 時是 blind-scan 一路推;C15 只在這個場景驗,38 篇 §1.5)
+    /// | head-on(內建腳本直線撞 world-headon.json 正前方的方塊;C13 平移打滑的決定性場景,38 篇 §1.4——要配 --world 與 CONTACT)
+    scene: String,
     /// C14:上位會在底盤重啟後重定位、解鎖、重送 goal(RELOC=1)——C12 只驗到解鎖為止,到達由 C14 驗
     expect_reloc: bool,
     /// 內建假受控體碰撞時:freeze(輪子凍結)| slip(車體不動、輪子照轉)
@@ -94,6 +106,13 @@ fn parse_args() -> Args {
         enc: "auto".into(),
         enc_tau_ms: 20.0,
         imu: false,
+        imu_noise: "none".into(),
+        gyro_bias_mdps: None,
+        gyro_noise_mdps: 0.0,
+        imu_seed: 1,
+        acc_bias_mg: None,
+        acc_noise_mg: 0.0,
+        scene: "none".into(),
         expect_reloc: false,
         contact: "freeze".into(),
         cfg: String::new(),
@@ -131,6 +150,13 @@ fn parse_args() -> Args {
             "--scan-listen" => a.scan_listen = val,
             "--expect-goal" => a.expect_goal = val == "1",
             "--skew" => a.skew = val,
+            "--imu-noise" => a.imu_noise = val,
+            "--gyro-bias-mdps" => a.gyro_bias_mdps = Some(val.parse().expect("--gyro-bias-mdps")),
+            "--gyro-noise-mdps" => a.gyro_noise_mdps = val.parse().expect("--gyro-noise-mdps"),
+            "--imu-seed" => a.imu_seed = val.parse().expect("--imu-seed"),
+            "--acc-bias-mg" => a.acc_bias_mg = Some(val.parse().expect("--acc-bias-mg")),
+            "--acc-noise-mg" => a.acc_noise_mg = val.parse().expect("--acc-noise-mg"),
+            "--scene" => a.scene = val,
             "--scan-log" => a.scan_log = val,
             // lockstep(預設):橋接推進 Renode;realtime:Renode 自由跑,橋接以牆鐘 dt 取樣/注入
             "--mode" => a.mode = val,
@@ -209,8 +235,15 @@ mod dbg {
     pub const IMU_WHOAMI: u64 = 20;
     pub const GYRO_Z: u64 = 21;
     pub const YAW_RESID: u64 = 22;
+    pub const GYRO_BIAS: u64 = 23;
+    pub const ACC_WHOAMI: u64 = 24;
+    pub const ACC_X: u64 = 25;
+    pub const ACC_BIAS: u64 = 26;
+    pub const VEL_RESID: u64 = 27;
+    pub const SLIP_SRC: u64 = 28;
+    pub const GYRO_STEPS: u64 = 29;
     pub const MAGIC_VALUE: u32 = 0x4849_4C31;
-    pub const WORDS: u32 = 23;
+    pub const WORDS: u32 = 30;
 }
 
 /// odom / CAN 狀態框 / g_dbg.flags 的位元(firmware/proto.h)
@@ -224,6 +257,7 @@ mod flag {
     pub const HB_LOST: u32 = 1 << 6;
     pub const WDT_RESET: u32 = 1 << 7;
     pub const SLIP: u32 = 1 << 8;
+    pub const IMU_CAL: u32 = 1 << 9;
 }
 /// g_cfg.safety_mask 的位元
 mod safety {
@@ -233,6 +267,7 @@ mod safety {
     pub const STALL: u32 = 1 << 3;
     pub const HB: u32 = 1 << 4;
     pub const SLIP: u32 = 1 << 5;
+    pub const SLIP_ACC: u32 = 1 << 6;
 }
 const DRV_FAULT_L_PIN: i32 = 14;
 const DRV_FAULT_R_PIN: i32 = 15;
@@ -253,6 +288,21 @@ struct Check {
     name: &'static str,
     pass: bool,
     detail: String,
+}
+
+/// IMU 誤差模型用的決定性亂數:splitmix64(不引 crate;同 seed 同序列,lockstep 可逐 byte 重現)
+struct Rng(u64);
+impl Rng {
+    fn next_u64(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+    fn unit(&mut self) -> f64 { ((self.next_u64() >> 11) as f64 + 0.5) / (1u64 << 53) as f64 }
+    /// 標準常態(Box–Muller,每次取兩個均勻數、丟掉第二個,序列單純)
+    fn gauss(&mut self) -> f64 { let (u1, u2) = (self.unit(), self.unit()); (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos() }
 }
 
 fn main() {
@@ -325,8 +375,10 @@ fn main() {
     if neg == "no-latch" && !a.upper.starts_with("tcp-listen:") { eprintln!("--negative no-latch 是上位側的負對照,要配 --upper tcp-listen(UPPER=nav2)"); }
     let mask_clear: u32 = match neg {
         "iwdg-off" => safety::IWDG, "drv-fault-off" => safety::DRV_FAULT, "bumper-off" => safety::BUMPER,
-        "stall-off" => safety::STALL, "hb-off" => safety::HB, "slip-off" => safety::SLIP, _ => 0,
-    };
+        "stall-off" => safety::STALL, "hb-off" => safety::HB, "slip-off" => safety::SLIP | safety::SLIP_ACC,
+        "accel-off" => safety::SLIP_ACC, _ => 0,
+    } | if a.scene == "long-slip" { safety::SLIP | safety::SLIP_ACC } else { 0 };
+    if !["none", "long-slip", "head-on"].contains(&a.scene.as_str()) { eprintln!("--scene 只接受 none|long-slip|head-on"); std::process::exit(2); }
     if !["none", "hang", "drv-fault", "bumper", "stall", "no-ping"].contains(&fault.as_str()) {
         eprintln!("--fault 只接受 none|hang|drv-fault|bumper|stall|no-ping");
         std::process::exit(2);
@@ -334,6 +386,9 @@ fn main() {
     // bumper 場景要有「撞牆後倒車」:前進撞 500 mm 的牆 → 拒絕前進 → 倒車命令要被接受
     let script = if fault == "bumper" && a.script == "0:0,0;0.5:300,0;3.5:0,600;5:0,0" {
         parse_script("0:0,0;0.5:300,0;3.5:-200,0;5:0,0")
+    } else if a.scene == "long-slip" && a.upper == "script" && a.script == "0:0,0;0.5:300,0;3.5:0,600;5:0,0" {
+        // C15 決定性場景(38 篇 §1.5):配 world-headon.json,3.5 s 起前進 + 轉向——位置一動就撞,車身凍住,輪差轉角全部是轉角打滑
+        parse_script("0:0,0;0.5:300,0;3.5:300,600;5:0,0")
     } else { script };
     let fault_at_ms = (a.fault_at * 1000.0).round() as u32;
     // 負對照 noinit-off:拿掉韌體判斷暖重置的第二條證據——每步把 .noinit 的 magic 清掉,韌體開機時只剩 RCC_CSR.IWDGRSTF。
@@ -345,7 +400,7 @@ fn main() {
     let gpio_c = ec.gpio(m, "sysbus.gpioPortC").or_else(|_| ec.gpio(m, "gpioPortC")).expect("gpioPortC");
     for pin in [DRV_FAULT_L_PIN, DRV_FAULT_R_PIN, BUMPER_PIN] { ec.gpio_set(gpio_c, pin, true).unwrap(); }
 
-    // 執行期控制參數 g_cfg { magic, kp, ki, accel, ff, alpha, iwdg_ms, hang_at_ms, hb_timeout_ms, stall_duty, stall_ms, safety_mask }
+    // 執行期控制參數 g_cfg { magic, kp, ki, accel, ff, alpha, iwdg_ms, hang_at_ms, hb_timeout_ms, stall_duty, stall_ms, safety_mask, slip, slip_ms, gyro_bias_still_ms }
     // 在「開機前」寫進 flash 裡 .data 的初始值(LMA = _sidata + (g_cfg − _sdata)),startup 照常複製到 SRAM——
     // 等於燒錄前改了參數區。IWDG 這種 init 就定案、之後改不了的參數也因此改得到。
     let cfg_base = calib::symbol_addr(&a.sym, "g_cfg").expect("符號 g_cfg");
@@ -363,7 +418,7 @@ fn main() {
         for kv in a.cfg.split(',') {
             let (k, v) = kv.split_once('=').expect("--cfg 格式 k=v,k=v");
             let off = match k.trim() { "kp" => 1, "ki" => 2, "accel" => 3, "ff" => 4, "alpha" => 5, "iwdg" => 6, "hang" => 7, "hb" => 8,
-                "stall_duty" => 9, "stall_ms" => 10, "mask" => 11, "slip" => 12, "slip_ms" => 13, other => { eprintln!("--cfg 未知欄位 {other}"); std::process::exit(2); } };
+                "stall_duty" => 9, "stall_ms" => 10, "mask" => 11, "slip" => 12, "slip_ms" => 13, "gyro_bias_still" => 14, "slip_vel" => 15, "yaw_fusion" => 16, other => { eprintln!("--cfg 未知欄位 {other}"); std::process::exit(2); } };
             let v: i32 = v.trim().parse().expect("--cfg 值");
             patches.push((off, v as u32));
         }
@@ -374,6 +429,10 @@ fn main() {
     }
     // hang 的時刻寫的是韌體的 tick:韌體在 Renode t=0 開機,橋接的 t=0 是開機 boot_ms 之後
     if fault == "hang" { patches.push((7, fault_at_ms + a.boot_ms as u32)); }
+    // 負對照 gyro-bias-uncomp:韌體不估陀螺儀零偏(36 篇 §3.2);零偏由下面的誤差模型注入(沒指定就用 datasheet 的 +10 dps)
+    if neg == "gyro-bias-uncomp" { patches.push((14, 0)); }
+    // 負對照 fusion-off:航向只用輪差(38 篇 §1.5)
+    if neg == "fusion-off" { patches.push((16, 0)); }
     if mask_clear != 0 { patches.push((11, calib_mask & !mask_clear)); }
     for (off, v) in &patches { ec.write_u32_at(bus, cfg_lma + 4 * off, *v).unwrap(); }
 
@@ -414,7 +473,7 @@ fn main() {
         std::process::exit(1);
     }
     // 開機後從 SRAM 讀回:證明 startup 複製的是改過的那份
-    let cfgv = ec.read_u32s_at(bus, cfg_base, 14).unwrap();
+    let cfgv = ec.read_u32s_at(bus, cfg_base, 17).unwrap();
     if cfgv[0] != 0x4849_4C43 {
         eprintln!("g_cfg magic 不對(0x{:08x})", cfgv[0]);
         std::process::exit(1);
@@ -428,6 +487,21 @@ fn main() {
     let imu_whoami = ec.read_u32_at(bus, dbg_base + 4 * dbg::IMU_WHOAMI).unwrap();
     println!("[effect] imu: bridge --imu {} contact={};韌體讀到 WHO_AM_I_G=0x{:03x}({});g_cfg slip_mrad_s={} slip_ms={}",
         a.imu as u8, a.contact, imu_whoami, if imu_whoami == 0xD4 { "LSM330 在" } else { "沒有 IMU,打滑偵測不做" }, cfgv[12] as i32, cfgv[13] as i32);
+    // IMU 誤差模型(36 篇 §3 的 datasheet 表):datasheet 模式 = 典型零點 +10 dps,雜訊 0(datasheet 沒寫雜訊密度)
+    let (gyro_bias_mdps, gyro_noise_mdps) = match a.imu_noise.as_str() {
+        "none" if neg == "gyro-bias-uncomp" => (a.gyro_bias_mdps.unwrap_or(10_000.0), a.gyro_noise_mdps),
+        "none" => (a.gyro_bias_mdps.unwrap_or(0.0), a.gyro_noise_mdps),
+        "datasheet" => (a.gyro_bias_mdps.unwrap_or(10_000.0), a.gyro_noise_mdps),
+        other => { eprintln!("--imu-noise 只接受 none|datasheet(收到 {other})"); std::process::exit(2); }
+    };
+    let mut imu_rng = Rng(a.imu_seed);
+    let acc_bias_mg = a.acc_bias_mg.unwrap_or(if a.imu_noise == "datasheet" { 60.0 } else { 0.0 });
+    let acc_whoami = ec.read_u32_at(bus, dbg_base + 4 * dbg::ACC_WHOAMI).unwrap();
+    let have_acc = a.imu && acc_whoami == 0x40;
+    if a.imu { println!("[effect] imu 誤差模型:{} 陀螺儀零偏 {:+.0} mdps、白雜訊 σ {:.0} mdps、seed {};g_cfg gyro_bias_still_ms={}{}", a.imu_noise, gyro_bias_mdps, gyro_noise_mdps, a.imu_seed,
+        cfgv[14] as i32, if cfgv[14] == 0 { "(韌體不估零偏)" } else { "" });
+        println!("[effect] imu 加速度計:韌體讀到 WHO_AM_I_A=0x{:03x}({});零點 {:+.1} mg、白雜訊 σ {:.1} mg;g_cfg slip_vel_mm_s={} yaw_fusion={};scene={}",
+            acc_whoami, if have_acc { "在" } else { "沒有,平移打滑只報不判" }, acc_bias_mg, a.acc_noise_mg, cfgv[15] as i32, cfgv[16] as i32, a.scene); }
     if a.imu && imu_whoami != 0xD4 { eprintln!("--imu 1 但韌體沒讀到 LSM330(平台描述要 stm32f4-encoder-imu*.repl;run_loop.sh 在 encoder_source=tim 時預設給)"); std::process::exit(1); }
     let cfg_accel = if neg == "no-ramp" { calib_accel } else { cfgv[3] as i32 };
     let cfg_alpha = if neg == "no-ramp" { calib_alpha } else { cfgv[5] as i32 };
@@ -441,7 +515,7 @@ fn main() {
     // realtime 多一欄 wall_ms(每次都不同,lockstep 不放:那邊的 CSV 要能逐 byte 比)
     let wall_col = if realtime { "wall_ms," } else { "" };
     // IMU 時多兩欄(韌體的陀螺儀 mrad/s、yaw 殘差);沒有 IMU 的 CSV 版面不變
-    let imu_cols = if a.imu { ",gyro_z,yaw_resid" } else { "" };
+    let imu_cols = if a.imu { ",gyro_z,yaw_resid,gyro_bias,acc_x,acc_bias,vel_resid,gyro_steps" } else { "" };
     writeln!(log, "step,t_us,{wall_col}cmd_v,cmd_w,sp_l,sp_r,meas_l,meas_r,duty_l_dbg,ccr1,ccr2,dir_l,dir_r,en,flags,\
 plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_y,odom_th,odom_vl,odom_vr,odom_flags,can_duty_l,can_duty_r,collided{imu_cols}").unwrap();
 
@@ -535,6 +609,12 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let mut rot_onset: Option<u32> = None;
     let mut moved_after_slip = 0u32;
     let mut max_yaw_resid = 0i32;
+    let mut first_bias_step: Option<u32> = None;
+    let mut last_v_body = 0.0f64;
+    let mut last_slip_src = 0u32;
+    let mut last_gyro_steps = 0u32;
+    let mut max_head_err = 0.0f64;      // C15:第一次碰撞之後 |odom θ − 真值 θ| 的最大值
+    let mut max_rate_disc = 0.0f64;     // C15 上限的第一項:第一次碰撞之後 |ω_輪差 − ω_真值| 的最大值(rad/s)
     let tick_mm = c.wheel_circ_um / 1000.0 / c.ticks_per_rev as f64;
     if realtime {
         hk.emulation_start().expect("start");
@@ -647,9 +727,15 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                 if flags & flag::WDT_RESET != 0 { " WDT_RESET" } else { "" });
         }
         last_flags = flags;
-        if flags & flag::SLIP != 0 && first_slip.is_none() { first_slip = Some(k); println!("[slip] t={:.3}s SLIP 亮(yaw 殘差 {} mrad/s)", t_s, d[dbg::YAW_RESID as usize] as i32); }
-        let (gyro_z, yaw_resid) = (d[dbg::GYRO_Z as usize] as i32, d[dbg::YAW_RESID as usize] as i32);
-        if a.imu && collisions == 0 && yaw_resid > max_yaw_resid { max_yaw_resid = yaw_resid; }
+        if flags & flag::SLIP != 0 && first_slip.is_none() { first_slip = Some(k); println!("[slip] t={:.3}s SLIP 亮(yaw 殘差 {} mrad/s、速度殘差 {} mm/s;來源 {})", t_s, d[dbg::YAW_RESID as usize] as i32, d[dbg::VEL_RESID as usize] as i32,
+            match d[dbg::SLIP_SRC as usize] { 1 => "陀螺儀", 2 => "加速度計", _ => "?" }); }
+        let (gyro_z, yaw_resid, gyro_bias) = (d[dbg::GYRO_Z as usize] as i32, d[dbg::YAW_RESID as usize] as i32, d[dbg::GYRO_BIAS as usize] as i32);
+        let (acc_x, acc_bias, vel_resid, gyro_steps) = (d[dbg::ACC_X as usize] as i32, d[dbg::ACC_BIAS as usize] as i32, d[dbg::VEL_RESID as usize] as i32, d[dbg::GYRO_STEPS as usize]);
+        last_slip_src = d[dbg::SLIP_SRC as usize];
+        last_gyro_steps = gyro_steps;
+        if a.imu && gyro_bias != 0x7FFF_FFFF && first_bias_step.is_none() { first_bias_step = Some(k); println!("[imu] t={:.3}s 韌體零偏估出來了:{} mrad/s", t_s, gyro_bias); }
+        // 零偏還沒估出來之前韌體不做打滑判斷(36 篇 §3.2),殘差也不計進「沒接觸時最大」
+        if a.imu && collisions == 0 && gyro_bias != 0x7FFF_FFFF && yaw_resid > max_yaw_resid { max_yaw_resid = yaw_resid; }
         if k > 0 && tick < prev_tick && reset_step.is_none() {
             reset_step = Some(k);
             println!("[fault] t={:.3}s 韌體 tick {} → {}:重啟了(IWDG)", t_s, prev_tick, tick);
@@ -788,7 +874,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         // 假雷射:受控體給一筆就原樣轉給上位(語意在上位解;橋接只加行首與 seq)。負對照 blind-scan:全部改成 range_max
         if let Some(mut sc) = pl.take_scan() {
             // slip-off:同一個 blind-scan 場景,再關掉韌體的打滑偵測(C13 的負對照)
-            if neg == "blind-scan" || neg == "slip-off" { if let Some(w) = &world { for r in sc.iter_mut() { *r = w.range_max as f32; } } }
+            if neg == "blind-scan" || neg == "slip-off" || neg == "accel-off" || a.scene == "long-slip" { if let Some(w) = &world { for r in sc.iter_mut() { *r = w.range_max as f32; } } }
             let mut line = format!("SCAN {} {}", k, sc.len());
             for r in &sc { line.push_str(&format!(" {:.3}", r)); }
             line.push('\n');
@@ -821,8 +907,20 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             let mut dth = out.th_rad - last_plant.th_rad;
             while dth > std::f64::consts::PI { dth -= 2.0 * std::f64::consts::PI; }
             while dth < -std::f64::consts::PI { dth += 2.0 * std::f64::consts::PI; }
-            let mdps = if plant_dt > 0.0 { (dth / plant_dt * clock_ratio).to_degrees() * 1000.0 } else { 0.0 };
+            let truth_mdps = if plant_dt > 0.0 { (dth / plant_dt * clock_ratio).to_degrees() * 1000.0 } else { 0.0 };
+            let noise = if gyro_noise_mdps > 0.0 { gyro_noise_mdps * imu_rng.gauss() } else { 0.0 };
+            let mdps = truth_mdps + gyro_bias_mdps + noise;
             hk.gyro_z(mdps.round() as i32).unwrap();
+            if have_acc {
+                // 加速度計前進軸 = 真值車體前進速度的差分(速度同樣乘時鐘比,活在韌體的時鐘)。裝在兩輪軸線中點,不含切向與向心項
+                let th0 = last_plant.th_rad;
+                let v_body = if plant_dt > 0.0 { ((out.x_mm - last_plant.x_mm) * th0.cos() + (out.y_mm - last_plant.y_mm) * th0.sin()) / plant_dt * clock_ratio } else { last_v_body };
+                let acc_mm_s2 = if plant_dt > 0.0 { (v_body - last_v_body) / (plant_dt / clock_ratio) } else { 0.0 };
+                last_v_body = v_body;
+                let noise_mg = if a.acc_noise_mg > 0.0 { a.acc_noise_mg * imu_rng.gauss() } else { 0.0 };
+                let micro_g = (acc_mm_s2 / 9806.65 * 1e6 + (acc_bias_mg + noise_mg) * 1e3).round();
+                hk.accel_x(micro_g.clamp(i32::MIN as f64, i32::MAX as f64) as i32).unwrap();
+            }
             hk.wait_acks().unwrap();
         }
         if first_collision.is_some() {
@@ -833,8 +931,15 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             let mut body_dth = out.th_rad - last_plant.th_rad;
             while body_dth > std::f64::consts::PI { body_dth -= 2.0 * std::f64::consts::PI; }
             while body_dth < -std::f64::consts::PI { body_dth += 2.0 * std::f64::consts::PI; }
-            rot_slip_rad += (wheel_dth - body_dth).abs();
-            if rot_onset.is_none() && rot_slip_rad > 0.02 { rot_onset = Some(k); println!("[slip] t={:.3}s 轉角打滑開始(輪差轉角比車體多 {:.3} rad)", t_s, rot_slip_rad); }
+            // 帶號累加:逐步取絕對值會把編碼器量化(每步 ±1 tick = 0.26 mrad)也累加進去——沒有接觸的正常行駛
+            // 0.8–3.7 s 就到 0.02 rad,帶號累加最大只有 0.0007(38 篇 §1.3)
+            rot_slip_rad += wheel_dth - body_dth;
+            if plant_dt > 0.0 { max_rate_disc = max_rate_disc.max((wheel_dth - body_dth).abs() / (plant_dt / clock_ratio)); }
+            let mut he = last_odom.th_mrad as f64 / 1000.0 - out.th_rad;
+            while he > std::f64::consts::PI { he -= 2.0 * std::f64::consts::PI; }
+            while he < -std::f64::consts::PI { he += 2.0 * std::f64::consts::PI; }
+            max_head_err = max_head_err.max(he.abs());
+            if rot_onset.is_none() && rot_slip_rad.abs() > 0.02 { rot_onset = Some(k); println!("[slip] t={:.3}s 轉角打滑開始(輪差轉角比車體多 {:.3} rad)", t_s, rot_slip_rad); }
         }
         if let Some(fs) = first_slip {
             if k >= fs + (0.5 / dt_s) as u32 && (out.vl_mm_s.abs() >= 5.0 || out.vr_mm_s.abs() >= 5.0) { moved_after_slip += 1; }
@@ -911,7 +1016,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             out.x_mm, out.y_mm, out.th_rad, out.vl_mm_s, out.vr_mm_s, out.ticks_l, out.ticks_r,
             last_odom.seq, last_odom.x_mm, last_odom.y_mm, last_odom.th_mrad, last_odom.vl_mm_s, last_odom.vr_mm_s,
             last_odom.flags, cs.0, cs.1, out.collided as u8).unwrap();
-        if a.imu { writeln!(log, ",{gyro_z},{yaw_resid}").unwrap(); } else { writeln!(log).unwrap(); }
+        if a.imu { writeln!(log, ",{gyro_z},{yaw_resid},{gyro_bias},{acc_x},{acc_bias},{vel_resid},{gyro_steps}").unwrap(); } else { writeln!(log).unwrap(); }
     }
 
     if realtime {
@@ -1071,6 +1176,21 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         _ => ("C10 安全 I/O(沒有故障注入,不驗)".into(), true, format!("PING {} 筆,旗標軌跡見 [flags]", ping_frames)),
     };
 
+    let slip_ok = |onset: Option<u32>, limit_ms: f64| match onset {
+        None => true,
+        Some(on) => first_slip.map(|fs| first_collision.map_or(false, |c| fs >= c) && (fs < on || (fs - on) as f64 * dt_s * 1000.0 <= limit_ms)).unwrap_or(false),
+    };
+    let judge_trans = have_acc && slip_onset.is_some();
+    // 掛了 IMU 卻始終沒估出零偏 = 偵測整趟沒在做,不能算綠(36 篇 §3.2)
+    let bias_never = a.imu && first_bias_step.is_none();
+    let c13_pass = !a.imu || (!bias_never && (a.scene == "long-slip" || if rot_onset.is_some() || judge_trans {
+        slip_ok(rot_onset, 500.0) && (!judge_trans || slip_ok(slip_onset, 150.0)) && (up.is_none() || moved_after_slip == 0)
+    } else { first_slip.is_none() }));
+    let c13_name = if !a.imu { "C13 (沒有 IMU,不驗)".to_string() } else if bias_never { "C13 IMU 零偏始終沒估出來:打滑偵測整趟沒在做".to_string() } else if a.scene == "long-slip" { "C13 (long-slip 場景關掉了打滑回報,不驗;看 C15)".to_string() }
+        else if rot_onset.is_some() || judge_trans {
+            format!("C13 打滑:{}{}外部上位時 SLIP 亮 0.5 s 後輪子停", if rot_onset.is_some() { "轉角打滑開始後 500 ms 內 SLIP;" } else { "" }, if judge_trans { "平移打滑開始後 150 ms 內 SLIP;" } else { "" })
+        } else if slip_onset.is_some() { "C13 (只有平移打滑、沒有加速度計:只報延遲不判)".to_string() }
+        else if collisions > 0 { "C13 接觸但沒打滑(輪子凍結)→ SLIP 不得亮".to_string() } else { "C13 沒有接觸 → SLIP 不得亮(誤報 0)".to_string() };
     let checks = vec![
         // realtime:Renode 跑多快由主機決定,不是驗收項;驗收的是「三個時鐘互相一致」——
         // Renode 時間要有在走,而且不能明顯超前牆鐘。Renode 的實時節拍是以量子為單位追牆鐘,
@@ -1109,23 +1229,33 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             pass: !(fault == "hang" && up.is_some()) || (reset_step.is_some() && moved_after_reset == 0),
             detail: if fault == "hang" && up.is_some() { format!("重啟 {};重啟 0.5 s 後 |v| ≥ 5 mm/s 的步數 {},最遠再走 {:.0} mm",
                 step_ms(reset_step).map(|t| format!("@{:.0} ms", t)).unwrap_or("沒發生".into()), moved_after_reset, dist_after_reset) } else { String::new() } },
-        // C13 打滑偵測(只在 --imu 1):
-        //  沒有接觸的場景 → SLIP 不得亮(誤報 0);接觸後真的打滑了(輪行程比車體多 20 mm 以上)→ 打滑開始後
-        //  SLIP_DETECT_LIMIT_MS 內亮,外部上位時亮起 0.5 s 後輪子不再轉(driver 鎖住,同 C12)。負對照 slip-off 關韌體的偵測。
-        //  接觸了但沒打滑(輪子凍結)→ 不要求亮。限制值 500 ms:離線理想訊號 +165 ms(38 篇 §1.2)× 3。
-        Check { name: if !a.imu { "C13 (沒有 IMU,不驗)" } else if rot_onset.is_some() { "C13 轉角打滑開始後 500 ms 內 SLIP,外部上位時 SLIP 亮 0.5 s 後輪子停" } else if slip_onset.is_some() { "C13 (只有平移打滑:陀螺儀的盲區,只報延遲不判)" } else if collisions > 0 { "C13 (接觸但沒打滑,不要求 SLIP)" } else { "C13 沒有接觸 → SLIP 不得亮(誤報 0)" },
-            pass: !a.imu || match rot_onset {
-                Some(on) => first_slip.map(|fs| fs < on || (fs - on) as f64 * dt_s * 1000.0 <= 500.0).unwrap_or(false)
-                    && (up.is_none() || moved_after_slip == 0),
-                None => collisions > 0 || first_slip.is_none(),
-            },
-            detail: if !a.imu { String::new() } else { format!("SLIP {};轉角打滑開始 {}(累計 {:.3} rad,延遲 {});打滑開始 {}(輪行程比車體多 {:.0} mm,延遲 {});第一次碰撞 {};SLIP 亮 0.5 s 後輪子還在轉的步數 {};沒接觸時 yaw 殘差最大 {} mrad/s(門檻 {})",
+        // C13 打滑偵測(只在 --imu 1,38 篇 §1.3、§1.4):
+        //  沒有接觸的場景 → SLIP 不得亮(誤報 0)。接觸後:
+        //  - 轉角打滑(輪差轉角比車體累計多 0.02 rad)→ 開始後 500 ms 內 SLIP(陀螺儀;離線 +165 ms × 3)
+        //  - 平移打滑(輪行程比車體多 20 mm)→ 開始後 150 ms 內 SLIP(加速度計;離線判定不晚於起點,下限是 50 ms 持續時間 × 3)。
+        //    沒有加速度計時(IMU_REPL 換掉平台描述)只報不判
+        //  - 兩種都發生時兩個期限都要成立;外部上位時 SLIP 亮起 0.5 s 後輪子不再轉(driver 鎖住,同 C12)
+        //  - 接觸了但沒打滑(輪子凍結)→ 不要求亮
+        //  SLIP 早於起點也算(撞上那一刻就判定,早於 20 mm 的累計),但不得早於第一次碰撞。
+        Check { name: Box::leak(c13_name.into_boxed_str()),
+            pass: c13_pass,
+            detail: if !a.imu { String::new() } else { format!("SLIP {}(來源 {});轉角打滑開始 {}(累計 {:.3} rad,延遲 {});平移打滑開始 {}(輪行程比車體多 {:.0} mm,延遲 {});第一次碰撞 {};SLIP 亮 0.5 s 後輪子還在轉的步數 {};沒接觸時 yaw 殘差最大 {} mrad/s(門檻 {})",
                 first_slip.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("沒亮".into()),
+                match last_slip_src { 1 => "陀螺儀", 2 => "加速度計", 3 => "兩者", _ => "—" },
                 rot_onset.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), rot_slip_rad,
                 match (rot_onset, first_slip) { (Some(o), Some(f)) => format!("{:+.0} ms", (f as f64 - o as f64) * dt_s * 1000.0), _ => "—".into() },
                 slip_onset.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), slip_mm,
                 match (slip_onset, first_slip) { (Some(o), Some(f)) => format!("{:+.0} ms", (f as f64 - o as f64) * dt_s * 1000.0), _ => "—".into() },
                 first_collision.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), moved_after_slip, max_yaw_resid, cfgv[12] as i32) } },
+        // C15 長打滑下的航向(--scene long-slip,38 篇 §1.5):第一次碰撞之後 |odom θ − 真值 θ| 的最大值 ≤
+        //  max|ω_輪差 − ω_真值| × 100 ms(殘差平均 50 ms 才過門檻,× 2)+ 1 mrad/s × T(零偏估計的取整殘差)+ 0.03 rad(C3 的角度容差)
+        Check { name: if a.scene == "long-slip" { "C15 長打滑下的航向:第一次碰撞之後 odom θ 對真值的最大誤差 ≤ 上限" } else { "C15 (不是 long-slip 場景,不驗)" },
+            pass: a.scene != "long-slip" || first_collision.map_or(false, |c| {
+                let t_after = (steps as f64 - c as f64) * dt_s;
+                max_head_err <= max_rate_disc * 0.1 + 0.001 * t_after + 0.03 }),
+            detail: if a.scene != "long-slip" { String::new() } else { format!("最大誤差 {:.3} rad;上限 {:.3} = {:.3} rad/s × 0.1 s + 0.001 × {:.1} s + 0.03;航向用陀螺儀的步數 {}(g_cfg yaw_fusion={})",
+                max_head_err, first_collision.map_or(0.0, |c| max_rate_disc * 0.1 + 0.001 * (steps as f64 - c as f64) * dt_s + 0.03), max_rate_disc,
+                first_collision.map_or(0.0, |c| (steps as f64 - c as f64) * dt_s), last_gyro_steps, cfgv[16] as i32) } },
         // C14 重啟後重定位(--expect-reloc):解鎖前 C12 成立(上面)、解鎖不早於重啟 + 1 s(不是上位一重啟就重送)、
         // 最後真值到 goal 0.1 m 內、全程碰撞 0。負對照 static-map-odom:同樣解鎖重送,但 map→odom 仍是 identity
         Check { name: if a.expect_reloc { "C14 重啟後重定位:解鎖 ≥ 重啟 + 1 s、最後到 goal 0.1 m 內、碰撞 0" } else { "C14 (沒有 --expect-reloc,不驗)" },

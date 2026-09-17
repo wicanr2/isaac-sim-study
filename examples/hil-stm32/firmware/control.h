@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "proto.h"
 
-/* 觀測用的全域狀態:volatile,固定版面,橋接以 sysbus 讀(bridge-rs dbg::WORDS = 23)。
+/* 觀測用的全域狀態:volatile,固定版面,橋接以 sysbus 讀(bridge-rs dbg::WORDS = 30)。
  * RTOS 版把它當第一個成員、後面接自己的欄位。 */
 typedef struct {
     volatile uint32_t magic;        /* 0x48494C31 "HIL1":橋接用來確認讀對位址 */
@@ -26,7 +26,14 @@ typedef struct {
     volatile uint32_t ping_frames;  /* 收到的 PING 數(心跳) */
     volatile uint32_t imu_whoami;   /* 開機時讀到的 LSM330 WHO_AM_I_G(0xD4 = 有 IMU);0x100 | 錯誤碼 = I2C 沒回應 */
     volatile int32_t  gyro_z;       /* 陀螺儀 z 軸 mrad/s(每個控制步讀一次) */
-    volatile int32_t  yaw_resid;    /* |陀螺儀 − 輪差 yaw rate| 的滑動平均 mrad/s(打滑判斷) */
+    volatile int32_t  yaw_resid;    /* |(陀螺儀 − 零偏) − 輪差 yaw rate| 的滑動平均 mrad/s(打滑判斷) */
+    volatile int32_t  gyro_bias;    /* 靜止時估的陀螺儀零偏 mrad/s;還沒估出來是 0x7FFFFFFF(docs/hil/36 §3.2) */
+    volatile uint32_t acc_whoami;   /* 開機讀到的 WHO_AM_I_A(0x40 = 有加速度計);0x100 | 錯誤碼 = I2C 沒回應 */
+    volatile int32_t  acc_x;        /* 加速度計前進軸 mm/s²(每個控制步讀一次) */
+    volatile int32_t  acc_bias;     /* 靜止時估的加速度計零偏 mm/s²;還沒估出來是 0x7FFFFFFF */
+    volatile int32_t  vel_resid;    /* |漏積分(a_x − 零偏 − 輪速微分)| mm/s(平移打滑判斷,docs/hil/38 §1.4) */
+    volatile uint32_t slip_src;     /* 誰讓 SLIP 亮過:bit0 陀螺儀、bit1 加速度計(開機後累積) */
+    volatile uint32_t gyro_steps;   /* 航向增量用了陀螺儀的步數(yaw 融合,docs/hil/38 §1.5) */
 } dbg_common_t;
 
 /* 跨 reset 保留的區段:startup 不清、LoadELF 不寫。magic 對就是暖重置。 */
@@ -51,6 +58,9 @@ typedef struct {
     volatile uint32_t safety_mask;  /* SAFETY_*,全開 0x3F;負對照關一項 */
     volatile int32_t  slip_mrad_s;  /* 打滑:yaw 殘差門檻 */
     volatile int32_t  slip_ms;      /* 打滑:殘差超過門檻持續多久 */
+    volatile int32_t  gyro_bias_still_ms; /* 陀螺儀零偏:靜止滿這麼久才開始估;0 = 不估(零偏固定 0) */
+    volatile int32_t  slip_vel_mm_s;/* 平移打滑:速度殘差門檻 */
+    volatile int32_t  yaw_fusion;   /* 1 = 殘差超過打滑門檻的步,航向增量改用陀螺儀;0 = 只用輪差 */
 } cfg_t;
 
 extern cfg_t g_cfg;

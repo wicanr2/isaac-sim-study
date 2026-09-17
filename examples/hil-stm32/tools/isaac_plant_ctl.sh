@@ -5,15 +5,17 @@
 set -Eeuo pipefail
 cd "$(dirname "$0")/.."
 R=tools/remote.sh
-WORLD_ARG=""; [ "${WORLD:-0}" = 1 ] && WORLD_ARG="--world world.json"
+# WORLD_FILE:換世界檔(例如 world-headon.json,C13 平移打滑的決定性場景;run_loop 那端要配 --world /w/同名檔)
+WORLD_FILE="${WORLD_FILE:-world.json}"
+WORLD_ARG=""; [ "${WORLD:-0}" = 1 ] && WORLD_ARG="--world $WORLD_FILE"
 # TOPVIEW=1:真實俯視相機,每 100 ms 一幀 PNG 到 ~/hil-plant/topcam/(start 前清空);fetch 把它 rsync 回 out/topcam_isaac/
 [ "${TOPVIEW:-0}" = 1 ] && WORLD_ARG="$WORLD_ARG --topview topcam"
 # CPUSET=6,7:受控體綁在這幾個核(主機共用時限 CPU;taskset 讓 Isaac 的所有執行緒只排在這些核上)
 PIN=""; [ -n "${CPUSET:-}" ] && PIN="taskset -c $CPUSET"
 case "${1:-}" in
   sync)
-    for f in plant/isaac_plant.py plant/world.py calib.json world.json; do $R up "$f" '~/hil-plant/'; done
-    echo "[isaac_plant] synced: isaac_plant.py world.py calib.json world.json → ~/hil-plant/" ;;
+    for f in plant/isaac_plant.py plant/world.py calib.json world.json world-headon.json; do $R up "$f" '~/hil-plant/'; done
+    echo "[isaac_plant] synced: isaac_plant.py world.py calib.json world.json world-headon.json → ~/hil-plant/" ;;
   start)
     [ "${TOPVIEW:-0}" = 1 ] && $R ssh 'rm -rf ~/hil-plant/topcam'
     $R ssh "cd ~/hil-plant && { [ -f isaac_plant.pid ] && kill \$(cat isaac_plant.pid) 2>/dev/null; sleep 1; } ;

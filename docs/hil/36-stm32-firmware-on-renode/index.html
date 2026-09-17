@@ -13,7 +13,7 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/" class="on"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-韌體的形狀">1. 韌體的形狀</a></li><li class="l2"><a href="#2-平台描述vendor-一份拿掉一行">2. 平台描述:vendor 一份,拿掉一行</a></li><li class="l2"><a href="#3-逐項盤點有是什麼意思">3. 逐項盤點:「有」是什麼意思</a></li><li class="l3"><a href="#31-編碼器從-can-訊框改成-tim-encoder-mode">3.1 編碼器:從 CAN 訊框改成 TIM encoder mode</a></li><li class="l2"><a href="#4-兩條觀測管道">4. 兩條觀測管道</a></li><li class="l2"><a href="#5-速度瓶頸是-mmio-輪詢解法是-wfi">5. 速度:瓶頸是 MMIO 輪詢,解法是 WFI</a></li><li class="l3"><a href="#51-第二個瓶頸timer-事件一個-50100-µs">5.1 第二個瓶頸:timer 事件,一個 50–100 µs</a></li><li class="l2"><a href="#6-驗收十項一項是負對照">6. 驗收:十項,一項是負對照</a></li><li class="l2"><a href="#7-monitor-與-ironpython-的坑">7. monitor 與 IronPython 的坑</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/" class="on"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-韌體的形狀">1. 韌體的形狀</a></li><li class="l2"><a href="#2-平台描述vendor-一份拿掉一行">2. 平台描述:vendor 一份,拿掉一行</a></li><li class="l2"><a href="#3-逐項盤點有是什麼意思">3. 逐項盤點:「有」是什麼意思</a></li><li class="l3"><a href="#31-編碼器從-can-訊框改成-tim-encoder-mode">3.1 編碼器:從 CAN 訊框改成 TIM encoder mode</a></li><li class="l3"><a href="#32-imudatasheet-給了什麼韌體要自己補什麼">3.2 IMU:datasheet 給了什麼、韌體要自己補什麼</a></li><li class="l2"><a href="#4-兩條觀測管道">4. 兩條觀測管道</a></li><li class="l2"><a href="#5-速度瓶頸是-mmio-輪詢解法是-wfi">5. 速度:瓶頸是 MMIO 輪詢,解法是 WFI</a></li><li class="l3"><a href="#51-第二個瓶頸timer-事件一個-50100-µs">5.1 第二個瓶頸:timer 事件,一個 50–100 µs</a></li><li class="l2"><a href="#6-驗收十項一項是負對照">6. 驗收:十項,一項是負對照</a></li><li class="l2"><a href="#7-monitor-與-ironpython-的坑">7. monitor 與 IronPython 的坑</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="36-stm32f4-韌體在-renode-上開機型別存在不等於夠用">36 · STM32F4 韌體在 Renode 上開機:「型別存在」不等於「夠用」</h1>
 <p>把一支韌體放進 Renode,第一個問題不是「跑不跑得起來」,是<strong>「它跑起來之後,你怎麼知道它在跑」</strong>。第二個問題是,平台描述裡列了 USART、TIM、CAN,這些模型對你的韌體夠不夠用——而這件事只能逐個暫存器驗,型別名稱不會告訴你。</p>
@@ -145,6 +145,132 @@ TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_sour
 <p>韌體(兩版同):TIM2(PA0/PA1 AF1)左輪、TIM4(PB6/PB7 AF2)右輪,<code>ARR=0xFFFF</code>、<code>CC1S/CC2S=01</code>、<code>CCER</code> 兩通道、<code>SMS=011</code>、<code>CEN</code>;控制步 <code>dl = (int16)(CNT − 上次)</code>,累計進里程計。<code>calib.json</code> 的 <code>encoder_source</code> 切換(<code>tim</code> / <code>can</code>),<code>ENC_SOURCE_TIM</code> 進 <code>calib.h</code>;CAN 0x181 收到只計數不採用。</p>
 <p>受控體的 tick 進 CNT 有三種注入法(橋接 <code>--enc</code>,37 篇 §5):<code>hook</code>(一筆紀錄,Renode 裡的 .NET <code>QuadratureFeeder</code> 對 TI1/TI2 打邊緣,走 encoder mode 本身)、<code>gpio</code>(每個邊緣一個 External Control RPC)、<code>cnt</code>(直接寫 CNT)。lockstep 三種末端逐字相同(900.8, 0.4, 0.8627),注入那一段每步 2.5 / 4.1 / 2.3 ms(load 7–8);負對照 A/B 對調 → 韌體量到負速度、正回饋跑掉 5.4 m、C3 紅。realtime 下每個邊緣在模型裡是一次 <code>LimitTimer.Value</code> 寫入(§5.1 的 50–100 µs),8k 邊緣/s 會把模擬執行緒吃掉,所以 realtime 不走邊緣。取樣式 <code>cnt</code> 在閒時 C9 一次都沒綠過,realtime 預設改成第四種 <code>cont</code>(CNT 在韌體讀的當下外插,37 篇 §5、35 篇 §5.1)。</p>
 <p>以下 realtime 同腳本三次(<code>cnt</code>)的末端:x = 902 × 驅動段的 Renode/牆鐘比(預測 883 / 771 / 665,實測 876 / 766 / 668)、θ = 0.9019 × 轉向段的比(0.620 / 0.682 / 0.598 vs 0.611 / 0.689 / 0.598)——<strong>差全部在時鐘比裡</strong>,一個數字解釋完。這就是 35 篇 §5.1 留下的開放項的結論。</p>
+<h3 id="32-imudatasheet-給了什麼韌體要自己補什麼">3.2 IMU:datasheet 給了什麼、韌體要自己補什麼</h3>
+<p>橋接寫進陀螺儀模型的若是受控體真值,韌體拿到的是一顆不存在的完美感測器;打滑門檻與「沒有接觸不誤報」都在它上面量。真元件的誤差先從 datasheet 抄。LSM330(DocID023426 Rev 3)Table 3,Vdd 3 V、25 °C,表註「Typical specifications are not guaranteed」:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>陀螺儀</th>
+<th>加速度計</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>量程</td>
+<td>±250 / ±500 / ±2000 dps</td>
+<td>±2 / ±4 / ±6 / ±8 / ±16 g</td>
+</tr>
+<tr>
+<td>靈敏度</td>
+<td>8.75 / 17.50 / 70 mdps/digit</td>
+<td>0.061 / 0.122 / 0.183 / 0.244 / 0.732 mg/digit</td>
+</tr>
+<tr>
+<td>典型零點</td>
+<td>±10 / ±15 / ±25 dps(對應三個量程;表註 4:內建高通可以消掉)</td>
+<td>±60 mg(±2 g;§3.2:一批元件零點的標準差)</td>
+</tr>
+<tr>
+<td>雜訊密度</td>
+<td>沒寫</td>
+<td>沒寫</td>
+</tr>
+<tr>
+<td>靈敏度誤差</td>
+<td>沒寫</td>
+<td>沒寫</td>
+</tr>
+<tr>
+<td>零點溫漂</td>
+<td>沒寫(§3.2 文字:「changes very little over temperature and over time」)</td>
+<td>沒寫(§3.2 文字引用 Table 3 的「zero-g level change vs. temperature」,表中沒有這一列)</td>
+</tr>
+</tbody>
+</table></div>
+<p>韌體用 ±250 dps 量程,典型零點 <strong>±10 dps = 174.5 mrad/s</strong>,是打滑門檻 45 mrad/s 的 3.9 倍。理想感測器上成立的偵測,換成一顆典型元件就整路誤報——這不是調門檻能收的,韌體要自己估零偏。</p>
+<p><strong>橋接的誤差模型</strong>(<code>--imu-noise none|datasheet</code>):<code>datasheet</code> = 陀螺儀零偏 +10 dps(一個典型值)、白雜訊 0(datasheet 沒寫雜訊密度,不從別的型號借)。<code>--gyro-bias-mdps</code> 覆蓋零偏;<code>--gyro-noise-mdps</code> 加高斯白雜訊(σ,每步一個樣本,<code>--imu-seed</code> 固定序列)——這一項只拿來掃「雜訊到多大偵測開始誤報」,不代表這顆元件。<code>none</code> 保留成理想感測器的對照組。</p>
+<p><strong>韌體估零偏。</strong> 內建高通(CTRL_REG5_G 的 HPen)會連慢速轉彎的真實角速度一起濾掉,而且 Renode 的陀螺儀模型沒有定義 CTRL_REG5_G(<code>LSM330_Gyroscope_Fixed.cs</code> 只定義 WHO_AM_I 與 CTRL_REG1..4),所以在韌體做:</p>
+<ul>
+<li><strong>靜止條件</strong>:斜坡後的 v = w = 0(韌體實際給出去的命令,不是收到的),而且兩輪 CNT 差都是 0,連續滿 <code>g_cfg.gyro_bias_still_ms</code>(calib 200 ms)。</li>
+<li><strong>估計</strong>:靜止期間把原始讀值累加成移動平均(前 256 筆取算術平均,之後每筆 <code>sum += gz − sum/256</code>,時間常數 1.28 s);離開靜止就凍結。</li>
+<li><strong>使用</strong>:打滑殘差改成 |(陀螺儀 − 零偏) − 輪差 yaw rate|。</li>
+<li><strong>估出來之前</strong>(累計不到 20 筆,100 ms):不做打滑判斷,命令當 0、odom 旗標亮 <code>IMU_CAL</code>(第 9 位)——車先靜止校正,估完自己解。加速度計(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.4)的零偏用同一個靜止條件、同一個閘門。</li>
+<li><code>gyro_bias_still_ms = 0</code> 關掉估計(零偏固定 0)——負對照 <code>gyro-bias-uncomp</code> 用這個。</li>
+<li><code>g_dbg</code> 多一字 <code>gyro_bias</code>(mrad/s)。</li>
+</ul>
+<p><strong>量到的</strong>(2026-09-17,lockstep,假受控體;<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.3 的 C13):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>陀螺儀誤差</th>
+<th>情境</th>
+<th>韌體估出的零偏(時刻)</th>
+<th>沒有接觸時殘差最大</th>
+<th>C13</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>無(理想)</td>
+<td>預設腳本</td>
+<td>0(0.190 s)</td>
+<td>9 mrad/s</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>零偏 +10 dps(datasheet)</td>
+<td>預設腳本 / 方形 / Nav2 90 s</td>
+<td>174(0.190 s)</td>
+<td>10 / 10 / 9</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>零偏 +10 dps</td>
+<td>預設腳本,FreeRTOS</td>
+<td>174(0.125 s)</td>
+<td>10</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>零偏 −10 dps</td>
+<td>預設腳本</td>
+<td>−174(0.190 s)</td>
+<td>9</td>
+<td>綠</td>
+</tr>
+<tr>
+<td>零偏 +10 dps、不估(<code>gyro-bias-uncomp</code>)</td>
+<td>預設腳本</td>
+<td>0</td>
+<td>184</td>
+<td><strong>紅</strong>(0.545 s 誤報)</td>
+</tr>
+<tr>
+<td>零偏 0、不估</td>
+<td>預設腳本</td>
+<td>0</td>
+<td>9</td>
+<td>綠——紅的原因只是零偏</td>
+</tr>
+<tr>
+<td>零偏 +10 dps + 白雜訊 σ 1 / 3 dps</td>
+<td>預設腳本</td>
+<td>175 / 177</td>
+<td>20 / 48</td>
+<td>綠(48 只有單步,沒撐滿 50 ms)</td>
+</tr>
+<tr>
+<td>零偏 +10 dps + 白雜訊 σ 10 / 30 dps</td>
+<td>預設腳本</td>
+<td>187 / 213</td>
+<td>161 / 482</td>
+<td><strong>紅</strong>(1.185 / 0.650 s 誤報)</td>
+</tr>
+</tbody>
+</table></div>
+<p>白雜訊那幾列是掃描、不代表這顆元件(datasheet 沒寫雜訊密度):門檻 45 mrad/s、平均 10 步,撐得住每步 σ 3 dps(52 mrad/s),10 dps 撐不住。同 seed 帶雜訊跑兩次,CSV 逐 byte 相同。零偏 −10 dps 與 σ 1–30 dps 那五次量在加速度計與閘門加入之前的韌體上,零偏估計與打滑判斷的邏輯相同;σ 10 dps 在最終韌體上重跑:同樣 1.185 s 誤報,而且 C3 也紅(dθ 0.056 rad)——雜訊讓殘差過門檻的那些步,航向融合(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.5)換成了雜訊更大的陀螺儀。</p>
+<p>閘門是量出來的需要:ROS 方形閉環的上位在開機後 70 ms 就送命令,車一路沒有靜止滿 200 ms,零偏整趟沒估出來——打滑偵測整趟沒在做,C13 卻照樣綠。所以橋接在掛了 IMU 而零偏始終沒估出來時直接判 C13 紅;韌體則在估出來之前擋住命令。靜止條件看斜坡後的命令,是因為上位持續送非零命令時,「收到的命令為 0」永遠不成立,閘門會自己鎖死。之後每次停車更新零偏。</p>
 <h2 id="4-兩條觀測管道">4. 兩條觀測管道</h2>
 <p><strong>printer</strong>:USART2 接檔案後端(<code>usart2 CreateFileBackend @path true</code>;headless 下 <code>showAnalyzer</code> 沒用),韌體開機吐三行:</p>
 <pre><code>hilctl boot fw 0.1
