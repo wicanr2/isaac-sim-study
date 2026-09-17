@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GOAL 6:讓系統自己知道出事了——realtime 連續注入、打滑偵測、重啟後重定位 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/">5.1</a><a href="../6.0.1/">6.0.1</a><a href="../fleet/">車隊</a><a href="../hil/" class="on">HIL</a><a href="../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#你是誰在哪">你是誰、在哪</a></li><li class="l2"><a href="#第-0-步收-goal-5-的尾使用者-2026-09-17-已同意">第 0 步:收 GOAL 5 的尾(使用者 2026-09-17 已同意)</a></li><li class="l2"><a href="#四條線ac-1-不擋b-先做離線分析c-2-要重建映像d-要場域主機">四條線(A、C-1 不擋;B 先做離線分析;C-2 要重建映像;D 要場域主機)</a></li><li class="l3"><a href="#a-realtime-的連續注入1-開放項35-篇-51-第-4-點">A. realtime 的連續注入(#1 開放項,35 篇 §5.1 第 4 點)</a></li><li class="l3"><a href="#b-打滑偵測isaac-blind-scan-的nav2-假成功38-篇-64-第-4-列">B. 打滑偵測(Isaac blind-scan 的「Nav2 假成功」,38 篇 §6.4 第 4 列)</a></li><li class="l3"><a href="#c-重啟之後iwdgrstf-與重定位38-篇-1263">C. 重啟之後:IWDGRSTF 與重定位(38 篇 §1.2、§6.3)</a></li><li class="l3"><a href="#d-isaac-側次要項場域主機">D. Isaac 側次要項(場域主機)</a></li><li class="l2"><a href="#工作順序">工作順序</a></li><li class="l2"><a href="#硬規則">硬規則</a></li><li class="l2"><a href="#完成的定義">完成的定義</a></li></ul></aside>
+  <main class="doc">
+<h1 id="goal-6讓系統自己知道出事了realtime-連續注入打滑偵測重啟後重定位">GOAL 6:讓系統自己知道出事了——realtime 連續注入、打滑偵測、重啟後重定位</h1>
+<p>產生時間:2026-09-17 12:40。接續 <a href="../hil/GOAL-2026-09-16-1846.html">GOAL 5</a>(五線完成,結果在 <a href="https://github.com/wicanr2/isaac-sim-study/issues/1">issue #1</a> 最後一則「GOAL 5 總結」與 #3–#6 的最後一則)。</p>
+<p>GOAL 5 留下的三個缺口有同一個形狀:<strong>判準看真值抓得到,系統裡卻沒有任何一方知道。</strong> realtime 下 C9 紅,根因是取樣式注入,韌體自己分不出來;Isaac 上的車頂著方塊打滑、odom 走到 goal、Nav2 回 <code>succeeded</code>,只有看真值的 C11 知道;IWDG 重啟後 odom 歸零,driver 會鎖住,但 ack 之後 <code>map → odom</code> 仍是錯的 identity。這一輪把這三件事收進系統本身,每一條照舊先紅再綠、有數字、有負對照。第四條線是 Isaac 側的次要項。</p>
+<h2 id="你是誰在哪">你是誰、在哪</h2>
+<ul>
+<li>repo:<code>isaac-sim-study</code>(公開)。先讀 issue #1 最後兩則與 #2–#6 最後一則,不重問已定案的事。</li>
+<li><code>git config user.email</code> 必須是 <code>wicanr2@gmail.com</code>;<code>git log --format=%ae | sort -u</code> 只能有這一個。</li>
+<li>起點:<code>./run_loop.sh</code>、<code>FW=freertos</code>、<code>CAN=socketcan CANHUBFIX=1</code>、<code>UPPER=ros --seconds 45</code>、<code>UPPER=nav2 --seconds 90</code> 五個都 ALL PASS,末端 900.8 / 0.4 / 0.8627。<strong>先各跑一次</strong>;<code>tools/io_check.sh</code> 十項也跑一次。</li>
+<li>主機 14 核,load 常 6–19(其他 session 的容器)。realtime 的數字要等 load &lt; 6(沿用 GOAL 5 的等待腳本:load1 &lt; 5 連續兩次才開跑)。</li>
+<li>沒有板子。場域 GPU 主機只在 D 線用,規則同 GOAL 2/4/5(先 <code>nvidia-smi</code>、<code>uptime</code>、<code>ps</code> 盤點、CPU 用一半、只寫 <code>~/hil-plant/</code>、主機資訊不進 repo/log/issue)。</li>
+</ul>
+<h2 id="第-0-步收-goal-5-的尾使用者-2026-09-17-已同意">第 0 步:收 GOAL 5 的尾(使用者 2026-09-17 已同意)</h2>
+<ol>
+<li><strong>push</strong>:<code>f8226fd..804897a</code> 七個 commit 加上這份 GOAL 檔的 commit。</li>
+<li><strong>送 encoder-wrap PR</strong>(<code>wicanr2/renode-infrastructure</code> 分支 <code>stm32-timer-encoder-wrap</code>,<code>7901f78</code>,基於 master <code>47a4e12</code>)到 <code>renode/renode-infrastructure</code>:
+   - 英文稿:<code>/tmp/claude-1000/-home-anr2-isaac-sim-study/e1adcabc-28e2-46f8-9533-0bc11af6c2f5/scratchpad/g5/pr_encoder.md</code>。使用者已同意照這份原稿送出。
+   - 送之前 rebase 到上游最新 master,在 docker 裡重跑 NUnit <code>STM32_TimerEncoderTests</code>,要 5/5。<strong>rebase 有衝突,或上游已經改過 <code>HandleEncoderMode</code> / <code>Limit</code> 那一段,就停下來報告,不要送。</strong>
+   - 草稿檔如果已經不在(<code>/tmp</code> 被清掉了),從 issue #2 的回填與 <code>7901f78</code> 的 commit 訊息重建一份。<strong>重建的稿要先給使用者看過才送</strong>,原本的同意不涵蓋重建稿。</li>
+<li>37 篇 §4 的「PR 英文稿已備、送出待定」改成 PR 連結;issue #2 回填 PR 連結。</li>
+<li>關掉 #2–#6。關之前逐一確認最後一則回填有涵蓋該 issue 的完成定義,沒涵蓋就先補再關。#1 繼續開著,當總帳用。</li>
+<li>本輪 A–D 四條線各開一個 issue(#7 起,標題格式照 #2–#6),<code>PLAN.md</code> 的 35–39 列改成指向本檔。</li>
+<li>以上做完 <code>build_site.py</code> + <code>check_docs.py</code> 全綠,commit、push。</li>
+</ol>
+<h2 id="四條線ac-1-不擋b-先做離線分析c-2-要重建映像d-要場域主機">四條線(A、C-1 不擋;B 先做離線分析;C-2 要重建映像;D 要場域主機)</h2>
+<h3 id="a-realtime-的連續注入1-開放項35-篇-51-第-4-點">A. realtime 的連續注入(#1 開放項,35 篇 §5.1 第 4 點)</h3>
+<p>量到的機制:編碼器 tick 由橋接在每步一口氣注入(<code>cnt</code> 直接寫 CNT),韌體在自己的 5 ms tick 讀 CNT。兩個節拍的比不是整數時,每個控制週期吃到的筆數會在 n 和 n+1 之間跳,C9 紅。<code>lockstep --skew</code> 表是決定性的重現。</p>
+<ol>
+<li><strong>先設計、寫下來再做</strong>。兩個候選:
+   - (a) 每步把 Δtick 平均攤在該步 <code>run_for</code> 的虛擬時間上;
+   - (b) 速度式:<code>renode/hil_quadrature.cs</code> 的 feeder 依受控體輪速,在 Renode 自己的虛擬時鐘上打邊緣,每步再用「受控體累計 tick − CNT」修正。</li>
+</ol>
+<p>realtime 下橋接事先不知道 Renode 這一步會推進多少,(a) 可能只在 lockstep 成立。兩案的取捨寫進 37 篇 §3 再動手。
+2. <strong>判準先改、先寫死</strong>:C8(CNT == 受控體 tick)在連續注入下要換定義(例如「差 ≤ 一步的 tick 數,且每步結束時收斂」),改完寫進 38 篇 §1 再跑。<strong>C9 的上限不准動。</strong>
+3. <strong>lockstep 迴歸</strong>:預設腳本在新注入法下的末端要報,跟 900.8 / 0.4 / 0.8627 並列。如果不一樣,先寫明哪個是新的參考值、理由是什麼,不能悄悄換參考值。舊的 <code>cnt</code> 注入保留成選項。
+4. <strong><code>--skew</code> 表加一欄</strong>(35 篇 §5.1)。<strong>預測,要量</strong>:比值不是整數的 uniform 列和兩列 stall 會轉綠;uniform:0.2 仍然紅,因為那一列的機制是迴路增益乘 5 之後 PI 自己振盪,跟注入法無關。量到的跟預測不一樣,就寫量到的,並找出原因。
+5. <strong>realtime 閒時表</strong>:1 kHz 跑五次,新注入法 C9 要綠;同一個閒時視窗用 <code>cnt</code> 再跑一次當負對照,要紅。每個數字附 <code>uptime</code>。
+6. 文件:35 §5.1 第 4 點最後的「兩個都還沒做」改寫成量測結果;37 §3 注入法表加一列;38 §5 失敗形態表的 realtime C9 列更新。</p>
+<h3 id="b-打滑偵測isaac-blind-scan-的nav2-假成功38-篇-64-第-4-列">B. 打滑偵測(Isaac blind-scan 的「Nav2 假成功」,38 篇 §6.4 第 4 列)</h3>
+<p>現況:車撞上方塊以後,輪子頂著方塊打滑、編碼器照數,odom 一路走到 goal,Nav2 回 <code>succeeded</code>。真值離 goal 2.2 m、θ 差 0.75 rad。韌體的堵轉判斷看輪速,打滑時輪速正常,所以永遠不觸發。假受控體撞到就凍結編碼器,重現不了這個情況。</p>
+<ol>
+<li><strong>先離線分析,不寫程式</strong>。用 <code>examples/hil-stm32/out/isaac_nav2_blind.csv</code>(與 <code>isaac_nav2_blind_cam.scan</code>;檔案不在就重跑 <code>WORLD=1 PLANT=remote UPPER=nav2 --negative blind-scan</code>),在「打滑段」與「正常段」算三個候選訊號的分離度:
+   - (a) 真值 yaw rate 對輪差 yaw rate,也就是理想陀螺儀看得到的差;
+   - (b) 真值加速度對輪速微分,也就是理想加速度計看得到的差;
+   - (c) 雷射對地圖的匹配殘差,或「odom 在前進、前方量到的距離不變」。</li>
+</ol>
+<p>每個訊號報兩個數字:打滑開始後幾 ms 可判定;正常段(預設腳本、方形、Nav2 90 s 的轉向)誤報幾次。<strong>選方案前先有這張表。</strong>正面頂住、不轉向的打滑 (a) 看不到,表要能看出這一點。
+2. <strong>依表選方案</strong>:
+   - 下位方案:在 Renode 加 IMU。先盤點 Renode 1.16.1 有哪些 I2C/SPI 慣性感測器模型,從原始碼或 monitor 列出來,不猜型號。韌體照資料手冊讀暫存器;三個受控體用同一份公式輸出角速度/加速度,雜訊用固定 seed;橋接寫感測器值的路徑比照其他週邊。
+   - 上位方案:雷射對地圖,與 C-2 的 AMCL 共用。
+   - 也可以兩個都做,但要寫明各自抓得到哪一種打滑。
+3. <strong>假受控體要能重現打滑</strong>(三個受控體同一份公式):加一個「接觸後輪子照轉、車體不動」的模式。沒有這個,負對照只能在場域主機上跑。
+4. <strong>新旗標或新行為先寫進 38 篇 §1.2 再做</strong>:旗標位元、亮起後韌體做什麼(停車或只回報)、driver 怎麼反應(比照 C12 鎖住)。
+5. <strong>判準 C13</strong>:
+   - blind-scan 場景下,打滑在表上定的時間內被偵測到,Nav2 不得以 <code>succeeded</code> 收場;
+   - 預設腳本、方形、Nav2 90 s 誤報 0 次;
+   - 負對照 <code>--negative slip-off</code> 下 Nav2 又假成功,要紅。</p>
+<p>假受控體與 Isaac 都要跑。</p>
+<h3 id="c-重啟之後iwdgrstf-與重定位38-篇-1263">C. 重啟之後:IWDGRSTF 與重定位(38 篇 §1.2、§6.3)</h3>
+<p><strong>C-1 Renode 的 RCC_CSR.IWDGRSTF</strong>
+- 現況:<code>STM32_IndependentWatchdog</code> 逾時會 <code>RequestReset</code>,但不設 <code>RCC_CSR.IWDGRSTF</code>(bit 29;原始碼裡有 TODO),所以韌體讀到的是重置值 <code>0x0E000000</code>。韌體 <code>ctl_boot_detect()</code>(<code>firmware/control.c</code>)照真板讀 RCC_CSR,讀完用 RMVF 清;因為 Renode 不設這個旗標,另外靠 <code>.noinit</code> 的 magic 判斷暖重置。
+- <strong>先讀 Renode 的 reset 流程再動手</strong>:<code>RequestReset</code> 會不會連 <code>STM32F4_RCC</code> 一起重置?會的話,旗標要放在重置流程之外才留得住,這是整個修正的核心。
+- 修在 Renode,不改韌體的語意。做法比照前幾輪:fork 分支基於 master、commit 訊息英文、附 NUnit 測試,1.16.1 用執行期載入。上電、IWDG 重置、RMVF 三種狀態照 RM0090 §7.3.21。
+- 判準:
+  - <code>--fault hang</code> 之後 <code>g_dbg.boot_csr</code> 的 bit 29 是 1,上電那次沒有;
+  - 新負對照 <code>--negative noinit-off</code>(韌體只信 RCC_CSR),修正後綠、stock 1.16.1 紅。
+  - <code>.noinit</code> 那條路保留,真板上兩條都成立。
+- 上游:英文 PR 或 issue 的草稿<strong>給使用者看過才送</strong>。</p>
+<p><strong>C-2 AMCL 重定位</strong>
+- 現況:重啟後 odom 歸零,driver 鎖住,等 <code>/hil/fault_ack</code>(C12)。<code>map → odom</code> 是靜態 identity,ack 之後仍然是錯的。
+- <code>hil-nav2:jazzy</code> 沒有 AMCL(<code>ros/Dockerfile.nav2</code> 的套件清單裡沒有 <code>ros-jazzy-nav2-amcl</code>)。<strong>重建映像前先報大小增量再問。</strong>
+- 先查風險:<code>world.json</code> 的房間是 4 × 3 m 的矩形,只畫牆的地圖有 180° 旋轉對稱,AMCL 可能收斂到鏡像解。可以用 <code>tools/gen_map.py --boxes</code> 把方塊畫進地圖來打破對稱,但那會動到 blind-scan 負對照的前提(方塊本來是「地圖上沒有、只有雷射看得到」)。先量對稱會不會真的出事,再決定怎麼改,兩個負對照都要保住。
+- 流程:重啟 → 鎖住 → AMCL 收斂(協方差門檻寫死)→ 解鎖 → 重送 goal → 到達。
+- 判準 C14:<code>UPPER=nav2 --fault hang</code>
+  - 解鎖前 C12 仍成立;
+  - 最後到 goal 0.1 m 以內、碰撞 0;
+  - 負對照 <code>--negative static-map-odom</code>(ack 後照舊用 identity)從錯的起點規劃,要紅。</p>
+<h3 id="d-isaac-側次要項場域主機">D. Isaac 側次要項(場域主機)</h3>
+<ol>
+<li><strong>Isaac 上 Nav2 的 realtime</strong>:排在 A 線之後。本機 load 與場域主機盤點一起附上;與假受控體的 realtime 表並列。</li>
+<li><strong>決定性重驗</strong>(38 篇 §6.4 第 6 列「沒重驗」):同一支腳本 CPU 求解跑兩次,CSV 逐 byte 比。不一樣就寫進 38 篇 §3,並找出原因。</li>
+<li><strong>MPPI 對 DWB</strong>:映像裡已經有 <code>nav2-mppi-controller</code>。先在假受控體上比:到達誤差、路徑長、牆鐘、C9;Isaac 上只跑選定的那一個。<strong>不做參數最佳化</strong>,只報預設參數下的差異。</li>
+<li><strong>俯視圖畫 <code>/plan</code></strong>(issue #6 剩下的一項):記錄 Nav2 的 plan,<code>tools/topview.py</code> 疊上去。</li>
+</ol>
+<h2 id="工作順序">工作順序</h2>
+<p>起點驗證 → 第 0 步 → A 的設計與 lockstep 部分 → C-1 → B 離線分析 → B 實作 → C-2(映像要問)→ A 的 realtime 表(等閒時,中間可以穿插)→ D(場域主機可用時;D-1 排在 A 之後)。</p>
+<p>每條線結束時:<code>build_site.py</code> + <code>check_docs.py</code> 全綠、對應 issue 回填、commit。<strong>除了第 0 步,push 前要問。</strong></p>
+<h2 id="硬規則">硬規則</h2>
+<ul>
+<li>GOAL 1–5 的硬規則全部照舊:docker、匿名化、缺口修 Renode 不改韌體、韌體照 RM0090、每個新判準先紅再綠、三個受控體同一份公式、圖與正文同一份數字、長跑與拉映像前報數字、對外文字英文且送前給看、不碰共用 docker 資源(禁止 prune / rmi)。</li>
+<li><strong>[HARD] 判準的改動先寫進 38 篇再跑。</strong>不准為了變綠放寬 C9 上限,或改掉 C11/C12 看真值的定義。</li>
+<li><strong>[HARD] A 線 realtime 的每個數字附 <code>uptime</code></strong>;load ≥ 6 量到的只能用來定因,不進正文。</li>
+<li><strong>[HARD] B 線沒有離線分離度表就不選方案</strong>;IMU 型號、暫存器、Renode 介面一律從原始碼或資料手冊列出來,不猜。</li>
+<li><strong>[HARD] 韌體沒有模擬模式。</strong>打滑偵測、IWDGRSTF 都要走真板也會走的路徑;橋接只寫感測器值,不替韌體判斷。</li>
+<li>第 0 步的 encoder PR 是唯一事先同意的對外動作。其他 PR、上游 issue、留言,送前都要給使用者看。</li>
+</ul>
+<h2 id="完成的定義">完成的定義</h2>
+<ul>
+<li>第 0 步:push 完成;PR 已送出並有連結(或寫明為什麼停下);#2–#6 已關;#7 起的四個 issue 已開;<code>PLAN.md</code> 已更新</li>
+<li>A:新注入法與 C8 新定義寫進 37/38 篇;lockstep 參考值有結論;<code>--skew</code> 表多一欄;閒時 realtime 五次 C9 綠、<code>cnt</code> 負對照紅,附 load</li>
+<li>B:離線分離度表;選定的方案實作完成;假受控體重現得了打滑;C13 綠、<code>slip-off</code> 紅,假受控體與 Isaac 都跑過</li>
+<li>C:Renode 修正與 NUnit 測試;<code>noinit-off</code> 在修正後綠、stock 紅;上游草稿已給使用者看;C14 綠、<code>static-map-odom</code> 紅;對稱風險有量測結論</li>
+<li>D:Isaac Nav2 realtime 有表;決定性有結論;MPPI/DWB 對照表;俯視圖畫出 <code>/plan</code></li>
+<li>每個 issue 回填、issue #1 總結;<code>check_docs.py</code> 全綠;沒做到的寫明為什麼</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../">總覽</a> · <a href="../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>
