@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GOAL 7:IMU 優先——加速度計補平移打滑、yaw 融合進 odom — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/">5.1</a><a href="../6.0.1/">6.0.1</a><a href="../fleet/">車隊</a><a href="../hil/">HIL</a><a href="../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#你是誰在哪">你是誰、在哪</a></li><li class="l2"><a href="#第-0-步">第 0 步</a></li><li class="l2"><a href="#三條線a-是-bc-的前提d-是-7-的延續優先序最低">三條線(A 是 B、C 的前提;D 是 #7 的延續、優先序最低)</a></li><li class="l3"><a href="#a-感測器誤差模型bc-共用">A. 感測器誤差模型(B、C 共用)</a></li><li class="l3"><a href="#b-加速度計-平移打滑8-的缺口">B. 加速度計 → 平移打滑(#8 的缺口)</a></li><li class="l3"><a href="#c-yaw-融合進-odom">C. yaw 融合進 odom</a></li><li class="l3"><a href="#d-7-的延續realtime-抖動來源優先序最低閒時穿插">D. #7 的延續:realtime 抖動來源(優先序最低,閒時穿插)</a></li><li class="l2"><a href="#工作順序">工作順序</a></li><li class="l2"><a href="#硬規則">硬規則</a></li><li class="l2"><a href="#完成的定義">完成的定義</a></li></ul></aside>
+  <main class="doc">
+<h1 id="goal-7imu-優先加速度計補平移打滑yaw-融合進-odom">GOAL 7:IMU 優先——加速度計補平移打滑、yaw 融合進 odom</h1>
+<p>產生時間:2026-09-17 17:00。接續 <a href="../goal/GOAL-2026-09-17-1240.html">GOAL 6</a>(部分完成:#8–#10 已關,#7 realtime 連續注入閒時 C9 3/5、開放;總結在 <a href="https://github.com/wicanr2/isaac-sim-study/issues/1">issue #1</a> 最後一則)。</p>
+<p>使用者 2026-09-17 定的優先序:<strong>陀螺儀／IMU 列為首要</strong>。這一輪範圍涵蓋三件事:陀螺儀維持現況、加上加速度計、yaw 融合進 odom。</p>
+<p>GOAL 6 的 IMU 只做到偵測:陀螺儀 yaw rate 對輪差 yaw rate,殘差超過門檻就亮 <code>SLIP</code>。留下三個缺口,形狀相同——<strong>感測器已經在匯流排上,系統卻只拿它做一件事</strong>:</p>
+<ol>
+<li><strong>平移打滑是盲區。</strong> 車正面頂住、兩輪等速時,陀螺儀與輪差都是 0。C13 對這種情況只報延遲,不判(+750 / +1280 ms,這段時間 odom 多走 280–441 mm)。</li>
+<li><strong>odom 的航向只看輪差。</strong> 轉角打滑時 odom 的 θ 一路錯下去,要等 AMCL 或人來救。陀螺儀的讀值就在韌體手上,卻沒進里程計。</li>
+<li><strong>感測器是理想的。</strong> 橋接寫進去的是真值位姿差分,沒有零偏、沒有雜訊。45 mrad/s 門檻與「誤報 0」都是在理想感測器上量的,真板成不成立不知道。</li>
+</ol>
+<p>這一輪依序處理:先補誤差模型,再做加速度計,最後做融合。每一條照舊先紅再綠、有數字、有負對照。</p>
+<h2 id="你是誰在哪">你是誰、在哪</h2>
+<ul>
+<li>repo:<code>isaac-sim-study</code>(公開)。先讀 issue #1 最後一則(GOAL 6 總結)與 #7、#8 的回填,不重問已定案的事。</li>
+<li>GOAL 檔在 <code>docs/goal/</code>,這份已登記在 <code>docs/goal/index.md</code> 第 7 列。收工時更新那一列的狀態。</li>
+<li><code>git config user.email</code> 必須是 <code>wicanr2@gmail.com</code>;<code>git log --format=%ae | sort -u</code> 只能有這一個。</li>
+<li><strong>起點:<code>IMU</code> 預設開</strong>(2026-09-17 起,<code>encoder_source=tim</code> 且沒有 <code>TIMERFIX</code> 時;<code>IMU=0</code> 拔掉陀螺儀)。<code>IMU</code> 與 <code>RCCFIX</code> 互相獨立,四種組合各一份完整的 <code>.repl</code>——Renode 1.16.1 不讓 <code>using</code> 之後重宣告週邊(E02)。</li>
+<li>預設下完整回歸的結果在 issue #8 最後一則。</li>
+<li>開工先跑一次預設腳本:末端應為 900.8 / 0.4 / 0.8627,imu effect 行應為 <code>WHO_AM_I_G=0x0d4</code>。</li>
+<li>主機 14 核,load 常 6–30(其他 session 的容器)。lockstep 是決定性的,不受負載影響;realtime 的數字照舊要等 load &lt; 6。</li>
+<li>沒有板子。場域 GPU 主機的規則同 GOAL 2/4–6:先 <code>nvidia-smi</code>、<code>uptime</code>、<code>ps</code> 盤點,CPU 用一半(使用者上一輪定 2 核),只寫 <code>~/hil-plant/</code>,主機資訊不進 repo / log / issue。</li>
+</ul>
+<h2 id="第-0-步">第 0 步</h2>
+<ol>
+<li>每條線各開一個 issue,標題格式照 #7–#10;<code>PLAN.md</code> 的 35–39 列指向本檔。</li>
+<li>起點驗證:預設腳本、<code>FW=freertos</code>、<code>UPPER=nav2 --seconds 90</code> 各跑一次,確認 IMU 在、全綠。</li>
+</ol>
+<h2 id="三條線a-是-bc-的前提d-是-7-的延續優先序最低">三條線(A 是 B、C 的前提;D 是 #7 的延續、優先序最低)</h2>
+<h3 id="a-感測器誤差模型bc-共用">A. 感測器誤差模型(B、C 共用)</h3>
+<p>現況:<code>bridge-rs/src/main.rs</code> 用受控體真值位姿差分算 yaw rate,再乘最近 200 ms 的時鐘比(受控體時間 ÷ Renode 時間,38 篇 §1.3),原樣寫進 <code>LSM330_Gyroscope_Fixed.AngularRateZ</code>。加速度計的二次差分照同一個時間基準(乘時鐘比)。</p>
+<ol>
+<li><strong>參數從 datasheet 抄,不猜。</strong> 讀 LSM330 datasheet(DocID023426,列出版次與表號),把陀螺儀與加速度計各自的四項抄成表,寫進 36 篇 §3:零偏(zero-rate level / zero-g level)、雜訊密度、靈敏度誤差、溫漂。datasheet 沒寫的項目就寫「沒寫」,不從別的型號借。</li>
+<li><strong>橋接加誤差注入</strong>:<code>--imu-noise none|datasheet</code>。零偏每次跑固定、白雜訊用固定 seed;三個受控體(Rust <code>Fake</code>、<code>fake_plant.py</code>、Isaac)共用同一份公式,<strong>不經受控體協定</strong>(同 GOAL 6 陀螺儀的做法)。
+   - <code>none</code> 保留:理想感測器的數字要能重現;
+   - lockstep 下同 seed 兩次逐 byte 相同。</li>
+<li><strong>重跑 C13 表</strong>(38 篇 §1.3)的正常四情境與 blind-scan,換成 <code>datasheet</code>:
+   - 誤報仍要 0。不是 0 就先報告,門檻從帶雜訊的離線表重推,寫進 38 篇再改。<strong>不准悄悄調門檻。</strong>
+   - 轉角打滑的延遲與理想感測器並列。</li>
+</ol>
+<h3 id="b-加速度計-平移打滑8-的缺口">B. 加速度計 → 平移打滑(#8 的缺口)</h3>
+<ol>
+<li><strong>先盤點 Renode 模型,從原始碼列,不猜。</strong> 1.16.1 有 <code>Sensors/LSM330_Accelerometer.cs</code>(上游 master 也有)。
+   - 列出:暫存器表、<code>FSCALE</code> 對應的靈敏度換算、WHO_AM_I 有沒有實作、有沒有輸出飽和;逐項對 datasheet。
+   - 陀螺儀那份模型有兩個錯(靈敏度 130 對 114.3 digit/dps、WHO_AM_I 讀 0),<strong>同一作者的加速度計要假設可能有同類問題,逐項對過</strong>。
+   - 7-bit 位址照 datasheet 與板子接法(SA0)定,寫明依據。
+   - 有錯就修在模型:fork 分支基於 master、英文 commit、NUnit、1.16.1 執行期載入。上游 PR 稿給使用者看過才送。</li>
+<li><strong>先離線選訊號,不寫程式。</strong> GOAL 6 的離線表(38 篇 §1.3)已經量到:
+   - (b)「真值前進加速度 − 輪速微分」只抓得到撞上那一下,打滑期間超過門檻的比例 0.1%;
+   - 持續的平移打滑裡車體加速度是 0、輪速也不變,兩邊都沒有訊號。</li>
+</ol>
+<p>所以候選要換成能看出持續狀態的,至少比這三個:
+   - (b1) 撞擊尖峰 + 之後輪速仍非零(事件式);
+   - (b2) 加速度積分出的車體速度(漏積分、或只在「命令改變後一段窗」內積分)對輪速;
+   - (b3) 加減速段的「命令加速度 vs 量到的車體加速度」。</p>
+<p>每個候選在<strong>帶 A 的誤差模型</strong>的前提下報:平移打滑開始後幾 ms 可判定(假受控體兩次 head-on、Isaac blind-scan)、正常四情境誤報幾次。<strong>沒有這張表不選方案。</strong> 表顯示加速度計在 datasheet 零偏下分不出持續平移打滑,就照實寫、不硬做,把 (c) 雷射對地圖(需要雷射沒被遮的場景,例如低於掃描面的障礙物)列成替代方案回報。
+3. <strong>韌體</strong>:同一條 I2C3,每個控制步讀加速度計(每筆交易一個暫存器,同陀螺儀)。旗標沿用 <code>SLIP</code> 還是另開一位、亮了之後做什麼,<strong>先寫進 38 篇 §1.3 再做</strong>。韌體照舊只回報、不切。
+4. <strong>橋接</strong>:受控體真值位姿的二次差分轉到車體座標,當加速度計的機械部分。三個受控體同一份公式。Isaac 的接觸會讓二次差分出現尖峰——量出來,寫進表,不濾掉。
+5. <strong>C13 升級</strong>:平移打滑從「只報延遲」改成有期限的判準,期限從離線表定(同 GOAL 6 轉角打滑取 3 倍的做法)。負對照 <code>slip-off</code> 要同時關掉兩種偵測、仍紅;另加一個只關加速度計的負對照,head-on 場景要紅。</p>
+<h3 id="c-yaw-融合進-odom">C. yaw 融合進 odom</h3>
+<ol>
+<li><strong>先設計、寫進 36 篇再做</strong>:
+   - 融合方式,例如互補濾波:陀螺儀積分為主、輪差修低頻;
+   - 零偏估計在什麼條件下更新,例如命令為 0 且兩輪 tick 都不動滿 N ms;
+   - 數值格式:韌體是 <code>-mfloat-abi=soft</code> 的 <code>float</code>,照現有 <code>control.c</code> 的里程計寫法;
+   - <code>/odom</code> 發出的航向換成融合值之後,打滑偵測的殘差仍用<strong>原始</strong>陀螺儀對輪差,不能拿融合值去比自己。</li>
+<li><strong>判準先寫進 38 篇再跑</strong>:
+   - <strong>C3 的定義與容差不動。</strong> 融合後 C3 在正常四情境要照舊綠,融合前後的 dθ 並列。
+   - <strong>新判準 C15</strong>(轉角打滑下的航向):blind-scan <code>CONTACT=slip</code>(假受控體)與 Isaac blind-scan,打滑期間 odom θ 對真值的最大誤差 ≤ 上限。上限從「只用輪差」那一次量到的誤差與陀螺儀誤差模型推,寫明推法。
+   - 負對照:<code>--negative fusion-off</code>(回到只用輪差),C15 要紅;<code>--negative gyro-bias-uncomp</code>(注入零偏、關掉零偏估計),C15 或 C3 要紅,寫明是哪一個、為什麼。</li>
+<li><strong>上位影響</strong>:C11(Nav2 90 s)、C14(AMCL 重定位)在融合開的預設下重跑,數字與融合前並列。</li>
+<li>假受控體與 Isaac 都跑;Isaac 用 lockstep。</li>
+</ol>
+<h3 id="d-7-的延續realtime-抖動來源優先序最低閒時穿插">D. #7 的延續:realtime 抖動來源(優先序最低,閒時穿插)</h3>
+<ul>
+<li>GOAL 6 的下一步照做:把韌體讀 CNT 的值與讀的虛擬時刻記進 <code>g_dbg</code>,跟 <code>ContinuousEncoder</code> 算給它的值逐筆對。</li>
+<li>對得上 → 問題在受控體取樣 / 錨點時間;</li>
+<li>對不上 → 問題在 Renode 的讀取路徑。</li>
+<li><strong>同一個閒時視窗量 realtime 的 C13。</strong> 陀螺儀預設掛上之後,realtime 在負載下(renode/wall 0.21–0.39)沒有接觸也亮 SLIP。定因紀錄在 issue #7:陀螺儀乘上時鐘比之後,直行段不再誤報;轉向開始那一刻在 0.33× 仍亮,輪差量測本身也在控制週期之間跳(與 C9 同源)。閒時五次要報 C13 誤報數;有誤報的話,不准改門檻或平均窗,先拆是陀螺儀還是輪差那一側。</li>
+<li><strong>C9 上限不准動。</strong> 只在 load &lt; 6 時跑,每個數字附 <code>uptime</code>。</li>
+</ul>
+<h2 id="工作順序">工作順序</h2>
+<p>起點驗證 → 第 0 步 → A → B-1 模型盤點 → B-2 離線表 → C-1/C-2 設計與判準 → B 實作 → C 實作 → Isaac(B、C 各自的判準)→ D(閒時穿插)。</p>
+<p>每條線結束時:<code>build_site.py</code> + <code>check_docs.py</code> 全綠、對應 issue 回填、commit。<strong>push 前要問。</strong></p>
+<h2 id="硬規則">硬規則</h2>
+<ul>
+<li>GOAL 1–6 的硬規則全部照舊:</li>
+<li>docker、匿名化、不碰共用 docker 資源(禁止 prune / rmi);</li>
+<li>缺口修 Renode、不改韌體語意,韌體照 RM0090 與 datasheet;</li>
+<li>每個新判準先紅再綠;三個受控體同一份公式;圖與正文同一份數字;</li>
+<li>長跑與拉映像前報數字;對外文字英文且送前給看。</li>
+<li><strong>[HARD] datasheet 的數值、Renode 的暫存器與介面,一律從原始文件或原始碼列出來(版次、表號、檔案:行號),不猜、不借別的型號。</strong></li>
+<li><strong>[HARD] 判準的改動先寫進 38 篇再跑。</strong> C3 容差、C9 上限、C13 的 500 ms 都不准為了變綠放寬。C11/C12/C14 看真值的定義不動。</li>
+<li><strong>[HARD] B 線沒有帶誤差模型的離線分離度表就不選方案。</strong></li>
+<li><strong>[HARD] 韌體沒有模擬模式。</strong> 融合、零偏估計、加速度計判斷都走真板也會走的路徑;橋接只寫感測器值,不替韌體判斷。</li>
+<li><strong>[HARD] 理想感測器(<code>--imu-noise none</code>)的結果保留成對照組。</strong> 帶雜訊的數字不能取代它,兩者並列。</li>
+</ul>
+<h2 id="完成的定義">完成的定義</h2>
+<ul>
+<li>A:datasheet 參數表(版次、表號)進 36 篇;<code>--imu-noise datasheet</code> 可重現(同 seed 逐 byte 相同);C13 表帶雜訊重跑,誤報數有結論</li>
+<li>B:加速度計模型逐項對過 datasheet(有錯則有修正 + NUnit + 給使用者看過的 PR 稿);帶雜訊的離線表;選定方案實作,或寫明加速度計做不到、替代方案是什麼;C13 平移打滑有期限且綠、兩個負對照紅;假受控體與 Isaac 都跑過</li>
+<li>C:融合設計進 36 篇;C15 進 38 篇;正常四情境 C3 照舊綠(融合前後並列);C15 綠、<code>fusion-off</code> 紅、<code>gyro-bias-uncomp</code> 紅;C11 / C14 重跑並列;假受控體與 Isaac 都跑過</li>
+<li>D:<code>g_dbg</code> 逐筆比對有結論,或寫明本輪沒有閒時視窗</li>
+<li>每個 issue 回填、issue #1 總結;<code>docs/goal/index.md</code> 第 7 輪的狀態已更新;<code>check_docs.py</code> 全綠;沒做到的寫明為什麼</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../">總覽</a> · <a href="../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>
