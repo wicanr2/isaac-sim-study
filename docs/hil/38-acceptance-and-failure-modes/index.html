@@ -999,6 +999,45 @@
 </tr>
 </tbody>
 </table></div>
+<p><strong>realtime 的誤報現在會讓車停住</strong>(2026-09-19,本機閒時 load 1.5–2.7,五趟)。realtime 模式(Renode 自由跑、橋接每 5 ms 牆鐘取樣)本來就有編碼器注入抖動的問題(<a href="https://github.com/wicanr2/isaac-sim-study/issues/7">#7</a>),GOAL 7 量到的症狀是「<code>SLIP</code> 偶爾誤亮」。加上 §1.7 的牽引力控制之後,同一個誤報有了<strong>實質後果</strong>:</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>趟</th>
+<th>誤報 <code>SLIP</code></th>
+<th>受控體路徑長(C2 下限 100 mm)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>@1.350 s(加速度計)</td>
+<td>53.4 mm</td>
+</tr>
+<tr>
+<td>2</td>
+<td>@1.515 s</td>
+<td>61.0 mm</td>
+</tr>
+<tr>
+<td>3</td>
+<td>@1.850 s</td>
+<td>91.5 mm</td>
+</tr>
+<tr>
+<td>4</td>
+<td>@1.940 s</td>
+<td>81.9 mm</td>
+</tr>
+<tr>
+<td>5</td>
+<td>@1.560 s</td>
+<td>65.2 mm</td>
+</tr>
+</tbody>
+</table></div>
+<p>五趟全部誤報,而且<strong>車被自己的牽引力控制停住</strong>——duty 上限切到 0、再放回、又被誤報切掉,循環到腳本結束。lockstep 五趟一次誤報都沒有。</p>
+<p>這一條要記的不是「realtime 比較不準」(那早就知道),是<strong>偵測的誤報成本隨著處置變重</strong>:只回報的時候,誤報是一行 log;一旦接上處置,誤報就是車不會動。加處置之前要先問「這個偵測的誤報率在<strong>最差的執行環境</strong>是多少」。</p>
 <h3 id="18-感測器悄悄死掉i2c-匯流排失效沒有任何症狀">1.8 感測器悄悄死掉:I2C 匯流排失效沒有任何症狀</h3>
 <p>做 §1.7 的過程中量到一件與牽引力控制無關、但更值得記的事:<strong>某一版韌體在跑到一半時 I2C 讀取開始失敗,之後每一步都失敗,直到結束</strong>。1200 步的跑裡有 440–599 步完全讀不到陀螺儀與加速度計(預設腳本 3.907 s 起、head-on 3.712 s 起、μ 2.0 的 3.112 s 起)。</p>
 <p><strong>症狀是「沒有症狀」。</strong> 讀取失敗時韌體的 <code>have_gyro</code> 就是 0,那一步不做打滑判斷、不更新殘差;於是:</p>
