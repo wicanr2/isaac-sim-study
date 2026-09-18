@@ -268,6 +268,9 @@ def wheel_angle_rad(joint_prim):
 
 _unwrap = {}
 
+_wheel_prev = {"l": 0.0, "r": 0.0}   # 上一步的輪角,用來算輪面速度
+
+
 def wheel_angle_from_xform(wheel_prim, key):
     """輪子相對底盤繞 Y 軸的角度,從 fetch_results 寫回的 xform 算;跨步展開成連續角。
     這是物理輸出(接觸、滑移都包含在內),不是命令積分。"""
@@ -697,6 +700,10 @@ def handle(line: str):
         step_once()
     al = wheel_angle_from_xform(wl.GetPrim(), "l")
     ar = wheel_angle_from_xform(wr.GetPrim(), "r")
+    # 輪面速度 mm/s(給橋接對「輪子比車體多走多少」用,C16):從物理寫回的輪角差分,不是命令
+    vl = (al - _wheel_prev["l"]) / dt * R_MM
+    vr = (ar - _wheel_prev["r"]) / dt * R_MM
+    _wheel_prev["l"], _wheel_prev["r"] = al, ar
     ticks_l = int(math.floor(al / (2 * math.pi) * TPR))
     ticks_r = int(math.floor(ar / (2 * math.pi) * TPR))
     x, y, th = pose()

@@ -17,6 +17,7 @@ pub const ID_ENC_CONT_R: u32 = 0xFFFF_0023;
 pub const ID_GYRO_Z: u32 = 0xFFFF_0024;
 /// i32 micro-g:加速度計前進軸(sysbus.i2c3.accel 的 AccelerationX)
 pub const ID_ACCEL_X: u32 = 0xFFFF_0026;
+pub const ID_I2C_RESET: u32 = 0xFFFF_0027;
 pub const ID_ENC_CONT_TIME: u32 = 0xFFFF_0025;
 pub const ID_ACK: u32 = 0xFFFF_00AC;
 
@@ -104,6 +105,14 @@ impl Hook {
     /// IMU:把受控體這一步的真值 yaw rate(milli-dps)寫進 I2C3 上 LSM330 陀螺儀的 AngularRateZ。
     pub fn accel_x(&mut self, micro_g: i32) -> io::Result<()> {
         self.write_rec(ID_ACCEL_X, &micro_g.to_le_bytes())?;
+        self.pending_acks += 1;
+        Ok(())
+    }
+
+    /// 故障注入:把 I2C3 週邊重置(等於匯流排在執行中失效)。韌體的復原路徑要能把它救回來,
+    /// docs/hil/36 §3.5、38 篇 §1.8
+    pub fn i2c_reset(&mut self) -> io::Result<()> {
+        self.write_rec(ID_I2C_RESET, &[])?;
         self.pending_acks += 1;
         Ok(())
     }

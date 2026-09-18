@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "proto.h"
 
-/* 觀測用的全域狀態:volatile,固定版面,橋接以 sysbus 讀(bridge-rs dbg::WORDS = 30)。
+/* 觀測用的全域狀態:volatile,固定版面,橋接以 sysbus 讀(bridge-rs dbg::WORDS = 32)。
  * RTOS 版把它當第一個成員、後面接自己的欄位。 */
 typedef struct {
     volatile uint32_t magic;        /* 0x48494C31 "HIL1":橋接用來確認讀對位址 */
@@ -34,6 +34,8 @@ typedef struct {
     volatile int32_t  vel_resid;    /* |漏積分(a_x − 零偏 − 輪速微分)| mm/s(平移打滑判斷,docs/hil/38 §1.4) */
     volatile uint32_t slip_src;     /* 誰讓 SLIP 亮過:bit0 陀螺儀、bit1 加速度計(開機後累積) */
     volatile uint32_t gyro_steps;   /* 航向增量用了陀螺儀的步數(yaw 融合,docs/hil/38 §1.5) */
+    volatile int32_t  tc_cap;       /* 牽引力控制當下的 duty 上限(‰;docs/hil/36 §3.4) */
+    volatile uint32_t imu_fail;     /* I2C 讀感測器失敗、做過匯流排復原的次數(docs/hil/36 §3.5) */
 } dbg_common_t;
 
 /* 跨 reset 保留的區段:startup 不清、LoadELF 不寫。magic 對就是暖重置。 */
@@ -61,6 +63,10 @@ typedef struct {
     volatile int32_t  gyro_bias_still_ms; /* 陀螺儀零偏:靜止滿這麼久才開始估;0 = 不估(零偏固定 0) */
     volatile int32_t  slip_vel_mm_s;/* 平移打滑:速度殘差門檻 */
     volatile int32_t  yaw_fusion;   /* 1 = 殘差超過打滑門檻的步,航向增量改用陀螺儀;0 = 只用輪差 */
+    volatile int32_t  traction_ctl; /* 1 = 打滑時壓 duty 上限(牽引力控制,docs/hil/36 §3.4);0 = 不壓 */
+    volatile int32_t  traction_cap_step; /* 每個控制步調整的量(‰) */
+    volatile int32_t  traction_cap_min;  /* duty 上限的下限(‰) */
+    volatile int32_t  traction_recover_ms; /* 殘差在門檻以下連續這麼久才開始放回 */
 } cfg_t;
 
 extern cfg_t g_cfg;

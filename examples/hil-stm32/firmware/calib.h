@@ -29,6 +29,10 @@
 #define GYRO_BIAS_STILL_MS       200  /* 陀螺儀零偏:靜止滿這麼久才估;0 = 不估 */
 #define SLIP_VEL_MM_S            90  /* 平移打滑:加速度計速度殘差門檻(docs/hil/38 §1.4) */
 #define YAW_FUSION               1  /* 1 = 打滑片段的航向增量改用陀螺儀(docs/hil/38 §1.5) */
+#define TRACTION_CTL             1  /* 1 = 打滑時壓 duty 上限(docs/hil/36 §3.4) */
+#define TRACTION_CAP_STEP        20  /* 每個控制步調整 duty 上限的量(‰) */
+#define TRACTION_CAP_MIN         0  /* duty 上限壓到這裡為止(‰) */
+#define TRACTION_RECOVER_MS      200  /* 殘差在門檻以下連續這麼久才放回 */
 #define ENC_SOURCE_TIM           1  /* 1: TIM2/TIM4 encoder mode 讀 CNT;0: CAN 0x181 訊框 */
 #define CAN_ID_ENCODER           0x181
 #define CAN_ID_MOTOR_STATUS      0x201

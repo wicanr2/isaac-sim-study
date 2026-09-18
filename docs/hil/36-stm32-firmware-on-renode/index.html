@@ -13,7 +13,7 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/" class="on"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-韌體的形狀">1. 韌體的形狀</a></li><li class="l2"><a href="#2-平台描述vendor-一份拿掉一行">2. 平台描述:vendor 一份,拿掉一行</a></li><li class="l2"><a href="#3-逐項盤點有是什麼意思">3. 逐項盤點:「有」是什麼意思</a></li><li class="l3"><a href="#31-編碼器從-can-訊框改成-tim-encoder-mode">3.1 編碼器:從 CAN 訊框改成 TIM encoder mode</a></li><li class="l3"><a href="#32-imudatasheet-給了什麼韌體要自己補什麼">3.2 IMU:datasheet 給了什麼、韌體要自己補什麼</a></li><li class="l3"><a href="#33-馬達層從速度源改成扭矩模型">3.3 馬達層:從速度源改成扭矩模型</a></li><li class="l2"><a href="#4-兩條觀測管道">4. 兩條觀測管道</a></li><li class="l2"><a href="#5-速度瓶頸是-mmio-輪詢解法是-wfi">5. 速度:瓶頸是 MMIO 輪詢,解法是 WFI</a></li><li class="l3"><a href="#51-第二個瓶頸timer-事件一個-50100-µs">5.1 第二個瓶頸:timer 事件,一個 50–100 µs</a></li><li class="l2"><a href="#6-驗收十項一項是負對照">6. 驗收:十項,一項是負對照</a></li><li class="l2"><a href="#7-monitor-與-ironpython-的坑">7. monitor 與 IronPython 的坑</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/" class="on"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-韌體的形狀">1. 韌體的形狀</a></li><li class="l2"><a href="#2-平台描述vendor-一份拿掉一行">2. 平台描述:vendor 一份,拿掉一行</a></li><li class="l2"><a href="#3-逐項盤點有是什麼意思">3. 逐項盤點:「有」是什麼意思</a></li><li class="l3"><a href="#31-編碼器從-can-訊框改成-tim-encoder-mode">3.1 編碼器:從 CAN 訊框改成 TIM encoder mode</a></li><li class="l3"><a href="#32-imudatasheet-給了什麼韌體要自己補什麼">3.2 IMU:datasheet 給了什麼、韌體要自己補什麼</a></li><li class="l3"><a href="#33-馬達層從速度源改成扭矩模型">3.3 馬達層:從速度源改成扭矩模型</a></li><li class="l3"><a href="#34-牽引力控制打滑時把-duty-夾住">3.4 牽引力控制:打滑時把 duty 夾住</a></li><li class="l3"><a href="#35-i2c-失效之後要自己爬起來">3.5 I2C 失效之後要自己爬起來</a></li><li class="l2"><a href="#4-兩條觀測管道">4. 兩條觀測管道</a></li><li class="l2"><a href="#5-速度瓶頸是-mmio-輪詢解法是-wfi">5. 速度:瓶頸是 MMIO 輪詢,解法是 WFI</a></li><li class="l3"><a href="#51-第二個瓶頸timer-事件一個-50100-µs">5.1 第二個瓶頸:timer 事件,一個 50–100 µs</a></li><li class="l2"><a href="#6-驗收十項一項是負對照">6. 驗收:十項,一項是負對照</a></li><li class="l2"><a href="#7-monitor-與-ironpython-的坑">7. monitor 與 IronPython 的坑</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="36-stm32f4-韌體在-renode-上開機型別存在不等於夠用">36 · STM32F4 韌體在 Renode 上開機:「型別存在」不等於「夠用」</h1>
 <p>把一支韌體放進 Renode,第一個問題不是「跑不跑得起來」,是<strong>「它跑起來之後,你怎麼知道它在跑」</strong>。第二個問題是,平台描述裡列了 USART、TIM、CAN,這些模型對你的韌體夠不夠用——而這件事只能逐個暫存器驗,型別名稱不會告訴你。</p>
@@ -325,6 +325,32 @@ TIM2/TIM4 encoder mode 讀 CNT  → 輪速量測 + 里程計(calib `encoder_sour
 </ol>
 <p><strong>Isaac 用同一條直線</strong>:速度驅動的 <code>damping × (target − ω)</code> 夾在 <code>maxForce</code>,就是上面的第 1 條。所以不改驅動型別,只把參數換成物理值:<code>damping = τ_stall / ω_free</code>、<code>maxForce = τ_max</code>、<code>target = duty × ω_free</code>(角度單位換 deg/s;damping 的單位用 <code>--probe-physics</code> 實測確認,不用猜)。抓地力那一半本來就是 PhysX 在算(μ 量到 0.508)。</p>
 <p><strong><code>CONTACT</code> 旗標拿掉</strong>:高摩擦 → 輪緣力打不過抓地力 → 卡住;低摩擦 → 打滑。對應關係與量到的門檻寫在 38 篇 §1.6。</p>
+<h3 id="34-牽引力控制打滑時把-duty-夾住">3.4 牽引力控制:打滑時把 duty 夾住</h3>
+<p>打滑偵測(§3.2、<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.3–1.4)只回報。GOAL 8 加上處置:<strong><code>SLIP</code> 亮著而且殘差還超過門檻時,把 duty 的上限往下壓</strong>。</p>
+<ul>
+<li><strong>切</strong>:殘差超標的那一步,<code>cap</code> 直接落到 <code>traction_cap_min</code>(不是逐步降)。</li>
+<li><strong>放</strong>:殘差在門檻以下連續 <code>traction_recover_ms</code> 之後,每步 <code>cap += traction_cap_step</code>,回到 1000 為止;中途再超標就再切一次。</li>
+<li>PI 照算,只是輸出夾在 ±cap;<code>g_dbg.tc_cap</code> 看得到當下的上限。</li>
+<li><code>g_cfg.traction_ctl = 0</code> 關掉(負對照 <code>traction-off</code>)。</li>
+<li>為什麼不是直接停:停是上位的決定(§6.3 的鎖住);韌體這一層只保證「不要再空轉下去」,殘差一降下來就自己把出力放回去,車繼續走。</li>
+</ul>
+<p>參數:<code>traction_cap_min</code> 0 ‰、<code>traction_cap_step</code> 20 ‰/步、<code>traction_recover_ms</code> 200。</p>
+<p><strong>為什麼是「一步切到底」而不是斜坡降</strong>:輪子在打滑,輪面與地面的相對速度就是多走的距離的來源。切到 0 之後輪子靠地面摩擦減速,角加速度 μNr/I_w = 1.15 / 0.0005 = 2290 rad/s²,從滿速 20.9 rad/s 減到車速只要 9 ms;而 20 ‰/步的斜坡從 1000 降到失去牽引力的 556 ‰(τ = 1.15 N·m 對應的 duty)要 111 ms,這段期間輪子一直在空轉。兩者差一個數量級,判準 C16(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.7)的 20 mm 只有前者做得到。放回去要慢是另一回事:斜坡放回才找得到當下地面撐得住的出力。</p>
+<p><strong>反積分飽和</strong>:<code>cap</code> 壓下去的期間 PI 的輸出被夾住,誤差卻還在累積。不處理的話,解除壓制的那一刻積分項會把 duty 直接推到滿、立刻再打滑一次。<code>pi_step()</code> 改成條件積分——輸出已經頂到 ±cap、而且誤差還往同方向推的步就不累積。這個保護對原本的 ±1000 飽和一樣成立,不是為了牽引力控制才有的特例。</p>
+<h3 id="35-i2c-失效之後要自己爬起來">3.5 I2C 失效之後要自己爬起來</h3>
+<p>I2C 的傳輸一旦失敗(逾時、沒收到 ACK),週邊會停在半途:BUSY 不放、從機還在等下一個 byte。<strong>之後每一次傳輸都會在同一個地方逾時</strong>,而韌體外表毫無異狀——讀不到就不做判斷,殘差停在最後一個值,旗標不亮。<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.8 記了一次實際發生:1200 步裡有 440–599 步完全讀不到 IMU,判準照樣全綠。</p>
+<p>做法和實體板子上一樣:</p>
+<pre><code class="language-c">static void i2c_recover(void)
+{
+    D-&gt;imu_fail++;
+    I2C_CR1(I2C3_BASE) = 0;                  /* PE = 0 */
+    I2C_CR1(I2C3_BASE) = I2C_CR1_SWRST;      /* RM0090 §27.6.1:SWRST 把狀態機與 BUSY 清掉 */
+    I2C_CR1(I2C3_BASE) = 0;
+    i2c_bus_config();                        /* FREQ / CCR / TRISE / PE,與開機同一段 */
+}
+</code></pre>
+<p>感測器自己的設定(ODR、量程)在從機那側,不會被主機的重置清掉,所以不必重跑 <code>WHO_AM_I</code> 與 <code>CTRL_REG</code> 那段。<code>g_dbg.imu_fail</code> 記次數,橋接每步存進 CSV,驗收比對最後 200 ms 還有沒有在失敗(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.8)。</p>
+<p>⚠ <strong>這段程式碼到目前為止一次都沒被真的觸發過。</strong> 加進去之後那個失效就沒再重現(見 38 篇 §1.8 的證據等級)。它是防禦,不是已驗證的修復。</p>
 <h2 id="4-兩條觀測管道">4. 兩條觀測管道</h2>
 <p><strong>printer</strong>:USART2 接檔案後端(<code>usart2 CreateFileBackend @path true</code>;headless 下 <code>showAnalyzer</code> 沒用),韌體開機吐三行:</p>
 <pre><code>hilctl boot fw 0.1

@@ -67,6 +67,7 @@
 #define I2C_CR1_START (1u << 8)
 #define I2C_CR1_STOP  (1u << 9)
 #define I2C_CR1_ACK   (1u << 10)
+#define I2C_CR1_SWRST (1u << 15)
 #define I2C_SR1_SB    (1u << 0)
 #define I2C_SR1_ADDR  (1u << 1)
 #define I2C_SR1_BTF   (1u << 2)

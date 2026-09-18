@@ -20,7 +20,8 @@ noinit_t g_noinit __attribute__((section(".noinit"), aligned(4)));
 cfg_t g_cfg __attribute__((aligned(4))) = { 0x48494C43u, PI_KP_Q8, PI_KI_Q8, ACCEL_LIMIT_MM_S2, FF_GAIN_Q8, ALPHA_LIMIT_MRAD_S2,
                                             IWDG_TIMEOUT_MS, 0, HB_TIMEOUT_MS, STALL_DUTY, STALL_MS, SAFETY_MASK,
                                             SLIP_RESID_MRAD_S, SLIP_MS, GYRO_BIAS_STILL_MS,
-                                            SLIP_VEL_MM_S, YAW_FUSION };
+                                            SLIP_VEL_MM_S, YAW_FUSION,
+                                            TRACTION_CTL, TRACTION_CAP_STEP, TRACTION_CAP_MIN, TRACTION_RECOVER_MS };
 
 void ctl_bind_dbg(dbg_common_t *dbg) { D = dbg; D->magic = 0x48494C31u; }
 
@@ -196,6 +197,21 @@ static int i2c_wait(uint32_t mask)
     return -2;
 }
 
+static void i2c_bus_config(void);
+
+/* 匯流排復原:一次失敗的傳輸會把週邊留在半途(BUSY 不放、從機還在等 byte),之後每一次
+ * 傳輸都在同一個地方逾時——實體板子上這是 I2C 的老問題,做法也一樣:PE 關掉、SWRST 一拍,
+ * 再照 ctl_imu_init() 的設定重新初始化。感測器自己的暫存器設定(ODR、量程)在從機那側,
+ * 不會被主機的重置清掉,所以不必重跑 WHO_AM_I 與 CTRL_REG 那段。docs/hil/36 §3.5 */
+static void i2c_recover(void)
+{
+    D->imu_fail++;
+    I2C_CR1(I2C3_BASE) = 0;
+    I2C_CR1(I2C3_BASE) = I2C_CR1_SWRST;
+    I2C_CR1(I2C3_BASE) = 0;
+    i2c_bus_config();
+}
+
 static int i2c_fail(int e)
 {
     I2C_CR1(I2C3_BASE) |= I2C_CR1_STOP;
@@ -244,6 +260,16 @@ static int i2c_read_reg(uint8_t addr, uint8_t reg, uint8_t *val)
     return 0;
 }
 
+/* 100 kHz 標準模式 @ APB1 42 MHz(RM0090 §27.6.2/§27.6.8/§27.6.9):FREQ 42、CCR = 42 MHz / (2 × 100 kHz) = 210、TRISE = 42 + 1 */
+static void i2c_bus_config(void)
+{
+    I2C_CR1(I2C3_BASE) = 0;
+    I2C_CR2(I2C3_BASE) = 42;
+    I2C_CCR(I2C3_BASE) = 210;
+    I2C_TRISE(I2C3_BASE) = 43;
+    I2C_CR1(I2C3_BASE) = I2C_CR1_PE;
+}
+
 void ctl_imu_init(void)
 {
     RCC_APB1ENR |= RCC_APB1ENR_I2C3;
@@ -254,12 +280,7 @@ void ctl_imu_init(void)
     GPIO_MODER(GPIOC_BASE)  = (GPIO_MODER(GPIOC_BASE) & ~(3u << 18)) | (2u << 18);
     GPIO_OTYPER(GPIOC_BASE) |= 1u << 9;
     GPIO_AFRH(GPIOC_BASE)   = (GPIO_AFRH(GPIOC_BASE) & ~(0xFu << 4)) | (4u << 4);
-    /* 100 kHz 標準模式 @ APB1 42 MHz(RM0090 §27.6.2/§27.6.8/§27.6.9):FREQ 42、CCR = 42 MHz / (2 × 100 kHz) = 210、TRISE = 42 + 1 */
-    I2C_CR1(I2C3_BASE) = 0;
-    I2C_CR2(I2C3_BASE) = 42;
-    I2C_CCR(I2C3_BASE) = 210;
-    I2C_TRISE(I2C3_BASE) = 43;
-    I2C_CR1(I2C3_BASE) = I2C_CR1_PE;
+    i2c_bus_config();
 
     uint8_t who = 0;
     int e = i2c_read_reg(IMU_ADDR, LSM330_WHO_AM_I_G, &who);
@@ -449,6 +470,8 @@ static int32_t s_abias_sum, s_abias_n;      /* 加速度計前進軸的零偏,�
 static float s_vel_resid;                   /* 平移打滑:漏積分的速度殘差 mm/s */
 static int32_t s_v_wheel_prev;              /* 上一步的輪速(兩輪平均)mm/s */
 static int32_t s_slip_acc_ms;               /* 速度殘差超過門檻的累計毫秒 */
+static int32_t s_tc_cap = DUTY_FULL_SCALE;  /* 牽引力控制:duty 上限(‰),docs/hil/36 §3.4 */
+static int32_t s_tc_ok_ms;                  /* 殘差連續在門檻以下的毫秒 */
 
 /* 里程計用浮點(soft-float,由 libgcc 提供);沒有 libm,所以 sin/cos 自己寫。 */
 static float s_x_mm, s_y_mm, s_th_rad;
@@ -470,14 +493,21 @@ static int32_t clamp_i32(int32_t v, int32_t lo, int32_t hi)
 }
 
 /* 一輪 PI:回帶號 duty */
-static int32_t pi_step(int32_t sp, int32_t meas, int32_t *integ)
+static int32_t pi_step(int32_t sp, int32_t meas, int32_t *integ, int32_t cap)
 {
     int32_t e = sp - meas;
-    *integ = clamp_i32(*integ + e, -PI_INTEGRAL_LIMIT, PI_INTEGRAL_LIMIT);
     /* 前饋 sp(滿 duty = WHEEL_SPEED_FULL_MM_S)× g_cfg.ff_q8 + PI 修正,Q8 定點;增益從 g_cfg 讀 */
     int32_t ff = (sp * DUTY_FULL_SCALE / WHEEL_SPEED_FULL_MM_S) * g_cfg.ff_q8 >> 8;
-    int32_t u  = ff + ((g_cfg.kp_q8 * e + g_cfg.ki_q8 * (*integ)) >> 8);
-    return clamp_i32(u, -DUTY_FULL_SCALE, DUTY_FULL_SCALE);
+    int32_t i_try = clamp_i32(*integ + e, -PI_INTEGRAL_LIMIT, PI_INTEGRAL_LIMIT);
+    int32_t u = ff + ((g_cfg.kp_q8 * e + g_cfg.ki_q8 * i_try) >> 8);
+    /* 反積分飽和(條件積分,docs/hil/36 §3.4):輸出已經頂到 ±cap、誤差還往同方向推的步就不累積。
+     * cap 是牽引力控制壓下來的上限(沒壓時就是 DUTY_FULL_SCALE);不做的話解除壓制那一刻會直接吐滿 duty */
+    if (!((u > cap && e > 0) || (u < -cap && e < 0))) {
+        *integ = i_try;
+    } else {
+        u = ff + ((g_cfg.kp_q8 * e + g_cfg.ki_q8 * (*integ)) >> 8);
+    }
+    return clamp_i32(u, -cap, cap);
 }
 
 void ctl_control_step(uint32_t now)
@@ -534,7 +564,7 @@ void ctl_control_step(uint32_t now)
             s_yaw_hist[s_yaw_idx] = (gz - gbias) - ww;
             s_yaw_idx = (s_yaw_idx + 1) % SLIP_WINDOW;
             D->gyro_z = gz;
-        }
+        } else { i2c_recover(); }
         if (g_cfg.gyro_bias_still_ms > 0) bias_ok = s_bias_n >= GYRO_BIAS_MIN_N;
         D->gyro_bias = bias_ok ? gbias : 0x7FFFFFFF;
         int32_t sum = 0;
@@ -543,14 +573,15 @@ void ctl_control_step(uint32_t now)
         D->yaw_resid = yaw_resid;
     }
 
-    /* 里程計:差速模型,中點法。航向增量預設用輪差;yaw_fusion 開、零偏已估出、而且上面的殘差平均超過打滑門檻時,
-     * 這一步改用「陀螺儀 − 零偏」(gyrodometry:兩者對不上的片段才換陀螺儀,正常行駛完全不吃陀螺儀的零偏漂移;
-     * docs/hil/38 §1.5)。距離仍用輪子。 */
+    /* 里程計:差速模型,中點法。航向增量預設用輪差;yaw_fusion 開、零偏已估出,而且「殘差平均超過打滑門檻」
+     * 或「SLIP 還鎖著」時,這一步改用「陀螺儀 − 零偏」(gyrodometry:兩者對不上的片段才換陀螺儀,正常行駛
+     * 完全不吃陀螺儀的零偏漂移;docs/hil/38 §1.5)。鎖著也算,是因為牽引力控制會把殘差壓回門檻以下,
+     * 但輪子仍在慢慢滑——只看殘差的話這段會用輪差,航向就一路偏掉。距離仍用輪子。 */
     float dl_mm = (float)dl * ((float)WHEEL_CIRC_UM / 1000.0f) / (float)ENC_TICKS_PER_REV;
     float dr_mm = (float)dr * ((float)WHEEL_CIRC_UM / 1000.0f) / (float)ENC_TICKS_PER_REV;
     float ds = (dl_mm + dr_mm) * 0.5f;
     float dth = (dr_mm - dl_mm) / (float)TRACK_MM;
-    if (g_cfg.yaw_fusion && s_imu_ok && have_gyro && bias_ok && yaw_resid > g_cfg.slip_mrad_s) {
+    if (g_cfg.yaw_fusion && s_imu_ok && have_gyro && bias_ok && (yaw_resid > g_cfg.slip_mrad_s || s_slipped)) {
         dth = (float)(gz - gbias) * 0.001f * (float)CONTROL_PERIOD_MS * 0.001f;
         D->gyro_steps++;
     }
@@ -580,7 +611,7 @@ void ctl_control_step(uint32_t now)
                              + (float)(ax - abias) * (float)CONTROL_PERIOD_MS * 0.001f - (float)(v_wheel - s_v_wheel_prev);
             D->acc_x = ax;
             D->acc_bias = acc_bias_ok ? abias : 0x7FFFFFFF;
-        }
+        } else { i2c_recover(); }
         s_v_wheel_prev = v_wheel;
         vel_resid = (int32_t)(s_vel_resid < 0 ? -s_vel_resid : s_vel_resid);
         D->vel_resid = vel_resid;
@@ -624,6 +655,26 @@ void ctl_control_step(uint32_t now)
     if (s_cmd_v == 0 && s_cmd_w == 0) { s_slipped = 0; s_slip_ms = 0; s_slip_acc_ms = 0; }
     if (s_slipped) flags |= ODOM_FLAG_SLIP;
 
+    /* 牽引力控制(docs/hil/36 §3.4):SLIP 亮著而且殘差還超標 → 每步把 duty 上限往下壓;殘差降下來夠久才放回。
+     * PI 照算,只是輸出夾在 ±cap;停不停車是上位的決定,韌體這層只保證不要再空轉下去 */
+    if (g_cfg.traction_ctl) {
+        int over = (yaw_resid > g_cfg.slip_mrad_s) || (vel_resid > g_cfg.slip_vel_mm_s);
+        if (s_slipped && over) {
+            /* 一步切到底:斜坡降的那 100 ms 輪子還在空轉,多走的距離差一個數量級(36 篇 §3.4) */
+            s_tc_ok_ms = 0;
+            s_tc_cap = g_cfg.traction_cap_min;
+        } else {
+            s_tc_ok_ms += CONTROL_PERIOD_MS;
+            if (s_tc_ok_ms >= g_cfg.traction_recover_ms && s_tc_cap < DUTY_FULL_SCALE) {
+                s_tc_cap += g_cfg.traction_cap_step;
+                if (s_tc_cap > DUTY_FULL_SCALE) s_tc_cap = DUTY_FULL_SCALE;
+            }
+        }
+    } else {
+        s_tc_cap = DUTY_FULL_SCALE;
+    }
+    D->tc_cap = s_tc_cap;
+
     if (enable) {
         flags |= ODOM_FLAG_ENABLED;
         /* 斜坡對 v(mm/s²)與 w(mrad/s²)各自限斜率,再換成兩輪設定點——對兩輪各自限會讓
@@ -640,8 +691,8 @@ void ctl_control_step(uint32_t now)
          * (方形每段量到 +0.07 rad);真板驅動器同樣在零命令時清 */
         if (s_sp_l == 0) s_integ_l = 0;
         if (s_sp_r == 0) s_integ_r = 0;
-        s_duty_l = pi_step(s_sp_l, s_meas_l, &s_integ_l);
-        s_duty_r = pi_step(s_sp_r, s_meas_r, &s_integ_r);
+        s_duty_l = pi_step(s_sp_l, s_meas_l, &s_integ_l, s_tc_cap);
+        s_duty_r = pi_step(s_sp_r, s_meas_r, &s_integ_r, s_tc_cap);
     } else {
         s_duty_l = s_duty_r = 0;
         s_integ_l = s_integ_r = 0;

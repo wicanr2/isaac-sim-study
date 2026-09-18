@@ -64,7 +64,7 @@ struct Args {
     /// C14:上位會在底盤重啟後重定位、解鎖、重送 goal(RELOC=1)——C12 只驗到解鎖為止,到達由 C14 驗
     expect_reloc: bool,
     cfg: String,
-    /// 故障注入:none | hang | drv-fault | bumper | stall | no-ping(在 --fault-at 秒發生)
+    /// 故障注入:none | hang | drv-fault | bumper | stall | no-ping | i2c(在 --fault-at 秒發生)
     fault: String,
     fault_at: f64,
     /// world.json:假雷射與碰撞的世界(空 = 沒有,受控體不掃描、不碰撞)
@@ -242,8 +242,10 @@ mod dbg {
     pub const VEL_RESID: u64 = 27;
     pub const SLIP_SRC: u64 = 28;
     pub const GYRO_STEPS: u64 = 29;
+    pub const TC_CAP: u64 = 30;
     pub const MAGIC_VALUE: u32 = 0x4849_4C31;
-    pub const WORDS: u32 = 30;
+    pub const IMU_FAIL: u32 = 31;
+    pub const WORDS: u32 = 32;
 }
 
 /// odom / CAN 狀態框 / g_dbg.flags 的位元(firmware/proto.h)
@@ -380,8 +382,8 @@ fn main() {
         "accel-off" => safety::SLIP_ACC, _ => 0,
     } | if a.scene == "long-slip" { safety::SLIP | safety::SLIP_ACC } else { 0 };
     if !["none", "long-slip", "head-on"].contains(&a.scene.as_str()) { eprintln!("--scene 只接受 none|long-slip|head-on"); std::process::exit(2); }
-    if !["none", "hang", "drv-fault", "bumper", "stall", "no-ping"].contains(&fault.as_str()) {
-        eprintln!("--fault 只接受 none|hang|drv-fault|bumper|stall|no-ping");
+    if !["none", "hang", "drv-fault", "bumper", "stall", "no-ping", "i2c"].contains(&fault.as_str()) {
+        eprintln!("--fault 只接受 none|hang|drv-fault|bumper|stall|no-ping|i2c");
         std::process::exit(2);
     }
     // bumper 場景要有「撞牆後倒車」:前進撞 500 mm 的牆 → 拒絕前進 → 倒車命令要被接受
@@ -419,7 +421,7 @@ fn main() {
         for kv in a.cfg.split(',') {
             let (k, v) = kv.split_once('=').expect("--cfg 格式 k=v,k=v");
             let off = match k.trim() { "kp" => 1, "ki" => 2, "accel" => 3, "ff" => 4, "alpha" => 5, "iwdg" => 6, "hang" => 7, "hb" => 8,
-                "stall_duty" => 9, "stall_ms" => 10, "mask" => 11, "slip" => 12, "slip_ms" => 13, "gyro_bias_still" => 14, "slip_vel" => 15, "yaw_fusion" => 16, other => { eprintln!("--cfg 未知欄位 {other}"); std::process::exit(2); } };
+                "stall_duty" => 9, "stall_ms" => 10, "mask" => 11, "slip" => 12, "slip_ms" => 13, "gyro_bias_still" => 14, "slip_vel" => 15, "yaw_fusion" => 16, "traction" => 17, "tc_step" => 18, "tc_min" => 19, "tc_recover" => 20, other => { eprintln!("--cfg 未知欄位 {other}"); std::process::exit(2); } };
             let v: i32 = v.trim().parse().expect("--cfg 值");
             patches.push((off, v as u32));
         }
@@ -434,6 +436,8 @@ fn main() {
     if neg == "gyro-bias-uncomp" { patches.push((14, 0)); }
     // 負對照 fusion-off:航向只用輪差(38 篇 §1.5)
     if neg == "fusion-off" { patches.push((16, 0)); }
+    // 負對照 traction-off:偵測照亮,但不壓 duty(36 篇 §3.4)
+    if neg == "traction-off" { patches.push((17, 0)); }
     if mask_clear != 0 { patches.push((11, calib_mask & !mask_clear)); }
     for (off, v) in &patches { ec.write_u32_at(bus, cfg_lma + 4 * off, *v).unwrap(); }
 
@@ -474,7 +478,7 @@ fn main() {
         std::process::exit(1);
     }
     // 開機後從 SRAM 讀回:證明 startup 複製的是改過的那份
-    let cfgv = ec.read_u32s_at(bus, cfg_base, 17).unwrap();
+    let cfgv = ec.read_u32s_at(bus, cfg_base, 21).unwrap();
     if cfgv[0] != 0x4849_4C43 {
         eprintln!("g_cfg magic 不對(0x{:08x})", cfgv[0]);
         std::process::exit(1);
@@ -516,7 +520,7 @@ fn main() {
     // realtime 多一欄 wall_ms(每次都不同,lockstep 不放:那邊的 CSV 要能逐 byte 比)
     let wall_col = if realtime { "wall_ms," } else { "" };
     // IMU 時多兩欄(韌體的陀螺儀 mrad/s、yaw 殘差);沒有 IMU 的 CSV 版面不變
-    let imu_cols = if a.imu { ",gyro_z,yaw_resid,gyro_bias,acc_x,acc_bias,vel_resid,gyro_steps" } else { "" };
+    let imu_cols = if a.imu { ",gyro_z,yaw_resid,gyro_bias,acc_x,acc_bias,vel_resid,gyro_steps,tc_cap,imu_fail" } else { "" };
     writeln!(log, "step,t_us,{wall_col}cmd_v,cmd_w,sp_l,sp_r,meas_l,meas_r,duty_l_dbg,ccr1,ccr2,dir_l,dir_r,en,flags,\
 plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_y,odom_th,odom_vl,odom_vr,odom_flags,can_duty_l,can_duty_r,collided{imu_cols}").unwrap();
 
@@ -616,6 +620,13 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let mut last_v_body = 0.0f64;
     let mut last_slip_src = 0u32;
     let mut last_gyro_steps = 0u32;
+    let mut last_imu_fail = 0u32;
+    let mut imu_fail_tail = 0u32;
+    const ACC_WIN: usize = 5;          // C9 的輪加速度取 25 ms 斜率(38 篇 §1.6)
+    let mut vl_hist: Vec<(f64, f64)> = Vec::new();
+    let mut clean_steps = 0usize;      // 連續「沒碰撞也沒打滑」的步數
+    let mut min_tc_cap = 1000i32;      // 牽引力控制把 duty 上限壓到多低(C16)
+    let mut tc_excess_mm = 0.0f64;     // SLIP 之後 1 s 輪子比車體多走的距離
     let mut max_head_err = 0.0f64;      // C15:第一次碰撞之後 |odom θ − 真值 θ| 的最大值
     let mut max_rate_disc = 0.0f64;     // C15 上限的第一項:第一次碰撞之後 |ω_輪差 − ω_真值| 的最大值(rad/s)
     let tick_mm = c.wheel_circ_um / 1000.0 / c.ticks_per_rev as f64;
@@ -629,6 +640,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         // 那段的步比 5 ms 密,若仍用 k·dt 決定命令時刻,命令的持續時間會被壓短(量到轉向段 1.459 s 而不是 1.5 s)
         let t_s = if realtime { wall0.elapsed().as_secs_f64() } else { k as f64 * dt_s };
         let in_fault_window = t_s >= a.fault_at && t_s < a.fault_at + 1.5;
+
+        // I2C 匯流排在執行中失效:重置 I2C3 週邊(韌體的設定隨之消失)。韌體要靠自己的復原路徑救回來
+        if fault == "i2c" && k == fault_step { hk.i2c_reset().unwrap(); println!("[fault] t={:.3}s I2C3 週邊重置", t_s); }
 
         if let Some(addr) = noinit_magic_addr { ec.write_u32_at(bus, addr, 0).unwrap(); }
         // 0. 故障注入(腳位):驅動器故障腳在視窗內拉低;保險桿在受控體撞到牆時斷開(低)
@@ -734,6 +748,11 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             match d[dbg::SLIP_SRC as usize] { 1 => "陀螺儀", 2 => "加速度計", _ => "?" }); }
         let (gyro_z, yaw_resid, gyro_bias) = (d[dbg::GYRO_Z as usize] as i32, d[dbg::YAW_RESID as usize] as i32, d[dbg::GYRO_BIAS as usize] as i32);
         let (acc_x, acc_bias, vel_resid, gyro_steps) = (d[dbg::ACC_X as usize] as i32, d[dbg::ACC_BIAS as usize] as i32, d[dbg::VEL_RESID as usize] as i32, d[dbg::GYRO_STEPS as usize]);
+        let tc_cap = d[dbg::TC_CAP as usize] as i32;
+        let imu_fail = d[dbg::IMU_FAIL as usize];
+        if k + 40 == steps { imu_fail_tail = imu_fail; }   // 收尾前 40 步(200 ms)的值:比末值就知道匯流排還活著沒
+        last_imu_fail = imu_fail;
+        if a.imu { if let Some(fs) = first_slip { if k >= fs { min_tc_cap = min_tc_cap.min(tc_cap); } } }
         last_slip_src = d[dbg::SLIP_SRC as usize];
         last_gyro_steps = gyro_steps;
         if a.imu && gyro_bias != 0x7FFF_FFFF && first_bias_step.is_none() { first_bias_step = Some(k); println!("[imu] t={:.3}s 韌體零偏估出來了:{} mrad/s", t_s, gyro_bias); }
@@ -893,8 +912,14 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         // 撞牆那一步受控體的速度直接歸零,也不是斜坡的事
         let body_v = if plant_dt > 0.0 { ((out.x_mm - last_plant.x_mm).powi(2) + (out.y_mm - last_plant.y_mm).powi(2)).sqrt() / plant_dt } else { 0.0 };
         let slipping = ((out.vl_mm_s.abs() + out.vr_mm_s.abs()) * 0.5 - body_v).abs() > slip_v_ref_mm_s;
-        if plant_dt > 0.0 && !out.collided && !last_plant.collided && !slipping {
-            let acc = ((out.vl_mm_s - last_plant.vl_mm_s) / plant_dt).abs().max(((out.vr_mm_s - last_plant.vr_mm_s) / plant_dt).abs());
+        // 斜率取 25 ms 而不是一步(5 ms):Isaac 的輪速是物理寫回的輪角差分出來的,車還沒動的時候
+        // 就有 ±4140 mm/s² 的抖動——一步差分量到的是數值雜訊。斜坡是 200 ms 尺度的東西,25 ms 解得開
+        vl_hist.push((out.vl_mm_s, out.vr_mm_s));
+        clean_steps = if !out.collided && !last_plant.collided && !slipping { clean_steps + 1 } else { 0 };
+        if plant_dt > 0.0 && clean_steps > ACC_WIN && vl_hist.len() > ACC_WIN {
+            let (l0, r0) = vl_hist[vl_hist.len() - 1 - ACC_WIN];
+            let dtw = plant_dt * ACC_WIN as f64;
+            let acc = ((out.vl_mm_s - l0) / dtw).abs().max(((out.vr_mm_s - r0) / dtw).abs());
             if acc > max_plant_accel { max_plant_accel = acc; }
         }
         let body_mm = ((out.x_mm - last_plant.x_mm).powi(2) + (out.y_mm - last_plant.y_mm).powi(2)).sqrt();
@@ -929,6 +954,13 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                 hk.accel_x(micro_g.clamp(i32::MIN as f64, i32::MAX as f64) as i32).unwrap();
             }
             hk.wait_acks().unwrap();
+        }
+        // C16:SLIP 亮之後 1 s 內,輪子比車體多走多少(38 篇 §1.7)
+        if let Some(fs) = first_slip {
+            if k > fs && k <= fs + (1.0 / dt_s) as u32 {
+                let wheel = ((out.ticks_l.wrapping_sub(last_plant.ticks_l)).abs() + (out.ticks_r.wrapping_sub(last_plant.ticks_r)).abs()) as f64 * 0.5 * tick_mm;
+                tc_excess_mm += (wheel - body_mm).max(0.0);
+            }
         }
         if first_collision.is_some() {
             let wheel_mm = ((out.ticks_l.wrapping_sub(last_plant.ticks_l)).abs() + (out.ticks_r.wrapping_sub(last_plant.ticks_r)).abs()) as f64 * 0.5 * tick_mm;
@@ -1023,7 +1055,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             out.x_mm, out.y_mm, out.th_rad, out.vl_mm_s, out.vr_mm_s, out.ticks_l, out.ticks_r,
             last_odom.seq, last_odom.x_mm, last_odom.y_mm, last_odom.th_mrad, last_odom.vl_mm_s, last_odom.vr_mm_s,
             last_odom.flags, cs.0, cs.1, out.collided as u8).unwrap();
-        if a.imu { writeln!(log, ",{gyro_z},{yaw_resid},{gyro_bias},{acc_x},{acc_bias},{vel_resid},{gyro_steps}").unwrap(); } else { writeln!(log).unwrap(); }
+        if a.imu { writeln!(log, ",{gyro_z},{yaw_resid},{gyro_bias},{acc_x},{acc_bias},{vel_resid},{gyro_steps},{tc_cap},{imu_fail}").unwrap(); } else { writeln!(log).unwrap(); }
     }
 
     if realtime {
@@ -1259,8 +1291,19 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                 slip_onset.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), slip_mm,
                 match (slip_onset, first_slip) { (Some(o), Some(f)) => format!("{:+.0} ms", (f as f64 - o as f64) * dt_s * 1000.0), _ => "—".into() },
                 first_collision.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), moved_after_slip, max_yaw_resid, cfgv[12] as i32) } },
+        // C16 牽引力控制(38 篇 §1.7):SLIP 亮之後 1 s 內輪子比車體多走 ≤ 20 mm;只在有亮 SLIP、而且上位是內建腳本
+        //  (外部上位會把命令收掉,看不到控制本身)的跑驗。負對照 traction-off 關掉壓 duty
+        Check { name: if first_slip.is_some() && up.is_none() { "C16 牽引力控制:SLIP 亮之後 1 s 內輪子比車體多走 ≤ 20 mm" } else { "C16 (沒有 SLIP 或有外部上位,不驗)" },
+            pass: !(first_slip.is_some() && up.is_none()) || tc_excess_mm <= 20.0,
+            detail: if first_slip.is_some() && up.is_none() { format!("多走 {:.0} mm;duty 上限最低壓到 {} ‰(g_cfg traction_ctl={})", tc_excess_mm, min_tc_cap, cfgv[17] as i32) } else { String::new() } },
         // C15 長打滑下的航向(--scene long-slip,38 篇 §1.5):第一次碰撞之後 |odom θ − 真值 θ| 的最大值 ≤
         //  max|ω_輪差 − ω_真值| × 100 ms(殘差平均 50 ms 才過門檻,× 2)+ 1 mrad/s × T(零偏估計的取整殘差)+ 0.03 rad(C3 的角度容差)
+        // IMU 匯流排還活著:一次失敗的 I2C 傳輸會把週邊留在半途,不復原的話之後每一步都讀不到——
+        //  而且外表完全正常(殘差變 0、旗標不亮)。韌體每次失敗做一次匯流排復原(36 篇 §3.5);
+        //  這裡看最後 200 ms 還有沒有在失敗,有就是復原沒生效
+        Check { name: if a.imu { "IMU 匯流排:I2C 讀取失敗後有復原(最後 200 ms 不再失敗)" } else { "IMU 匯流排(沒有 IMU,不驗)" },
+            pass: !a.imu || last_imu_fail - imu_fail_tail <= 2,
+            detail: if a.imu { format!("整趟復原 {} 次,最後 200 ms {} 次", last_imu_fail, last_imu_fail - imu_fail_tail) } else { String::new() } },
         Check { name: if a.scene == "long-slip" { "C15 長打滑下的航向:第一次碰撞之後 odom θ 對真值的最大誤差 ≤ 上限" } else { "C15 (不是 long-slip 場景,不驗)" },
             pass: a.scene != "long-slip" || first_collision.map_or(false, |c| {
                 let t_after = (steps as f64 - c as f64) * dt_s;

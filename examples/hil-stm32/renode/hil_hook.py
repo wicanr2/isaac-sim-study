@@ -53,6 +53,7 @@ ID_ENC_CONT_R    = 0xFFFF0023   # same, right
 ID_ENC_CONT_TIME = 0xFFFF0025   # u64 virtual microseconds at which the plant was sampled (anchor time of the next updates)
 ID_GYRO_Z        = 0xFFFF0024   # i32 milli-dps: angular rate Z of the IMU gyroscope (sysbus.i2c3.gyro)
 ID_ACCEL_X       = 0xFFFF0026   # i32 micro-g: forward acceleration of the IMU accelerometer (sysbus.i2c3.accel)
+ID_I2C_RESET     = 0xFFFF0027   # no payload: reset the I2C3 controller (fault injection: bus dies mid-run)
 ID_ACK           = 0xFFFF00AC
 TIM3_CCR1        = 0x40000434
 TIM3_CCR2        = 0x40000438
@@ -213,6 +214,14 @@ def _accel_set(machine, micro_g):
     else:
         fd.Set(int(micro_g))
 
+def _i2c_reset(machine):
+    dev = self.Machine["sysbus.i2c3"]
+    if emulationManager.CurrentEmulation.IsStarted:
+        machine.HandleTimeDomainEvent[System.Int32](System.Action[System.Int32](lambda _: dev.Reset()), System.Int32(0),
+                                                    TimeDomainsManager.Instance.GetEffectiveVirtualTimeStamp())
+    else:
+        dev.Reset()
+
 def _gyro_set(machine, milli_dps):
     if "feeder" not in _gyro:
         sensor = self.Machine["sysbus.i2c3.gyro"]
@@ -279,6 +288,10 @@ def _rx_loop():
                 _ack()
             elif rid == ID_ACCEL_X:
                 _accel_set(machine, _i32(data[0:4]))
+                _ack()
+            elif rid == ID_I2C_RESET:
+                _i2c_reset(machine)
+                print "hil_hook: i2c3 reset"
                 _ack()
             elif rid == ID_ENC_CONT_CFG:
                 _cont_install(machine, tim_left, tim_right, _i32(data[0:4]))

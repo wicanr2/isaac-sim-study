@@ -156,6 +156,43 @@ CAN 濾波器的坑:`FMR` 的重置值是 `0x2A1C0E01`,其中 `CAN2SB`(bit 13:8)
 
 **`CONTACT` 旗標拿掉**:高摩擦 → 輪緣力打不過抓地力 → 卡住;低摩擦 → 打滑。對應關係與量到的門檻寫在 38 篇 §1.6。
 
+### 3.4 牽引力控制:打滑時把 duty 夾住
+
+打滑偵測(§3.2、[38 篇](../38-acceptance-and-failure-modes/README.md) §1.3–1.4)只回報。GOAL 8 加上處置:**`SLIP` 亮著而且殘差還超過門檻時,把 duty 的上限往下壓**。
+
+- **切**:殘差超標的那一步,`cap` 直接落到 `traction_cap_min`(不是逐步降)。
+- **放**:殘差在門檻以下連續 `traction_recover_ms` 之後,每步 `cap += traction_cap_step`,回到 1000 為止;中途再超標就再切一次。
+- PI 照算,只是輸出夾在 ±cap;`g_dbg.tc_cap` 看得到當下的上限。
+- `g_cfg.traction_ctl = 0` 關掉(負對照 `traction-off`)。
+- 為什麼不是直接停:停是上位的決定(§6.3 的鎖住);韌體這一層只保證「不要再空轉下去」,殘差一降下來就自己把出力放回去,車繼續走。
+
+參數:`traction_cap_min` 0 ‰、`traction_cap_step` 20 ‰/步、`traction_recover_ms` 200。
+
+**為什麼是「一步切到底」而不是斜坡降**:輪子在打滑,輪面與地面的相對速度就是多走的距離的來源。切到 0 之後輪子靠地面摩擦減速,角加速度 μNr/I_w = 1.15 / 0.0005 = 2290 rad/s²,從滿速 20.9 rad/s 減到車速只要 9 ms;而 20 ‰/步的斜坡從 1000 降到失去牽引力的 556 ‰(τ = 1.15 N·m 對應的 duty)要 111 ms,這段期間輪子一直在空轉。兩者差一個數量級,判準 C16([38 篇](../38-acceptance-and-failure-modes/README.md) §1.7)的 20 mm 只有前者做得到。放回去要慢是另一回事:斜坡放回才找得到當下地面撐得住的出力。
+
+**反積分飽和**:`cap` 壓下去的期間 PI 的輸出被夾住,誤差卻還在累積。不處理的話,解除壓制的那一刻積分項會把 duty 直接推到滿、立刻再打滑一次。`pi_step()` 改成條件積分——輸出已經頂到 ±cap、而且誤差還往同方向推的步就不累積。這個保護對原本的 ±1000 飽和一樣成立,不是為了牽引力控制才有的特例。
+
+### 3.5 I2C 失效之後要自己爬起來
+
+I2C 的傳輸一旦失敗(逾時、沒收到 ACK),週邊會停在半途:BUSY 不放、從機還在等下一個 byte。**之後每一次傳輸都會在同一個地方逾時**,而韌體外表毫無異狀——讀不到就不做判斷,殘差停在最後一個值,旗標不亮。[38 篇](../38-acceptance-and-failure-modes/README.md) §1.8 記了一次實際發生:1200 步裡有 440–599 步完全讀不到 IMU,判準照樣全綠。
+
+做法和實體板子上一樣:
+
+```c
+static void i2c_recover(void)
+{
+    D->imu_fail++;
+    I2C_CR1(I2C3_BASE) = 0;                  /* PE = 0 */
+    I2C_CR1(I2C3_BASE) = I2C_CR1_SWRST;      /* RM0090 §27.6.1:SWRST 把狀態機與 BUSY 清掉 */
+    I2C_CR1(I2C3_BASE) = 0;
+    i2c_bus_config();                        /* FREQ / CCR / TRISE / PE,與開機同一段 */
+}
+```
+
+感測器自己的設定(ODR、量程)在從機那側,不會被主機的重置清掉,所以不必重跑 `WHO_AM_I` 與 `CTRL_REG` 那段。`g_dbg.imu_fail` 記次數,橋接每步存進 CSV,驗收比對最後 200 ms 還有沒有在失敗([38 篇](../38-acceptance-and-failure-modes/README.md) §1.8)。
+
+⚠ **這段程式碼到目前為止一次都沒被真的觸發過。** 加進去之後那個失效就沒再重現(見 38 篇 §1.8 的證據等級)。它是防禦,不是已驗證的修復。
+
 ## 4. 兩條觀測管道
 
 **printer**:USART2 接檔案後端(`usart2 CreateFileBackend @path true`;headless 下 `showAnalyzer` 沒用),韌體開機吐三行:
