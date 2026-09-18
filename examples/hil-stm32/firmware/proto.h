@@ -43,6 +43,7 @@ typedef struct __attribute__((packed)) {
 #define ODOM_FLAG_HB_LOST   (1u << 6)   /* 心跳逾時(HB_TIMEOUT_MS 沒 PING)→ 降速到 0 */
 #define ODOM_FLAG_WDT_RESET (1u << 7)   /* 這次開機是暖重置(IWDG 或其他 reset,不是上電) */
 #define ODOM_FLAG_SLIP      (1u << 8)   /* 打滑:陀螺儀的 yaw rate 與輪差推出的 yaw rate 對不上 → 只回報(上位決定),命令歸零才解 */
+#define ODOM_FLAG_ZONE      (1u << 10)  /* 近距離安全區正在限速或擋住前進(docs/hil/38 §1.9) */
 #define ODOM_FLAG_IMU_CAL   (1u << 9)   /* IMU 零偏還沒估出來:命令當 0(開機先靜止校正),估出來自己解 */
 
 /* 安全功能遮罩(g_cfg.safety_mask;calib SAFETY_MASK 全開)。只給負對照用:關掉一項,對應的驗收必須紅。 */
@@ -53,6 +54,7 @@ typedef struct __attribute__((packed)) {
 #define SAFETY_HB        (1u << 4)
 #define SAFETY_SLIP      (1u << 5)   /* 打滑偵測:陀螺儀那一半(轉角);slip-off 負對照關它 */
 #define SAFETY_SLIP_ACC  (1u << 6)   /* 打滑偵測:加速度計那一半(平移);slip-off 與 accel-off 負對照關它 */
+#define SAFETY_ZONE      (1u << 7)   /* 近距離安全區:量到障礙物就減速、更近就不准前進;zone-off 負對照關它 */
 
 /* CAN 0x181 編碼器(受控體 -> MCU):i32 左累計 tick, i32 右累計 tick
  * CAN 0x201 馬達狀態(MCU -> 受控體/橋接):i16 duty_l, i16 duty_r, u8 flags, u8 seq, u16 保留 */

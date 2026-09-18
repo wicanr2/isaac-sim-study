@@ -6,7 +6,7 @@ import sys
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import UInt8
+from std_msgs.msg import UInt16
 
 
 class ScanCheck(Node):
@@ -17,7 +17,7 @@ class ScanCheck(Node):
         self.last = None
         self.flags = set()
         self.create_subscription(LaserScan, "scan", self.on_scan, 10)
-        self.create_subscription(UInt8, "hil/safety_flags", lambda m: self.flags.add(m.data), 10)
+        self.create_subscription(UInt16, "hil/safety_flags", lambda m: self.flags.add(m.data), 10)
         self.create_timer(float(self.get_parameter("seconds").value), self.done)
 
     def on_scan(self, m):

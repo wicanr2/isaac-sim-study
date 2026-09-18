@@ -193,6 +193,38 @@ static void i2c_recover(void)
 
 ⚠ **這段程式碼到目前為止一次都沒被真的觸發過。** 加進去之後那個失效就沒再重現(見 38 篇 §1.8 的證據等級)。它是防禦,不是已驗證的修復。
 
+### 3.6 近距離安全區:在撞到之前
+
+保險桿(§3.1 的安全 I/O)的定義是「已經撞上了」。多一顆正前方的測距感測器,就能在接觸之前處置。感測器走 **CAN `0x301`**(u16 mm,小端,20 ms 一筆),和編碼器 `0x181`、馬達狀態 `0x201` 同一條匯流排,在 `ctl_can_drain()` 收:
+
+```c
+if (id == CAN_ID_RANGE && dlc >= 2) {
+    s_range_mm = (int32_t)((uint32_t)d[0] | ((uint32_t)d[1] << 8));
+    s_range_ms = s_now_ms ? s_now_ms() : 0;   /* 收到的時刻:太舊就當沒有感測器 */
+    D->range_mm = s_range_mm;
+}
+```
+
+處置放在安全閘門那一段,緊接著保險桿:
+
+```c
+if ((mask & SAFETY_ZONE) && s_range_mm >= 0 && now - s_range_ms <= ZONE_STALE_MS
+    && g_cfg.zone_slow_mm > g_cfg.zone_stop_mm) {
+    if (s_range_mm <= g_cfg.zone_stop_mm) { flags |= ODOM_FLAG_ZONE; if (cmd_v > 0) cmd_v = 0; }
+    else if (s_range_mm < g_cfg.zone_slow_mm) {
+        int32_t cap = WHEEL_SPEED_FULL_MM_S * (s_range_mm - g_cfg.zone_stop_mm)
+                    / (g_cfg.zone_slow_mm - g_cfg.zone_stop_mm);
+        if (cmd_v > cap) { cmd_v = cap; flags |= ODOM_FLAG_ZONE; }
+    }
+}
+```
+
+三個設計決定,每一個都有代價:
+
+- **只擋前進、允許後退**(與保險桿同一種處置)。不然車停在障礙物前面之後就自己把自己鎖死,連退開都不行。
+- **限速是線性的,不是一刀切**。從 700 mm 開始壓上限,到 350 mm 壓到 0;`cap` 是 duty 的上限不是煞車,所以韌體的加速度斜坡仍然管著減速的陡度。
+- **讀數超過 200 ms 沒更新就當沒有感測器**——被蒙住、壞掉、根本沒裝,在這一層分不出來,也不該分:這一條保護只在感測器有效時成立([38 篇](../38-acceptance-and-failure-modes/README.md) §1.9 的 `blind-scan` 就是那個反例)。
+
 ## 4. 兩條觀測管道
 
 **printer**:USART2 接檔案後端(`usart2 CreateFileBackend @path true`;headless 下 `showAnalyzer` 沒用),韌體開機吐三行:

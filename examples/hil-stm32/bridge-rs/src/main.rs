@@ -245,7 +245,8 @@ mod dbg {
     pub const TC_CAP: u64 = 30;
     pub const MAGIC_VALUE: u32 = 0x4849_4C31;
     pub const IMU_FAIL: u32 = 31;
-    pub const WORDS: u32 = 32;
+    pub const RANGE_MM: u32 = 32;
+    pub const WORDS: u32 = 33;
 }
 
 /// odom / CAN 狀態框 / g_dbg.flags 的位元(firmware/proto.h)
@@ -260,6 +261,7 @@ mod flag {
     pub const WDT_RESET: u32 = 1 << 7;
     pub const SLIP: u32 = 1 << 8;
     pub const IMU_CAL: u32 = 1 << 9;
+    pub const ZONE: u32 = 1 << 10;
 }
 /// g_cfg.safety_mask 的位元
 mod safety {
@@ -270,6 +272,7 @@ mod safety {
     pub const HB: u32 = 1 << 4;
     pub const SLIP: u32 = 1 << 5;
     pub const SLIP_ACC: u32 = 1 << 6;
+    pub const ZONE: u32 = 1 << 7;
 }
 const DRV_FAULT_L_PIN: i32 = 14;
 const DRV_FAULT_R_PIN: i32 = 15;
@@ -376,12 +379,16 @@ fn main() {
         "stall-off" => "stall".into(), "hb-off" => "no-ping".into(), "noinit-off" => "hang".into(), "static-map-odom" => "hang".into(), _ => a.fault.clone(),
     };
     if neg == "no-latch" && !a.upper.starts_with("tcp-listen:") { eprintln!("--negative no-latch 是上位側的負對照,要配 --upper tcp-listen(UPPER=nav2)"); }
+
     let mask_clear: u32 = match neg {
         "iwdg-off" => safety::IWDG, "drv-fault-off" => safety::DRV_FAULT, "bumper-off" => safety::BUMPER,
-        "stall-off" => safety::STALL, "hb-off" => safety::HB, "slip-off" => safety::SLIP | safety::SLIP_ACC,
+        "stall-off" => safety::STALL, "hb-off" => safety::HB, "slip-off" => safety::SLIP | safety::SLIP_ACC, "zone-off" => safety::ZONE,
         "accel-off" => safety::SLIP_ACC, _ => 0,
-    } | if a.scene == "long-slip" { safety::SLIP | safety::SLIP_ACC } else { 0 };
-    if !["none", "long-slip", "head-on"].contains(&a.scene.as_str()) { eprintln!("--scene 只接受 none|long-slip|head-on"); std::process::exit(2); }
+    } | if a.scene == "long-slip" { safety::SLIP | safety::SLIP_ACC } else { 0 }
+      // 接觸場景(head-on / long-slip)要的是「撞上之後會怎樣」,近距離安全區會讓它撞不到 →
+      // 這兩個場景預設關掉安全區。C18 有自己的場景 --scene zone:同一個世界、同一份腳本,安全區開著(38 篇 §1.9)
+      | if a.scene == "head-on" || a.scene == "long-slip" { safety::ZONE } else { 0 };
+    if !["none", "long-slip", "head-on", "zone"].contains(&a.scene.as_str()) { eprintln!("--scene 只接受 none|long-slip|head-on|zone"); std::process::exit(2); }
     if !["none", "hang", "drv-fault", "bumper", "stall", "no-ping", "i2c"].contains(&fault.as_str()) {
         eprintln!("--fault 只接受 none|hang|drv-fault|bumper|stall|no-ping|i2c");
         std::process::exit(2);
@@ -421,7 +428,7 @@ fn main() {
         for kv in a.cfg.split(',') {
             let (k, v) = kv.split_once('=').expect("--cfg 格式 k=v,k=v");
             let off = match k.trim() { "kp" => 1, "ki" => 2, "accel" => 3, "ff" => 4, "alpha" => 5, "iwdg" => 6, "hang" => 7, "hb" => 8,
-                "stall_duty" => 9, "stall_ms" => 10, "mask" => 11, "slip" => 12, "slip_ms" => 13, "gyro_bias_still" => 14, "slip_vel" => 15, "yaw_fusion" => 16, "traction" => 17, "tc_step" => 18, "tc_min" => 19, "tc_recover" => 20, other => { eprintln!("--cfg 未知欄位 {other}"); std::process::exit(2); } };
+                "stall_duty" => 9, "stall_ms" => 10, "mask" => 11, "slip" => 12, "slip_ms" => 13, "gyro_bias_still" => 14, "slip_vel" => 15, "yaw_fusion" => 16, "traction" => 17, "tc_step" => 18, "tc_min" => 19, "tc_recover" => 20, "zone_slow" => 21, "zone_stop" => 22, other => { eprintln!("--cfg 未知欄位 {other}"); std::process::exit(2); } };
             let v: i32 = v.trim().parse().expect("--cfg 值");
             patches.push((off, v as u32));
         }
@@ -438,6 +445,8 @@ fn main() {
     if neg == "fusion-off" { patches.push((16, 0)); }
     // 負對照 traction-off:偵測照亮,但不壓 duty(36 篇 §3.4)
     if neg == "traction-off" { patches.push((17, 0)); }
+    // C17 的負對照是環境變數 RECOVER=0(run_loop 傳給 nav_client),不是 --negative:
+    //  它要和 --negative blind-scan 同時成立,而 --negative 一次只吃一個值(38 篇 §6.5)
     if mask_clear != 0 { patches.push((11, calib_mask & !mask_clear)); }
     for (off, v) in &patches { ec.write_u32_at(bus, cfg_lma + 4 * off, *v).unwrap(); }
 
@@ -478,7 +487,7 @@ fn main() {
         std::process::exit(1);
     }
     // 開機後從 SRAM 讀回:證明 startup 複製的是改過的那份
-    let cfgv = ec.read_u32s_at(bus, cfg_base, 21).unwrap();
+    let cfgv = ec.read_u32s_at(bus, cfg_base, 23).unwrap();
     if cfgv[0] != 0x4849_4C43 {
         eprintln!("g_cfg magic 不對(0x{:08x})", cfgv[0]);
         std::process::exit(1);
@@ -520,7 +529,7 @@ fn main() {
     // realtime 多一欄 wall_ms(每次都不同,lockstep 不放:那邊的 CSV 要能逐 byte 比)
     let wall_col = if realtime { "wall_ms," } else { "" };
     // IMU 時多兩欄(韌體的陀螺儀 mrad/s、yaw 殘差);沒有 IMU 的 CSV 版面不變
-    let imu_cols = if a.imu { ",gyro_z,yaw_resid,gyro_bias,acc_x,acc_bias,vel_resid,gyro_steps,tc_cap,imu_fail" } else { "" };
+    let imu_cols = if a.imu { ",gyro_z,yaw_resid,gyro_bias,acc_x,acc_bias,vel_resid,gyro_steps,tc_cap,imu_fail,range_mm" } else { "" };
     writeln!(log, "step,t_us,{wall_col}cmd_v,cmd_w,sp_l,sp_r,meas_l,meas_r,duty_l_dbg,ccr1,ccr2,dir_l,dir_r,en,flags,\
 plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_y,odom_th,odom_vl,odom_vr,odom_flags,can_duty_l,can_duty_r,collided{imu_cols}").unwrap();
 
@@ -609,12 +618,14 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let mut scans_sent = 0u32;
     // C13 打滑:SLIP 第一次亮的步、接觸後輪行程 − 車體行程(真的打滑了多少)、打滑開始的步(累計 > 20 mm)
     let mut first_slip: Option<u32> = None;
+    let mut last_slip: Option<u32> = None;      // 最後一步 SLIP 還亮著的時刻(C17)
+    let mut collisions_after_slip = 0u32;       // 最後一次 SLIP 之後還撞了幾步(C17,38 篇 §6.5)
     let mut slip_mm = 0.0f64;
     let mut slip_onset: Option<u32> = None;
     // 陀螺儀看得到的是「轉角」的打滑:輪差推出的轉角 − 車體真的轉角,累計超過 0.02 rad 才算(38 篇 §1.2 的離線表:正面頂住、車體不轉的打滑陀螺儀看不到)
     let mut rot_slip_rad = 0.0f64;
     let mut rot_onset: Option<u32> = None;
-    let mut moved_after_slip = 0u32;
+    let mut stopped_after_slip = false;   // SLIP 亮起後 0.5 s 內輪子停過沒(C13)
     let mut max_yaw_resid = 0i32;
     let mut first_bias_step: Option<u32> = None;
     let mut last_v_body = 0.0f64;
@@ -625,6 +636,9 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     const ACC_WIN: usize = 5;          // C9 的輪加速度取 25 ms 斜率(38 篇 §1.6)
     let mut vl_hist: Vec<(f64, f64)> = Vec::new();
     let mut clean_steps = 0usize;      // 連續「沒碰撞也沒打滑」的步數
+    let mut range_ahead_mm = -1i32;      // 近距離感測器最後一筆(C18)
+    let mut zone_seen = false;           // 安全區旗標亮過沒
+    let mut min_gap_mm = f64::INFINITY;  // 整趟車體前緣與正前方障礙的最小間隙
     let mut min_tc_cap = 1000i32;      // 牽引力控制把 duty 上限壓到多低(C16)
     let mut tc_excess_mm = 0.0f64;     // SLIP 之後 1 s 輪子比車體多走的距離
     let mut max_head_err = 0.0f64;      // C15:第一次碰撞之後 |odom θ − 真值 θ| 的最大值
@@ -744,12 +758,15 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                 if flags & flag::WDT_RESET != 0 { " WDT_RESET" } else { "" });
         }
         last_flags = flags;
+        if flags & flag::ZONE != 0 { zone_seen = true; }
+        if flags & flag::SLIP != 0 { last_slip = Some(k); }
         if flags & flag::SLIP != 0 && first_slip.is_none() { first_slip = Some(k); println!("[slip] t={:.3}s SLIP 亮(yaw 殘差 {} mrad/s、速度殘差 {} mm/s;來源 {})", t_s, d[dbg::YAW_RESID as usize] as i32, d[dbg::VEL_RESID as usize] as i32,
             match d[dbg::SLIP_SRC as usize] { 1 => "陀螺儀", 2 => "加速度計", _ => "?" }); }
         let (gyro_z, yaw_resid, gyro_bias) = (d[dbg::GYRO_Z as usize] as i32, d[dbg::YAW_RESID as usize] as i32, d[dbg::GYRO_BIAS as usize] as i32);
         let (acc_x, acc_bias, vel_resid, gyro_steps) = (d[dbg::ACC_X as usize] as i32, d[dbg::ACC_BIAS as usize] as i32, d[dbg::VEL_RESID as usize] as i32, d[dbg::GYRO_STEPS as usize]);
         let tc_cap = d[dbg::TC_CAP as usize] as i32;
         let imu_fail = d[dbg::IMU_FAIL as usize];
+        let range_fw = d[dbg::RANGE_MM as usize] as i32;
         if k + 40 == steps { imu_fail_tail = imu_fail; }   // 收尾前 40 步(200 ms)的值:比末值就知道匯流排還活著沒
         last_imu_fail = imu_fail;
         if a.imu { if let Some(fs) = first_slip { if k >= fs { min_tc_cap = min_tc_cap.min(tc_cap); } } }
@@ -892,6 +909,8 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         }
         if out.collided {
             collisions += 1;
+            // C17:最後一次 SLIP 之後還撞的步數。SLIP 熄掉之後又撞,代表脫困沒有讓車避開同一個地方
+            if last_slip.is_some() && flags & flag::SLIP == 0 { collisions_after_slip += 1; } else { collisions_after_slip = 0; }
             if first_collision.is_none() { first_collision = Some(k); println!("[world] t={:.3}s 受控體撞到牆或方塊 @({:.0}, {:.0}) mm", t_s, out.x_mm, out.y_mm); }
         }
         // 假雷射:受控體給一筆就原樣轉給上位(語意在上位解;橋接只加行首與 seq)。負對照 blind-scan:全部改成 range_max
@@ -980,8 +999,10 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             max_head_err = max_head_err.max(he.abs());
             if rot_onset.is_none() && rot_slip_rad.abs() > 0.02 { rot_onset = Some(k); println!("[slip] t={:.3}s 轉角打滑開始(輪差轉角比車體多 {:.3} rad)", t_s, rot_slip_rad); }
         }
+        // 鎖住有沒有生效:SLIP 亮起之後 0.5 s 內輪子「至少停過一次」(38 篇 §6.5)。
+        //  不是「之後都不再轉」——上位脫困的設計就是先停再倒車,那樣寫等於把 C 線判成失敗
         if let Some(fs) = first_slip {
-            if k >= fs + (0.5 / dt_s) as u32 && (out.vl_mm_s.abs() >= 5.0 || out.vr_mm_s.abs() >= 5.0) { moved_after_slip += 1; }
+            if k <= fs + (0.5 / dt_s) as u32 && out.vl_mm_s.abs() < 5.0 && out.vr_mm_s.abs() < 5.0 { stopped_after_slip = true; }
         }
         last_plant = out;
         { let d = ph.elapsed(); t_plant += d; if d > m_plant { m_plant = d; } }
@@ -1043,6 +1064,20 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                 }
             }
         }
+        // 近距離安全區的感測器(38 篇 §1.9):正前方單束射線 → CAN 0x301,20 ms 一筆。
+        //  blind-scan 是「感測器被蒙住」的場景,雷射與這顆一起蒙——不然那個負對照會因為 D 線而變綠
+        if let Some(w) = world.as_ref() {
+            if k % 4 == 0 {
+                let r_m = if neg == "blind-scan" { w.range_max } else { w.range_ahead(out.x_mm / 1000.0, out.y_mm / 1000.0, out.th_rad) };
+                range_ahead_mm = (r_m * 1000.0) as i32;
+                let mm = range_ahead_mm.clamp(0, 65535) as u16;
+                let d2 = [mm as u8, (mm >> 8) as u8, 0, 0, 0, 0, 0, 0];
+                if let Some(s) = sc.as_mut() { s.send(c.can_id_range, &d2).unwrap(); }
+                else { hk.can_send(c.can_id_range, &d2).unwrap(); hk.wait_acks().unwrap(); }
+                let gap = r_m * 1000.0 - w.robot_radius * 1000.0;
+                if gap < min_gap_mm { min_gap_mm = gap; }
+            }
+        }
         { let d = ph.elapsed(); t_hook += d; if d > m_hook { m_hook = d; } }
 
         // 6. 紀錄
@@ -1055,7 +1090,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             out.x_mm, out.y_mm, out.th_rad, out.vl_mm_s, out.vr_mm_s, out.ticks_l, out.ticks_r,
             last_odom.seq, last_odom.x_mm, last_odom.y_mm, last_odom.th_mrad, last_odom.vl_mm_s, last_odom.vr_mm_s,
             last_odom.flags, cs.0, cs.1, out.collided as u8).unwrap();
-        if a.imu { writeln!(log, ",{gyro_z},{yaw_resid},{gyro_bias},{acc_x},{acc_bias},{vel_resid},{gyro_steps},{tc_cap},{imu_fail}").unwrap(); } else { writeln!(log).unwrap(); }
+        if a.imu { writeln!(log, ",{gyro_z},{yaw_resid},{gyro_bias},{acc_x},{acc_bias},{vel_resid},{gyro_steps},{tc_cap},{imu_fail},{range_fw}").unwrap(); } else { writeln!(log).unwrap(); }
     }
 
     if realtime {
@@ -1228,11 +1263,11 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     // 掛了 IMU 卻始終沒估出零偏 = 偵測整趟沒在做,不能算綠(36 篇 §3.2)
     let bias_never = a.imu && first_bias_step.is_none();
     let c13_pass = !a.imu || (!bias_never && (a.scene == "long-slip" || if rot_onset.is_some() || judge_trans {
-        slip_ok(rot_onset, 500.0) && (!judge_trans || slip_ok(slip_onset, 150.0)) && (up.is_none() || moved_after_slip == 0)
+        slip_ok(rot_onset, 500.0) && (!judge_trans || slip_ok(slip_onset, 150.0)) && (up.is_none() || stopped_after_slip)
     } else { first_slip.is_none() }));
     let c13_name = if !a.imu { "C13 (沒有 IMU,不驗)".to_string() } else if bias_never { "C13 IMU 零偏始終沒估出來:打滑偵測整趟沒在做".to_string() } else if a.scene == "long-slip" { "C13 (long-slip 場景關掉了打滑回報,不驗;看 C15)".to_string() }
         else if rot_onset.is_some() || judge_trans {
-            format!("C13 打滑:{}{}外部上位時 SLIP 亮 0.5 s 後輪子停", if rot_onset.is_some() { "轉角打滑開始後 500 ms 內 SLIP;" } else { "" }, if judge_trans { "平移打滑開始後 150 ms 內 SLIP;" } else { "" })
+            format!("C13 打滑:{}{}外部上位時 SLIP 亮 0.5 s 內輪子停過", if rot_onset.is_some() { "轉角打滑開始後 500 ms 內 SLIP;" } else { "" }, if judge_trans { "平移打滑開始後 150 ms 內 SLIP;" } else { "" })
         } else if slip_onset.is_some() { "C13 (只有平移打滑、沒有加速度計:只報延遲不判)".to_string() }
         else if collisions > 0 { "C13 接觸但沒打滑(輪子凍結)→ SLIP 不得亮".to_string() } else { "C13 沒有接觸 → SLIP 不得亮(誤報 0)".to_string() };
     let checks = vec![
@@ -1283,14 +1318,14 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         //  SLIP 早於起點也算(撞上那一刻就判定,早於 20 mm 的累計),但不得早於第一次碰撞。
         Check { name: Box::leak(c13_name.into_boxed_str()),
             pass: c13_pass,
-            detail: if !a.imu { String::new() } else { format!("SLIP {}(來源 {});轉角打滑開始 {}(累計 {:.3} rad,延遲 {});平移打滑開始 {}(輪行程比車體多 {:.0} mm,延遲 {});第一次碰撞 {};SLIP 亮 0.5 s 後輪子還在轉的步數 {};沒接觸時 yaw 殘差最大 {} mrad/s(門檻 {})",
+            detail: if !a.imu { String::new() } else { format!("SLIP {}(來源 {});轉角打滑開始 {}(累計 {:.3} rad,延遲 {});平移打滑開始 {}(輪行程比車體多 {:.0} mm,延遲 {});第一次碰撞 {};SLIP 亮 0.5 s 內輪子停過沒 {};沒接觸時 yaw 殘差最大 {} mrad/s(門檻 {})",
                 first_slip.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("沒亮".into()),
                 match last_slip_src { 1 => "陀螺儀", 2 => "加速度計", 3 => "兩者", _ => "—" },
                 rot_onset.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), rot_slip_rad,
                 match (rot_onset, first_slip) { (Some(o), Some(f)) => format!("{:+.0} ms", (f as f64 - o as f64) * dt_s * 1000.0), _ => "—".into() },
                 slip_onset.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), slip_mm,
                 match (slip_onset, first_slip) { (Some(o), Some(f)) => format!("{:+.0} ms", (f as f64 - o as f64) * dt_s * 1000.0), _ => "—".into() },
-                first_collision.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), moved_after_slip, max_yaw_resid, cfgv[12] as i32) } },
+                first_collision.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("—".into()), if stopped_after_slip { "停過" } else { "沒停過" }, max_yaw_resid, cfgv[12] as i32) } },
         // C16 牽引力控制(38 篇 §1.7):SLIP 亮之後 1 s 內輪子比車體多走 ≤ 20 mm;只在有亮 SLIP、而且上位是內建腳本
         //  (外部上位會把命令收掉,看不到控制本身)的跑驗。負對照 traction-off 關掉壓 duty
         Check { name: if first_slip.is_some() && up.is_none() { "C16 牽引力控制:SLIP 亮之後 1 s 內輪子比車體多走 ≤ 20 mm" } else { "C16 (沒有 SLIP 或有外部上位,不驗)" },
@@ -1324,6 +1359,22 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                 match (reset_step, unlock_step) { (Some(r), Some(u)) => format!("{:.2} s", (u - r) as f64 * dt_s), _ => "—".into() },
                 world.as_ref().map(|w| format!("{:.0} mm", ((last_plant.x_mm - w.goal.0 * 1000.0).powi(2) + (last_plant.y_mm - w.goal.1 * 1000.0).powi(2)).sqrt())).unwrap_or("—".into()),
                 collisions) } },
+        // C18 近距離安全區(38 篇 §1.9):有世界、內建腳本、感測器沒被蒙住的場景——車要在障礙物前停住,
+        //  車體前緣與障礙的最小間隙 ≥ 50 mm,而且整趟沒撞到(保險桿沒觸發、collided 沒亮)。
+        //  負對照 zone-off 關掉 g_cfg.safety_mask 的 ZONE 位 → 直接撞上
+        Check { name: if a.scene == "zone" { "C18 近距離安全區:車在障礙物前停住,間隙 ≥ 50 mm、沒有碰撞" } else { "C18 (不是 --scene zone,不驗)" },
+            pass: a.scene != "zone" || (min_gap_mm >= 50.0 && collisions == 0 && zone_seen),
+            detail: if a.scene == "zone" { format!("最小間隙 {:.0} mm;碰撞 {} 步;安全區旗標 {};最後一筆讀數 {} mm(g_cfg zone {}/{} mm)",
+                min_gap_mm, collisions, if zone_seen { "亮過" } else { "沒亮" }, range_ahead_mm, cfgv[21] as i32, cfgv[22] as i32) } else { String::new() } },
+        // C17 上位脫困(38 篇 §6.5):blind-scan 場景下撞到之後上位要自己站起來——最後一次 SLIP 之後
+        //  不再碰撞,而且末端真值到 goal ≤ 0.1 m。負對照 recover-off 維持 GOAL 7 的鎖住等人
+        Check { name: if world.is_some() && a.expect_goal && neg == "blind-scan" { "C17 上位脫困:最後一次 SLIP 之後不再碰撞,末端真值到 goal ≤ 0.1 m" } else { "C17 (不是 blind-scan + Nav2 場景,不驗)" },
+            pass: !(world.is_some() && a.expect_goal && neg == "blind-scan")
+                || (last_slip.is_some() && collisions_after_slip == 0
+                    && world.as_ref().map_or(false, |w| ((last_plant.x_mm - w.goal.0 * 1000.0).powi(2) + (last_plant.y_mm - w.goal.1 * 1000.0).powi(2)).sqrt() <= 100.0)),
+            detail: if world.is_some() && a.expect_goal && neg == "blind-scan" { format!("SLIP 最後一次 {};之後碰撞 {} 步;末端離 goal {}",
+                last_slip.map(|k| format!("@{:.3}s", k as f64 * dt_s)).unwrap_or("沒亮過".into()), collisions_after_slip,
+                world.as_ref().map(|w| format!("{:.0} mm", ((last_plant.x_mm - w.goal.0 * 1000.0).powi(2) + (last_plant.y_mm - w.goal.1 * 1000.0).powi(2)).sqrt())).unwrap_or("—".into())) } else { String::new() } },
         // C11:有世界且上位是外部的(Nav2)→ 到達 goal 0.1 m 內、途中沒撞;沒世界不驗
         // 有故障注入時不驗到達:那個場景在驗 C10/C12(車該停),不是該到
         Check { name: if world.is_some() && a.expect_goal && fault == "none" { "C11 Nav2:受控體到達 world.goal 0.1 m 內,途中沒撞牆或方塊" } else if fault != "none" { "C11 (故障注入場景,不驗到達)" } else { "C11 (沒有 --expect-goal,不驗)" },

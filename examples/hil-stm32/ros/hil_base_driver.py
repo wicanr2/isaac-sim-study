@@ -15,11 +15,15 @@ import sys
 import time
 
 import rclpy
+import os
+
+from builtin_interfaces.msg import Time as TimeMsg
 from geometry_msgs.msg import TransformStamped, Twist
+from rosgraph_msgs.msg import Clock
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import UInt8
+from std_msgs.msg import UInt16
 from std_srvs.srv import Trigger
 from action_msgs.srv import CancelGoal
 from tf2_msgs.msg import TFMessage
@@ -66,7 +70,21 @@ class HilBaseDriver(Node):
         self.pub_odom = self.create_publisher(Odometry, "odom", 10)
         self.pub_tf = self.create_publisher(TFMessage, "/tf", 10)
         # 韌體的安全旗標原樣往上送(ENABLED/ESTOP/CMD_STALE/DRV_FAULT/BUMPER/STALL/HB_LOST/WDT_RESET),上位看得到為什麼停
-        self.pub_flags = self.create_publisher(UInt8, "hil/safety_flags", 10)
+        # UInt16 不是 UInt8:SLIP 是 bit 8,發成 8 位元會被切掉(上位就永遠看不到打滑,38 篇 §6.5)
+        self.pub_flags = self.create_publisher(UInt16, "hil/safety_flags", 10)
+        # 模擬時間(38 篇 §6.6):底盤的 t_ms 是 Renode 的虛擬時間,lockstep 下比牆鐘慢。
+        # 上位用牆鐘的話,map→odom 會被判成「太舊」——時戳、TF、Nav2 的容忍度全部改吃這個時鐘
+        # SIM_TIME=0 是改前的行為:不發 /clock、時戳一律用牆鐘。**整組都要跟著切**——
+        # 只切節點的 use_sim_time 而時戳仍是模擬時間,那是一個兩邊都不對的組合,
+        # 拿它當「改前」的對照等於灌水(38 篇 §6.6)
+        self.sim_time = os.environ.get("SIM_TIME", "1") == "1"
+        self.pub_clock = self.create_publisher(Clock, "/clock", 10) if self.sim_time else None
+        self.sim_ms = 0
+        self.sim_base = 0
+        # /clock 要在第一個 odom 框包之前就開始發(即使還停在 0):Nav2 的 lifecycle 在 use_sim_time 下
+        # 會等一個有效的時鐘才 configure,而底盤要等 Nav2 起來才有命令——不先發就是互等(38 篇 §6.6)
+        if self.sim_time:
+            self.create_timer(0.02, lambda: self.pub_clock.publish(Clock(clock=self.sim_stamp())))
         self.scan_sock = None
         self.scan_buf = b""
         self.n_scan = 0
@@ -171,7 +189,7 @@ class HilBaseDriver(Node):
     # --- 假雷射:3801 的文字行 → /scan ---
     def publish_static_tf(self):
         t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.stamp = self.sim_stamp()
         t.header.frame_id = self.base_frame
         t.child_frame_id = self.laser_frame
         t.transform.rotation.w = 1.0
@@ -210,7 +228,7 @@ class HilBaseDriver(Node):
             if len(ranges) != n:
                 continue
             m = LaserScan()
-            m.header.stamp = self.get_clock().now().to_msg()
+            m.header.stamp = self.sim_stamp()
             m.header.frame_id = self.laser_frame
             m.angle_min = -math.pi
             m.angle_max = math.pi - 2 * math.pi / n
@@ -251,14 +269,27 @@ class HilBaseDriver(Node):
                 o = hilproto.parse_odom(payload)
                 if o is not None:
                     self.publish_odom(o)
-                    self.pub_flags.publish(UInt8(data=o["flags"] & 0xFF))
+                    self.pub_flags.publish(UInt16(data=o["flags"] & 0xFFFF))
                     self.on_flags(o["flags"])
                     if o["flags"] != self.last_flags:
                         self.get_logger().info("flags 0x%03x %s" % (o["flags"], hilproto.flag_names(o["flags"])))
                         self.last_flags = o["flags"]
 
+    def sim_stamp(self, ms=None):
+        """把底盤的 t_ms 換成 ROS 時戳;沒有新的框包就沿用上一個(時間不倒退)。SIM_TIME=0 時回牆鐘。"""
+        if not self.sim_time:
+            return self.get_clock().now().to_msg()
+        if ms is not None:
+            if ms < self.sim_ms:        # 底盤重啟:t_ms 歸零,但 ROS 的時鐘不准倒退,接著往前走
+                self.sim_base += self.sim_ms
+            self.sim_ms = ms
+        t = self.sim_base + self.sim_ms
+        return TimeMsg(sec=int(t // 1000), nanosec=int((t % 1000) * 1_000_000))
+
     def publish_odom(self, o):
-        now = self.get_clock().now().to_msg()
+        now = self.sim_stamp(o["t_ms"])
+        if self.sim_time:
+            self.pub_clock.publish(Clock(clock=now))
         x, y, th = o["x_mm"] / 1000.0, o["y_mm"] / 1000.0, o["th_mrad"] / 1000.0
         qz, qw = math.sin(th / 2.0), math.cos(th / 2.0)
         vl, vr = o["vl_mm_s"] / 1000.0, o["vr_mm_s"] / 1000.0

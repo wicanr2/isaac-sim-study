@@ -165,15 +165,11 @@ impl Plant for Fake {
         let t0_r = dr_duty * self.c.motor_stall_torque_nm;
         let b_emf = self.c.motor_stall_torque_nm / self.c.motor_free_rad_s;
 
-        // 這一步車體會不會被擋住:用目前的車速往前推一步試算
+        // 這一步的掃描時機(碰撞判定移到算完輪子的力之後,見下面 collided 的註解)
         let (mut collided, mut do_scan) = (false, false);
         if let Some(w) = &self.world {
             let step_ms = (dt * 1000.0).round() as u64;
             do_scan = step_ms > 0 && (seq as u64 * step_ms) % w.period_ms == 0;
-            let ds = self.v_body * dt;
-            let nx = self.x / 1000.0 + ds * self.th.cos();
-            let ny = self.y / 1000.0 + ds * self.th.sin();
-            collided = w.collides(nx, ny);
         }
 
         let m = self.c.robot_mass_kg;
@@ -195,13 +191,24 @@ impl Plant for Fake {
         let (f_r, wr_new) = wheel_step(t0_r, b_emf, tm, self.wr_rad_s, v_r, dt, r, self.c.friction_mu, n_force, i_w, v_ref);
         self.wl_rad_s = wl_new;
         self.wr_rad_s = wr_new;
+        // 碰撞判定用「這一步的力算出來的新車速」去試算位置,不是用更新前的車速:
+        // 用舊車速試算會鎖死——停在障礙物上時 v_body = 0,試算位置就是現在的位置、永遠判定碰撞,
+        // 於是 v_body 永遠回不到非零,連倒車都退不開。GOAL 8 C 線量到的症狀是「真值 20 s 完全不動,
+        // 而 odom 以為已經退了 1.25 m」(docs/hil/38 §6.5)
+        let v_try = self.v_body + (f_l + f_r) / m * dt;
+        let w_try = self.w_body + (f_r - f_l) * half / self.c.body_inertia_kg_m2 * dt;
+        if let Some(w) = &self.world {
+            let ds = v_try * dt;
+            collided = w.collides(self.x / 1000.0 + ds * self.th.cos(), self.y / 1000.0 + ds * self.th.sin());
+        }
         if collided {
-            // 障礙物承擔法向力:車體停住(位置與朝向都不動),輪子照上面的滑動解繼續轉
+            // 障礙物承擔法向力:車體停住(位置與朝向都不動),輪子照上面的滑動解繼續轉。
+            // 離開障礙物的方向不會被擋——試算位置不碰撞就照常走
             self.v_body = 0.0;
             self.w_body = 0.0;
         } else {
-            self.v_body += (f_l + f_r) / m * dt;
-            self.w_body += (f_r - f_l) * half / self.c.body_inertia_kg_m2 * dt;
+            self.v_body = v_try;
+            self.w_body = w_try;
         }
         // 編碼器數的是輪子轉了多少(打滑時比車體多)
         self.sl_mm += self.wl_rad_s * r * 1000.0 * dt;

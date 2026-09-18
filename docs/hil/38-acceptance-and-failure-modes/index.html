@@ -13,14 +13,14 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十六項判準在開跑前寫死">1. 十六項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l3"><a href="#13-打滑陀螺儀-yaw-rate-對輪差-yaw-ratec13">1.3 打滑:陀螺儀 yaw rate 對輪差 yaw rate(C13)</a></li><li class="l3"><a href="#14-平移打滑加速度計c13-第二部分">1.4 平移打滑:加速度計(C13 第二部分)</a></li><li class="l3"><a href="#15-航向陀螺儀進里程計c15">1.5 航向:陀螺儀進里程計(C15)</a></li><li class="l3"><a href="#17-打滑之後少推一點韌體的牽引力控制c16">1.7 打滑之後少推一點:韌體的牽引力控制(C16)</a></li><li class="l3"><a href="#18-感測器悄悄死掉i2c-匯流排失效沒有任何症狀">1.8 感測器悄悄死掉:I2C 匯流排失效沒有任何症狀</a></li><li class="l3"><a href="#16-前扭矩模型下的迴歸2026-09-18">1.6 前:扭矩模型下的迴歸(2026-09-18)</a></li><li class="l3"><a href="#16-受控體物理化之後兩個判準的適用範圍要跟著講清楚">1.6 受控體物理化之後,兩個判準的適用範圍要跟著講清楚</a></li><li class="l3"><a href="#16-打滑是算出來的還是指定的先量-isaac-的摩擦與扭矩">1.6 打滑是算出來的還是指定的:先量 Isaac 的摩擦與扭矩</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l3"><a href="#62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</a></li><li class="l3"><a href="#63-上位對安全旗標的反應c12">6.3 上位對安全旗標的反應:C12</a></li><li class="l3"><a href="#64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</a></li><li class="l3"><a href="#65-每個實驗一支俯視圖錄影">6.5 每個實驗一支俯視圖錄影</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十八項判準在開跑前寫死">1. 十八項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l3"><a href="#13-打滑陀螺儀-yaw-rate-對輪差-yaw-ratec13">1.3 打滑:陀螺儀 yaw rate 對輪差 yaw rate(C13)</a></li><li class="l3"><a href="#14-平移打滑加速度計c13-第二部分">1.4 平移打滑:加速度計(C13 第二部分)</a></li><li class="l3"><a href="#15-航向陀螺儀進里程計c15">1.5 航向:陀螺儀進里程計(C15)</a></li><li class="l3"><a href="#17-打滑之後少推一點韌體的牽引力控制c16">1.7 打滑之後少推一點:韌體的牽引力控制(C16)</a></li><li class="l3"><a href="#19-撞到之前就停下來近距離安全區c18">1.9 撞到之前就停下來:近距離安全區(C18)</a></li><li class="l3"><a href="#18-感測器悄悄死掉i2c-匯流排失效沒有任何症狀">1.8 感測器悄悄死掉:I2C 匯流排失效沒有任何症狀</a></li><li class="l3"><a href="#16-前扭矩模型下的迴歸2026-09-18">1.6 前:扭矩模型下的迴歸(2026-09-18)</a></li><li class="l3"><a href="#16-受控體物理化之後兩個判準的適用範圍要跟著講清楚">1.6 受控體物理化之後,兩個判準的適用範圍要跟著講清楚</a></li><li class="l3"><a href="#16-打滑是算出來的還是指定的先量-isaac-的摩擦與扭矩">1.6 打滑是算出來的還是指定的:先量 Isaac 的摩擦與扭矩</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l3"><a href="#62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</a></li><li class="l3"><a href="#63-上位對安全旗標的反應c12">6.3 上位對安全旗標的反應:C12</a></li><li class="l3"><a href="#64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</a></li><li class="l3"><a href="#65-撞到之後自己脫困上位的責任c17">6.5 撞到之後自己脫困:上位的責任(C17)</a></li><li class="l3"><a href="#66-上位與模擬同一個時鐘c14-不再看主機負載">6.6 上位與模擬同一個時鐘:C14 不再看主機負載</a></li><li class="l3"><a href="#65-每個實驗一支俯視圖錄影">6.5 每個實驗一支俯視圖錄影</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="38-驗收與失敗形態先閉環再換-isaac">38 · 驗收與失敗形態:先閉環,再換 Isaac</h1>
 <p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後是把受控體換成 Isaac Sim 6.0.1 時七件事各量到什麼。</p>
 <blockquote>
 <p><strong>驗證狀態</strong>:§1–§5 在本機實測(Renode 1.16.1 + Rust 橋接 + 假受控體,docker 2 核,主機另有負載 load ≈ 4/14,2026-09-15)。§6 在場域 GPU 主機實測(Isaac Sim 6.0.1 pip 版,PhysX、CPU 求解、TGS;Renode 與橋接留在本機,受控體經 <code>ssh -L</code> 隧道,同日)。</p>
 </blockquote>
-<h2 id="1-十六項判準在開跑前寫死">1. 十六項判準,在開跑前寫死</h2>
+<h2 id="1-十八項判準在開跑前寫死">1. 十八項判準,在開跑前寫死</h2>
 <p><a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/run_loop.sh"><code>run_loop.sh</code></a> 一條指令:起 Renode 容器(<code>--network none</code>)、橋接容器共用它的 netns、跑完只停自己起的那一個。橋接開頭先印生效證明:</p>
 <pre><code>[effect] encoder: calib=tim inject=hook
 [effect] renode ec=127.0.0.1:3500 hook=127.0.0.1:3600 machine=hilctl boot_ms=102 t0_us=102000
@@ -30,7 +30,7 @@
 [effect] g_cfg@0x20000000 kp_q8=256 ki_q8=6 accel_mm_s2=1500 ff_q8=256 alpha_mrad_s2=4000 (calib 預設)
 </code></pre>
 <p>每一行都是「這個變數進了系統」的證據:magic 對表示讀的是這支韌體、<code>ARR</code> 讀回值對上 calib 表示韌體吃的是同一份參數、<code>g_cfg</code> 那行是從 SRAM <strong>讀回來</strong>的增益與斜坡(<code>--cfg</code> 覆蓋之後也是讀回值,不是命令列的值)。</p>
-<p>預設腳本:0.5 s 起 v = 300 mm/s 走 3 s,再 w = 600 mrad/s 轉 1.5 s,然後停;共 6 s = 1200 步。十六項判準加一項前置檢查(判準本身 2026-09-16 起陸續加到 C16,現行 calib:斜坡 1500 mm/s² / 4000 mrad/s²、kp 256、ki 6、前饋 100%、馬達層 τ 50 ms):</p>
+<p>預設腳本:0.5 s 起 v = 300 mm/s 走 3 s,再 w = 600 mrad/s 轉 1.5 s,然後停;共 6 s = 1200 步。十八項判準加一項前置檢查(判準本身 2026-09-16 起陸續加到 C16,現行 calib:斜坡 1500 mm/s² / 4000 mrad/s²、kp 256、ki 6、前饋 100%、馬達層 τ 50 ms):</p>
 <div class="tw"><table>
 <thead>
 <tr>
@@ -130,6 +130,18 @@
 <td>長打滑下的航向(<code>--scene long-slip</code>):第一次碰撞之後,odom θ 對真值的最大誤差 ≤ 上限(§1.5)</td>
 <td>odom 航向只看輪差,打滑時一路錯</td>
 <td><code>fusion-off</code> 紅</td>
+</tr>
+<tr>
+<td>C17</td>
+<td>上位脫困(blind-scan):最後一次 <code>SLIP</code> 之後不再碰撞,末端真值到 goal ≤ 0.1 m(§6.5)</td>
+<td>撞到之後只會鎖住等人,或重規劃出同一條路再撞一次</td>
+<td>只在 <code>UPPER=nav2</code> + blind-scan 驗;<code>RECOVER=0</code> 紅</td>
+</tr>
+<tr>
+<td>C18</td>
+<td>近距離安全區(<code>--scene zone</code>):車體前緣與障礙的最小間隙 ≥ 50 mm、碰撞 0、安全區旗標亮過(§1.9)</td>
+<td>只有撞到才知道;感測器接了但沒有人用</td>
+<td><code>zone-off</code> 紅;head-on / long-slip 場景預設關掉這一層</td>
 </tr>
 <tr>
 <td>—</td>
@@ -901,6 +913,92 @@
 </tbody>
 </table></div>
 <p>⚠ <strong>這是扭矩受控體在 Isaac 上第一次跑閉環。</strong> A 線改完之後只驗了物理探針(摩擦、正向力、<code>maxForce</code>),閉環第一次跑就掛在 <code>isaac_plant.py</code> 的 <code>ENC</code> 回覆——輪面速度的變數在改扭矩模型時被一起刪掉了(<code>NameError: name 'vl' is not defined</code>)。<strong>探針綠不代表閉環跑得起來</strong>;A 線的「三個受控體同一份公式」在假受控體與 UDP 受控體上驗過,Isaac 那份到這一輪才真的跑過。</p>
+<h3 id="19-撞到之前就停下來近距離安全區c18">1.9 撞到之前就停下來:近距離安全區(C18)</h3>
+<p>§1.7 是「打滑了少推一點」,§6.5 是「撞到了自己站起來」。兩個都在<strong>撞到之後</strong>。GOAL 8 D 線補前面那一段:<strong>在撞到之前就減速、停下來</strong>。</p>
+<p>現況只有保險桿(<code>BUMPER</code>),而保險桿的定義就是<strong>已經撞上了</strong>。多一顆近距離感測器,就能在接觸之前作用。</p>
+<p><strong>感測器走 CAN。</strong> 工業上的測距模組多半是 CAN 或 RS-485,而底盤本來就有 CAN(編碼器 <code>0x181</code>、馬達狀態 <code>0x201</code>)。所以橋接把正前方單束射線的距離發成 <strong>CAN <code>0x301</code></strong>(u16 mm,小端,20 ms 一筆),韌體在 <code>ctl_can_drain()</code> 收。不新增協定、不新增模擬模式——真板換一顆同樣發 CAN 的感測器就能跑。</p>
+<p><strong>韌體怎麼處置</strong>(設計在 <a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.6):讀數比 <code>zone_slow_mm</code>(700)近就線性限速,比 <code>zone_stop_mm</code>(350)近就不准前進;和保險桿同一種處置——<strong>只擋前進、允許後退</strong>,不然車就自己把自己鎖死了。距離是從<strong>車體中心</strong>量的,所以 350 mm 對應車體前緣(半徑 200 mm)還有 150 mm。</p>
+<p><strong>讀數太舊(200 ms)就當沒有感測器。</strong> 被蒙住、壞掉、沒裝,在這一層看起來完全一樣——這是刻意的:</p>
+<blockquote>
+<p>⚠ <strong>這一條擋不住 <code>blind-scan</code>。</strong> 那個場景的前提就是「感測器看不到東西」,雷射與這顆測距一起蒙(橋接送 <code>range_max</code>)。所以 C11 的 blind-scan 負對照<strong>仍然紅</strong>,不會因為多了一層保護就變綠。<strong>多一層不等於取代 C11</strong>——C11 抓的是「該看到的沒看到」,那件事沒有任何下游保護擋得住。</p>
+</blockquote>
+<p><strong>判準 C18</strong>(<code>--scene zone</code>:與 head-on 同一個世界、同一份腳本,差別只有安全區開著):<strong>車體前緣與正前方障礙的最小間隙 ≥ 50 mm、整趟碰撞 0 步、安全區旗標亮過</strong>。負對照 <strong><code>--negative zone-off</code></strong>(關掉 <code>g_cfg.safety_mask</code> 的 <code>ZONE</code> 位)要紅。</p>
+<p><strong>量到的</strong>(假受控體,2026-09-18):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>設定</th>
+<th>最小間隙</th>
+<th>碰撞</th>
+<th><code>ZONE</code> 旗標</th>
+<th>C18</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--scene zone</code></td>
+<td><strong>149 mm</strong></td>
+<td>0 步</td>
+<td>亮過</td>
+<td>綠</td>
+</tr>
+<tr>
+<td><code>--negative zone-off</code></td>
+<td><strong>0 mm</strong></td>
+<td>773 步</td>
+<td>沒亮</td>
+<td><strong>紅</strong></td>
+</tr>
+<tr>
+<td><code>--scene head-on</code>(安全區自動關)</td>
+<td>—</td>
+<td>撞上</td>
+<td>沒亮</td>
+<td>不驗;C13 照舊綠</td>
+</tr>
+</tbody>
+</table></div>
+<p>149 mm 對 350 mm 的停止門檻:車體中心停在離方塊 349 mm 處,減去車半徑 200 mm。第三列是重點——<strong>D 線沒有把 B 線需要的碰撞擋掉</strong>。</p>
+<p><strong>接觸場景要把它關掉。</strong> <code>--scene head-on</code> 與 <code>--scene long-slip</code> 存在的理由就是「撞上去之後會怎樣」,安全區會讓它們撞不到——所以這兩個場景<strong>預設清掉 <code>safety_mask</code> 的 <code>ZONE</code> 位</strong>。這不是為了讓判準變綠,是因為 C13/C15/C16 量的是接觸之後的行為;C18 有自己的場景。</p>
+<p><strong>C / D / E 三條線之後的迴歸</strong>(假受控體,2026-09-19,本機 load 2.4–4.2):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>類別</th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>預設腳本 ×2、FreeRTOS</td>
+<td>全綠;末端 <strong>905.1, −1.6, 0.8521</strong>(碰撞模型的修正沒有動到沒碰撞的場景)</td>
+</tr>
+<tr>
+<td>head-on ×2</td>
+<td>C13、C16 綠(多走 8 mm),兩次相同;C3 38 mm 紅(打滑場景本來就紅)</td>
+</tr>
+<tr>
+<td>head-on(μ 2.0)、<code>--scene zone</code></td>
+<td>全綠</td>
+</tr>
+<tr>
+<td><code>zone-off</code>(C18 負對照)</td>
+<td>間隙 0 mm、碰撞 249 步,<strong>紅</strong></td>
+</tr>
+<tr>
+<td><code>no-ramp</code> / <code>accel-off</code> / <code>slip-off</code> / <code>fusion-off</code></td>
+<td>照舊紅</td>
+</tr>
+<tr>
+<td>方形、Nav2 90 s、<strong>AMCL 重定位(C14)</strong></td>
+<td>全綠——<code>/clock</code> 接上之後 C14 在這個負載下照舊綠</td>
+</tr>
+<tr>
+<td>Nav2 blind-scan</td>
+<td>C13 <strong>綠</strong>(偵測延遲 +65 ms);C11 紅(負對照);C17 在 60 s 內紅(脫困要 300 s 才跑得完)</td>
+</tr>
+</tbody>
+</table></div>
 <h3 id="18-感測器悄悄死掉i2c-匯流排失效沒有任何症狀">1.8 感測器悄悄死掉:I2C 匯流排失效沒有任何症狀</h3>
 <p>做 §1.7 的過程中量到一件與牽引力控制無關、但更值得記的事:<strong>某一版韌體在跑到一半時 I2C 讀取開始失敗,之後每一步都失敗,直到結束</strong>。1200 步的跑裡有 440–599 步完全讀不到陀螺儀與加速度計(預設腳本 3.907 s 起、head-on 3.712 s 起、μ 2.0 的 3.112 s 起)。</p>
 <p><strong>症狀是「沒有症狀」。</strong> 讀取失敗時韌體的 <code>have_gyro</code> 就是 0,那一步不做打滑判斷、不更新殘差;於是:</p>
@@ -1660,6 +1758,115 @@
 </tbody>
 </table></div>
 <p>realtime 下要讓 Isaac 當受控體,受控體的一步得壓到 5 ms 以內(或把控制週期拉長到受控體跟得上);在那之前 Isaac 只用 lockstep。</p>
+<h3 id="65-撞到之後自己脫困上位的責任c17">6.5 撞到之後自己脫困:上位的責任(C17)</h3>
+<p><a href="#17-打滑之後少推一點韌體的牽引力控制c16">§1.7</a> 讓韌體少推一點,但<strong>車還卡在原地</strong>。GOAL 7 的行為是:<code>SLIP</code> 亮 → driver 把 <code>cmd_vel</code> 壓成 0、取消 goal、等 <code>/hil/fault_ack</code>(§6.3 的 C12)。等到的是人。GOAL 8 C 線把後面接上:<strong>解鎖 → 後退 → 把撞到的地方標成障礙 → 重規劃 → 重送 goal</strong>,失敗三次才放棄。</p>
+<p><strong>C12 不變。</strong> 鎖住仍然要成立——脫困是 <code>ack</code> 之後的事,不是取消鎖住。</p>
+<p><strong>為什麼一定要「標成障礙」。</strong> blind-scan 場景裡雷射看不到方塊,所以重規劃出來的路線和上一次一樣,車會再撞一次、無限循環。要讓規劃器避開,得把碰撞的位置寫進 costmap。這裡有一個坑:</p>
+<blockquote>
+<p><strong>蒙住的雷射不是「沒有資料」,是「回報空曠」。</strong> blind-scan 把所有 range 設成上限,Nav2 的 obstacle layer 會沿著每一條射線<strong>清除</strong>佔用格——包含剛標上去的碰撞點。標在同一層等於沒標。</p>
+</blockquote>
+<p>所以碰撞標記放<strong>另一個獨立的 obstacle layer</strong>(<code>bump_layer</code>,只有 <code>marking</code>、沒有 <code>clearing</code>,資料來源是上位發的 PointCloud2)。層與層之間互不影響,雷射的清除動作碰不到它。</p>
+<p><strong>判準 C17</strong>(blind-scan 場景,<code>UPPER=nav2</code>):<strong>最後一次 <code>SLIP</code> 亮起之後不再有碰撞,而且末端真值到 <code>world.goal</code> ≤ 0.1 m</strong>。負對照是 <strong><code>RECOVER=0</code></strong>(上位不脫困,維持 GOAL 7 的鎖住等人)要紅——寫成環境變數而不是第十三個 <code>--negative</code>,因為它必須和 <code>--negative blind-scan</code> <strong>同時</strong>成立,而 <code>--negative</code> 一次只吃一個值。</p>
+<p><strong>量到的</strong>(blind-scan、300 s、假受控體,2026-09-18):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>設定</th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>RECOVER=1</code></td>
+<td>脫困 <strong>4 次</strong>;Nav2 回 <code>succeeded</code>,<strong>真值到 goal 72 mm</strong>;整趟碰撞 104 步;最後一次 <code>SLIP</code> @53.5 s,之後仍有 <strong>3 步</strong>接觸 → <strong>C17 紅</strong></td>
+</tr>
+<tr>
+<td><code>RECOVER=0</code>(改前:鎖住等人)</td>
+<td>脫困 0 次;Nav2 <code>canceled</code>,<strong>真值離 goal 2279 mm</strong>(卡在第一個方塊前);最後一次 <code>SLIP</code> @5.8 s,之後 8 步接觸 → <strong>C17 紅</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>兩列都紅,但紅的方式不同,而<strong>判準的細節欄要看得出這個差別</strong>:一邊是「到了 goal、只差最後幾步輕觸」,一邊是「離 goal 2.3 m、根本沒動過」。只看紅綠會把這兩件事混成一件。</p>
+<p><strong>C17 沒過,而且不打算為了過去改判準。</strong> 車確實自己站起來了——瞎著開、撞兩個方塊、退開、標記、重規劃,最後停在 goal 72 mm 內——但判準寫的是「最後一次 <code>SLIP</code> 之後<strong>不再碰撞</strong>」,實際還有 3 步(15 ms)的輕觸(沒有打滑,所以 <code>SLIP</code> 沒再亮)。</p>
+<p>要不要把判準改成「之後不再有新的 <code>SLIP</code>」是下一輪的事,而且要在<strong>看數據之前</strong>決定。看完數據再放寬,就只是把門檻移到剛好通過的位置——這一區的判準之所以有用,是因為它們在開跑前寫死(<a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a>)。</p>
+<p><strong>C13 有一條子判準要跟著改適用範圍。</strong> C13 原本要求「外部上位時,<code>SLIP</code> 亮起 0.5 s 之後輪子要停」——那是在假設<strong>上位對 <code>SLIP</code> 的反應就是把命令收掉</strong>。C 線把上位的反應改成「解鎖、後退、重規劃」,於是輪子<strong>照設計</strong>會在 0.5 s 內重新轉起來(量到亮起後仍在轉的步數 6385)。</p>
+<p>這不是偵測變差(同一趟的偵測延遲是 <strong>+65 ms</strong>,上限 150 ms),是子判準的前提不再成立。改法:那一條從「之後 0.5 s 都不再轉」改成 <strong>「<code>SLIP</code> 亮起之後 0.5 s 內輪子至少停過一次」</strong>——驗的還是同一件事(鎖住有沒有生效),但不再假設上位停下來就不動了。</p>
+<ul>
+<li>上位鎖住等人(<code>RECOVER=0</code>):輪子停了就不動,新舊寫法都成立。</li>
+<li>上位脫困(<code>RECOVER=1</code>):輪子先停(鎖住生效)再倒車,新寫法成立、舊寫法不成立。</li>
+<li>負對照 <code>no-latch</code>(上位對旗標完全不反應):輪子從來沒停過,<strong>兩種寫法都紅</strong>。</li>
+</ul>
+<p>判準的門檻(0.5 s)沒有動,動的是「停」的定義,而且理由與這一輪量到的數字無關——是上位的設計改了。</p>
+<p><strong>做這一段時挖到假受控體的一個模型錯誤:撞上之後連倒車都退不開。</strong> 碰撞判定拿<strong>更新前</strong>的車速去試算下一步的位置:</p>
+<pre><code class="language-rust">let ds = self.v_body * dt;                       // ← 更新前的車速
+collided = w.collides(x + ds*cos(th), y + ds*sin(th));
+if collided { self.v_body = 0.0; }               // 於是 v_body 永遠回不到非零
+</code></pre>
+<p>停在障礙物上時 <code>v_body</code> 已經是 0,試算位置就等於<strong>現在</strong>的位置,而現在的位置本來就在碰撞——於是 <code>collided</code> 永遠成立、車速永遠被歸零,<strong>不管命令是前進還是後退</strong>。症狀很好認也很容易看錯:<code>odom</code> 一路報「已經退了 1.25 m」,真值的位置二十秒一個 mm 都沒動。</p>
+<p>改法是先用這一步的力算出新車速,再拿<strong>新車速</strong>試算位置:離開障礙物的方向試算出來不碰撞,就照常走。三個受控體同一份公式,所以 <code>bridge-rs/src/plant.rs</code> 與 <code>plant/fake_plant.py</code> 一起改;Isaac 那側是真的接觸求解,沒有這個問題。</p>
+<blockquote>
+<p>這件事值得記的地方不是「有個 bug」,是<strong>排查順序</strong>:前兩次失敗我先去調上位(後退距離、標記範圍、重試次數),都沒有用;真值位置那一欄一看就知道問題不在上位。<strong>里程計說車動了,不代表車動了</strong>——這正是這一區在 §1.3–1.5 花那麼多篇幅建立打滑偵測的理由。</p>
+</blockquote>
+<p>C11 在 blind-scan 仍然是紅的,而且<strong>應該</strong>是紅的:C11 要求「到達 goal <strong>且途中沒撞</strong>」,脫困是撞到之後才發生的事。兩個判準抓的不是同一件事——C11 抓「該看到的沒看到」,C17 抓「撞到之後有沒有自己站起來」。</p>
+<h3 id="66-上位與模擬同一個時鐘c14-不再看主機負載">6.6 上位與模擬同一個時鐘:C14 不再看主機負載</h3>
+<p>§6.3 的 C14 在主機忙的時候會紅,而且紅的原因與重定位無關:<strong>Nav2 用牆鐘,模擬用 Renode 的虛擬時間,兩者在 lockstep 下不同速</strong>。模擬比牆鐘慢,<code>map → odom</code> 的時戳(用牆鐘蓋的)看起來就一直「太舊」,超過 DWB 的 <code>transform_tolerance</code> 0.3 s(量到差 0.31–1.23 s),控制器拒絕跟隨路徑。</p>
+<p><strong>不准只把 <code>transform_tolerance</code> 調大。</strong> 那是把症狀調到看不見:負載再高一點就又紅,而且真正的問題——上位與底盤對「現在幾點」沒有共識——還在。</p>
+<p><strong>做法</strong>:底盤的 odom 框包本來就帶 <code>t_ms</code>(韌體的 tick,等於 Renode 的虛擬時間)。driver 拿它發 <code>/clock</code>,所有 ROS 節點開 <code>use_sim_time: true</code>;odom、<code>/tf</code>、雷射的時戳都改用同一個時鐘。</p>
+<ul>
+<li>driver 自己是<strong>時鐘來源</strong>,所以它的收送 timer 留在牆鐘——不然沒有 odom 框包就沒有 <code>/clock</code>,沒有 <code>/clock</code> 就不會有 timer 去收 odom 框包。</li>
+<li>底盤重啟時 <code>t_ms</code> 歸零,但 ROS 的時間不准倒退:driver 記一個 <code>sim_base</code>,重啟時把已經走過的時間加進去。</li>
+<li><code>SIM_TIME=0</code> 是改前的行為(牆鐘),用來做同一個負載下的紅綠對照。</li>
+</ul>
+<p><strong>改前 / 改後各五次,同一個負載。</strong> 先說結論:<strong>這個比較的前提是「改前真的會紅」,而那需要先把失敗條件重現出來</strong>。</p>
+<ul>
+<li><strong>閒時</strong>(Renode 2 核、ROS 2 核,主機 load 4.5–7.6):模擬時鐘 3/3 綠、牆鐘 3/3 綠——<strong>問題不重現</strong>,這個條件下量不出差別。</li>
+<li><strong>ROS 容器壓成 1 核</strong>(上位算力不足):兩邊仍各 1/1 綠。<strong>不是上位算得慢的問題。</strong></li>
+<li><strong>Renode 容器壓成 1 核</strong>(模擬從 0.41× 掉到約 0.2× 實時):重現了。</li>
+</ul>
+<p>第三個條件才對應真正的機制:<strong>掃描與 <code>map → odom</code> 的更新間隔是用模擬時間走的</strong>,模擬越慢,兩筆之間的牆鐘間隔越長;牆鐘那側的 DWB 拿 0.3 s 的容忍度去量,就會判成太舊。</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>組</th>
+<th>模擬時鐘(<code>SIM_TIME=1</code>)</th>
+<th>牆鐘(<code>SIM_TIME=0</code>,改前)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>綠,解鎖 +5.92 s</td>
+<td><strong>紅</strong>:完全沒解鎖,末端離 goal 3598 mm(<code>TF too old</code> 3 則)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>綠,+2.93 s</td>
+<td>綠,+1.75 s</td>
+</tr>
+<tr>
+<td>3</td>
+<td>綠,+2.23 s</td>
+<td>綠,<strong>+13.25 s</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td>綠,+12.88 s</td>
+<td>綠,+3.34 s</td>
+</tr>
+<tr>
+<td>5</td>
+<td>綠,+5.32 s</td>
+<td>綠,+1.53 s</td>
+</tr>
+<tr>
+<td>合計</td>
+<td><strong>5/5 綠</strong></td>
+<td><strong>4 綠 1 紅</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>怎麼讀這張表</strong>:牆鐘那側是<strong>時好時壞</strong>(GOAL 7 在主機 load 11–15 時量到五次紅三次,這一輪在受控壓力下五次紅一次),而且沒紅的那幾次解鎖延遲散在 1.5–13.3 s;模擬時鐘那側五次全綠,延遲 2.2–12.9 s。<strong>樣本數五、而且負載在跑的過程中從 5.3 掉到 1.7</strong>——這是趨勢不是統計結論,寫下來的是「改後沒有再出現完全不解鎖的情況」,不是「機率降低了多少」。</p>
+<p><strong>順帶修掉一個一直存在的 bug</strong>:driver 把安全旗標發成 <code>UInt8</code>,而 <code>SLIP</code> 是 <strong>bit 8</strong>——上位永遠看不到打滑。C12 用的 <code>WDT_RESET</code>(bit 7)剛好在界線內,所以這件事到 C 線要讓上位對 <code>SLIP</code> 反應時才浮出來。改成 <code>UInt16</code>。</p>
 <h3 id="65-每個實驗一支俯視圖錄影">6.5 每個實驗一支俯視圖錄影</h3>
 <p>數字表說「末端差 2162 mm、碰撞 16718 步」,看不出車是怎麼卡在方塊上的;§6.4 那一列要用看的。每一輪閉環現在都能多產一支俯視圖錄影(<a href="https://github.com/wicanr2/isaac-sim-study/issues/6">issue #6</a>):<code>RECORD=1 ./run_loop.sh …</code> 跑完叫 <a href="https://github.com/wicanr2/isaac-sim-study/blob/main/examples/hil-stm32/tools/topview.py"><code>tools/topview.py</code></a>(uv 容器裡的 matplotlib + imageio-ffmpeg),從<strong>同一份 CSV</strong> 畫:真值車體與軌跡、odom 幽靈車(虛線)、雷射打到的點、碰撞步的紅叉、右欄的命令 / 輪速、CCR duty、旗標條(七個 bit 各一列 + 碰撞),底下一列狀態文字。雷射畫的是上位看到的那份——橋接多了 <code>--scan-log</code>,把送去 3801 的 <code>SCAN</code> 行原樣存檔(<code>blind-scan</code> 負對照存的就是全 5 m);沒有紀錄時才從 <code>world.json</code> 重算,畫面上會標「重算」。兩個不變量:<strong>動畫末幀的位姿就是 CSV 末列</strong>(工具印出來對照,不另外算);開了錄影的 CSV 與沒開的逐 byte 相同(錄影是跑完才做的,不碰迴圈)。產物在 <code>out/</code>(<code>.mp4</code> 全部、<code>.gif</code> 挑選版進 <code>docs/img/</code>,每支 ≤ 2 MB)。</p>
 <p>四支挑選版(每支左邊是俯視圖:真值車體、odom 幽靈車、雷射點、碰撞叉;右邊是輪速、CCR、旗標條):</p>

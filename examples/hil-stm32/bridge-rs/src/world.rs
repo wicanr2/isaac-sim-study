@@ -104,6 +104,22 @@ impl World {
         out
     }
 
+    /// 正前方單束射線的距離(m):近距離安全區的感測器(CAN 0x301,38 篇 §1.9)。
+    /// 與 scan() 同一組線段、同一個交點算法,差別只有一束、方向就是車頭
+    pub fn range_ahead(&self, x: f64, y: f64, th: f64) -> f64 {
+        let (dx, dy) = (th.cos(), th.sin());
+        let mut best = self.range_max;
+        for &(x1, y1, x2, y2) in &self.segments() {
+            let (rx, ry) = (x2 - x1, y2 - y1);
+            let den = dx * ry - dy * rx;
+            if den.abs() < 1e-12 { continue; }
+            let t = ((x1 - x) * ry - (y1 - y) * rx) / den;
+            let u = ((x1 - x) * dy - (y1 - y) * dx) / den;
+            if t >= 0.0 && (0.0..=1.0).contains(&u) && t < best { best = t; }
+        }
+        best
+    }
+
     /// 半徑 robot_radius 的圓與任一方塊或牆相交
     pub fn collides(&self, x: f64, y: f64) -> bool {
         let r = self.robot_radius;

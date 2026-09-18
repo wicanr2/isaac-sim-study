@@ -21,7 +21,8 @@ cfg_t g_cfg __attribute__((aligned(4))) = { 0x48494C43u, PI_KP_Q8, PI_KI_Q8, ACC
                                             IWDG_TIMEOUT_MS, 0, HB_TIMEOUT_MS, STALL_DUTY, STALL_MS, SAFETY_MASK,
                                             SLIP_RESID_MRAD_S, SLIP_MS, GYRO_BIAS_STILL_MS,
                                             SLIP_VEL_MM_S, YAW_FUSION,
-                                            TRACTION_CTL, TRACTION_CAP_STEP, TRACTION_CAP_MIN, TRACTION_RECOVER_MS };
+                                            TRACTION_CTL, TRACTION_CAP_STEP, TRACTION_CAP_MIN, TRACTION_RECOVER_MS,
+                                            ZONE_SLOW_MM, ZONE_STOP_MM };
 
 void ctl_bind_dbg(dbg_common_t *dbg) { D = dbg; D->magic = 0x48494C31u; }
 
@@ -181,6 +182,7 @@ void ctl_encoder_init(void)
 #define SLIP_WINDOW       10         /* 殘差滑動平均 10 個控制步 = 50 ms */
 #define GYRO_BIAS_N       256        /* 零偏移動平均的長度:256 步 = 1.28 s */
 #define GYRO_BIAS_MIN_N   20         /* 零偏累計不到 20 筆(100 ms)之前不做打滑判斷 */
+#define ZONE_STALE_MS     200        /* 測距讀數超過這麼久沒更新就當沒有感測器 */
 #define ACC_RESID_LAMBDA  0.99005f   /* exp(−5 ms / 0.5 s):速度殘差的漏積分,τ 0.5 s(docs/hil/38 §1.4) */
 
 static int s_imu_ok;
@@ -471,6 +473,8 @@ static float s_vel_resid;                   /* 平移打滑:漏積分的速度�
 static int32_t s_v_wheel_prev;              /* 上一步的輪速(兩輪平均)mm/s */
 static int32_t s_slip_acc_ms;               /* 速度殘差超過門檻的累計毫秒 */
 static int32_t s_tc_cap = DUTY_FULL_SCALE;  /* 牽引力控制:duty 上限(‰),docs/hil/36 §3.4 */
+static int32_t s_range_mm = -1;             /* 近距離感測器最後一筆讀數 mm;-1 = 還沒收到過 */
+static uint32_t s_range_ms;                 /* …收到的時刻(韌體 tick) */
 static int32_t s_tc_ok_ms;                  /* 殘差連續在門檻以下的毫秒 */
 
 /* 里程計用浮點(soft-float,由 libgcc 提供);沒有 libm,所以 sin/cos 自己寫。 */
@@ -627,6 +631,20 @@ void ctl_control_step(uint32_t now)
     if (!s_have_cmd || now - s_last_cmd_ms > CMD_TIMEOUT_MS) { flags |= ODOM_FLAG_CMD_STALE; enable = 0; }
     if ((mask & SAFETY_DRV_FAULT) && drv_fault_asserted()) { flags |= ODOM_FLAG_DRV_FAULT; enable = 0; }
     if ((mask & SAFETY_BUMPER) && bumper_asserted()) { flags |= ODOM_FLAG_BUMPER; if (cmd_v > 0) cmd_v = 0; }
+    /* 近距離安全區(docs/hil/38 §1.9):讀數比 zone_slow_mm 近就線性限速、比 zone_stop_mm 近就不准前進。
+     * 處置與保險桿同一種(只擋前進、允許後退),差別是它在撞到之前就作用。讀數太舊當作沒有感測器——
+     * 感測器被蒙住、壞掉、沒裝,在這一層看起來都一樣,所以這條擋不住 blind-scan 那種場景 */
+    if ((mask & SAFETY_ZONE) && s_range_mm >= 0 && now - s_range_ms <= ZONE_STALE_MS
+        && g_cfg.zone_slow_mm > g_cfg.zone_stop_mm) {
+        if (s_range_mm <= g_cfg.zone_stop_mm) {
+            flags |= ODOM_FLAG_ZONE;
+            if (cmd_v > 0) cmd_v = 0;
+        } else if (s_range_mm < g_cfg.zone_slow_mm) {
+            int32_t cap = (int32_t)((int64_t)WHEEL_SPEED_FULL_MM_S * (s_range_mm - g_cfg.zone_stop_mm)
+                                    / (g_cfg.zone_slow_mm - g_cfg.zone_stop_mm));
+            if (cmd_v > cap) { cmd_v = cap; flags |= ODOM_FLAG_ZONE; }
+        }
+    }
     /* IMU 零偏還沒估出來:打滑偵測與航向融合都不能用,命令當 0 讓車靜止下來估(真板開機校正陀螺儀的做法;docs/hil/36 §3.2) */
     if ((s_imu_ok && !bias_ok) || (s_acc_ok && !acc_bias_ok)) { flags |= ODOM_FLAG_IMU_CAL; cmd_v = 0; cmd_w = 0; }
     if ((mask & SAFETY_HB) && g_cfg.hb_timeout_ms > 0
@@ -749,6 +767,13 @@ void ctl_can_drain(void)
 {
     uint32_t id; uint8_t d[8]; uint8_t dlc;
     while (can_recv(&id, d, &dlc)) {
+        if (id == CAN_ID_RANGE && dlc >= 2) {
+            /* 近距離感測器(工業上常見的 CAN 測距模組):u16 mm 小端。收到的時刻一起記,
+             * 太久沒更新就當「沒有感測器」——被蒙住與壞掉在這一層看起來一樣(docs/hil/38 §1.9) */
+            s_range_mm = (int32_t)((uint32_t)d[0] | ((uint32_t)d[1] << 8));
+            s_range_ms = s_now_ms ? s_now_ms() : 0;
+            D->range_mm = s_range_mm;
+        }
         if (id == CAN_ID_ENCODER && dlc == 8) {
             D->enc_frames++;
 #if !ENC_SOURCE_TIM

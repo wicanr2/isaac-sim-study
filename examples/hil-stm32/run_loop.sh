@@ -177,19 +177,22 @@ esac
 case " $* " in *" --negative no-latch "*) FAULT_LATCH=false ;; esac
 # C14(重啟後重定位):RELOC=1 LOCALIZER=amcl;負對照 --negative static-map-odom = 同樣的解鎖重送,但 map→odom 仍是靜態 identity
 case " $* " in *" --negative static-map-odom "*) RELOC=1; LOCALIZER=static ;; esac
+# C17(上位脫困):預設開;負對照是 RECOVER=0(要和 --negative blind-scan 併用,所以不做成 --negative,38 篇 §6.5)
 RELOC_ARG=(); [ "${RELOC:-0}" = 1 ] && RELOC_ARG=(--expect-reloc 1)
 # 這一輪的 CSV 路徑(--log 可被 "$@" 覆蓋;後者贏);Nav2 的 /plan 存成同名 .plan(driver 寫,容器內路徑 /w/...)
 LOG=out/run.csv; prev=""; for x in "$@"; do [ "$prev" = "--log" ] && LOG=$x; prev=$x; done
 [ "$UPPER" = nav2 ] && PLAN_LOG="${PLAN_LOG:-/w/${LOG%.csv}.plan}"
 UPPER_ARG=()
+[ -n "${ROS_CPUS:-}" ] && ROS_CPUS_SET=1
 if [ "$UPPER" = ros ] || [ "$UPPER" = nav2 ]; then
   # ROS_SCRIPT:run_square.sh(預設,方形閉環)/ run_scan_check.sh(只驗 /scan);UPPER=nav2 → run_nav.sh 在 hil-nav2:jazzy(ros/Dockerfile.nav2)
-  ROS_SCRIPT="${ROS_SCRIPT:-run_square.sh}"; ROS_CPUS=1
-  if [ "$UPPER" = nav2 ]; then ROS_IMAGE="${NAV2_IMAGE:-hil-nav2:jazzy}"; ROS_SCRIPT=run_nav.sh; ROS_CPUS=2; fi
+  ROS_SCRIPT="${ROS_SCRIPT:-run_square.sh}"; ROS_CPUS="${ROS_CPUS:-1}"
+  # ROS_CPUS:上位容器的核數。Nav2 預設 2;壓成 1 是「上位被餓到」的受控壓力(38 篇 §6.6 的 C14 對照)
+  if [ "$UPPER" = nav2 ]; then ROS_IMAGE="${NAV2_IMAGE:-hil-nav2:jazzy}"; ROS_SCRIPT=run_nav.sh; [ -z "${ROS_CPUS_SET:-}" ] && ROS_CPUS=2; fi
   echo "[ros] 啟動 $RNAME($ROS_IMAGE,ros/$ROS_SCRIPT,與 Renode 同 netns,$ROS_CPUS 核;log → out/ros.log)"
   docker run -d --name "$RNAME" --network "container:$NAME" --cpus "$ROS_CPUS" --memory 2g --pids-limit 256 \
     --log-opt max-size=10m --log-opt max-file=3 --user "$(id -u):$(id -g)" -e HOME=/tmp \
-    -e "SIDE_M=${SIDE_M:-0.6}" -e "TIMEOUT_S=${TIMEOUT_S:-120.0}" -e "SECONDS_CHECK=${SECONDS_CHECK:-8.0}" -e "FAULT_LATCH=${FAULT_LATCH:-true}" -e "LOCALIZER=${LOCALIZER:-static}" -e "RELOC=${RELOC:-0}" -e "PLAN_LOG=${PLAN_LOG:-}" -e "CONTROLLER=${CONTROLLER:-dwb}" \
+    -e "SIDE_M=${SIDE_M:-0.6}" -e "TIMEOUT_S=${TIMEOUT_S:-120.0}" -e "SECONDS_CHECK=${SECONDS_CHECK:-8.0}" -e "FAULT_LATCH=${FAULT_LATCH:-true}" -e "RECOVER=${RECOVER:-1}" -e "SIM_TIME=${SIM_TIME:-1}" -e "NAV_WALL_S=${NAV_WALL_S:-240}" -e "LOCALIZER=${LOCALIZER:-static}" -e "RELOC=${RELOC:-0}" -e "PLAN_LOG=${PLAN_LOG:-}" -e "CONTROLLER=${CONTROLLER:-dwb}" \
     -v "$PWD":/w -w /w/ros "$ROS_IMAGE" bash "./$ROS_SCRIPT" >/dev/null
   UPPER_ARG=(--upper tcp-listen:0.0.0.0:3800)
   [ "$UPPER" = nav2 ] && UPPER_ARG+=(--expect-goal 1)

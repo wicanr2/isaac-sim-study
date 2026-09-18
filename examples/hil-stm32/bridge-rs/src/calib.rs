@@ -16,6 +16,7 @@ pub struct Calib {
     pub wheel_speed_full_mm_s: f64,
     pub can_id_encoder: u32,
     pub can_id_motor_status: u32,
+    pub can_id_range: u32,
     /// 馬達層(三個受控體實作同一份公式):一階時間常數、加速度上限(電流限制)、死區
     /// 馬達扭矩模型(36 篇 §3.3):失速扭矩、空載角速度、瞬時扭矩上限;摩擦與質量是 Isaac 場景實測(38 篇 §1.6)
     pub motor_stall_torque_nm: f64,
@@ -68,6 +69,7 @@ impl Calib {
             wheel_speed_full_mm_s: num(&t, "wheel_speed_at_full_duty_mm_s")?,
             can_id_encoder: num(&t, "can_id_encoder")? as u32,
             can_id_motor_status: num(&t, "can_id_motor_status")? as u32,
+            can_id_range: num(&t, "can_id_range").unwrap_or(769.0) as u32,
             encoder_tim,
             motor_stall_torque_nm: num(&t, "motor_stall_torque_nm").unwrap_or(2.06),
             motor_free_rad_s: num(&t, "motor_free_rad_s").unwrap_or(20.94),

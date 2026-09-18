@@ -123,22 +123,27 @@ class FakePlant:
         t0_r = signed(duty_r, fwd_r) * self.stall
         b_emf = self.stall / self.free_w
         self.collided = False
-        if self.world is not None:
-            ds_m = self.v_body * dt
-            if self.world.collides(self.x / 1000.0 + ds_m * math.cos(self.th), self.y / 1000.0 + ds_m * math.sin(self.th)):
-                self.collided = True
         half = self.track / 2000.0
         n_force = self.mass * 9.81 / 2.0
         f_l, self.wl = wheel_step(t0_l, b_emf, self.tau_max, self.wl, self.v_body - self.w_body * half, dt,
                                   self.r, self.mu, n_force, self.i_w, self.v_ref)
         f_r, self.wr = wheel_step(t0_r, b_emf, self.tau_max, self.wr, self.v_body + self.w_body * half, dt,
                                   self.r, self.mu, n_force, self.i_w, self.v_ref)
+        # 碰撞判定用「這一步的力算出來的新車速」試算位置,不是更新前的車速:用舊的會鎖死
+        # (停在障礙物上時 v_body = 0 → 試算位置就是現在的位置 → 永遠碰撞 → 連倒車都退不開;
+        #  docs/hil/38 §6.5)。與 bridge-rs/src/plant.rs 同一份公式
+        v_try = self.v_body + (f_l + f_r) / self.mass * dt
+        w_try = self.w_body + (f_r - f_l) * half / self.j_body * dt
+        if self.world is not None:
+            ds_m = v_try * dt
+            if self.world.collides(self.x / 1000.0 + ds_m * math.cos(self.th), self.y / 1000.0 + ds_m * math.sin(self.th)):
+                self.collided = True
         if self.collided:
             self.v_body = 0.0
             self.w_body = 0.0
         else:
-            self.v_body += (f_l + f_r) / self.mass * dt
-            self.w_body += (f_r - f_l) * half / self.j_body * dt
+            self.v_body = v_try
+            self.w_body = w_try
         self.sl += self.wl * self.r * 1000.0 * dt
         self.sr += self.wr * self.r * 1000.0 * dt
         self.vl = self.wl * self.r * 1000.0

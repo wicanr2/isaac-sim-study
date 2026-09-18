@@ -8,23 +8,27 @@ export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ROS_LOG_DIR=/tmp/roslog ROS_HOME=
 mkdir -p /tmp/roslog /tmp/roshome
 python3 ../tools/gen_map.py ../world.json /tmp/map
 PIDS=()
+# SIM_TIME=1(預設):所有 ROS 節點吃 driver 發的 /clock(Renode 虛擬時間,38 篇 §6.6)。
+# SIM_TIME=0 是改前的行為(牆鐘),用來做同一個負載下的紅綠對照。driver 自己是時鐘來源,
+# 它的收送 timer 留在牆鐘,只有時戳與 /clock 用虛擬時間
+ST=(-p "use_sim_time:=$([ "${SIM_TIME:-1}" = 1 ] && echo true || echo false)")
 # FAULT_LATCH=false 是負對照:driver 對 WDT_RESET / STALL 不反應
 python3 hil_base_driver.py --ros-args -p "bridge:=${BRIDGE:-127.0.0.1:3800}" -p "fault_latch:=${FAULT_LATCH:-true}" -p "plan_log:=${PLAN_LOG:-}" & PIDS+=($!)
 # LOCALIZER=static(預設):map→odom 靜態 identity;amcl:AMCL 發 map→odom(GOAL 6 C-2)
 LIFECYCLE_NODES='["map_server", "planner_server", "controller_server", "behavior_server", "bt_navigator"]'
 if [ "${LOCALIZER:-static}" = amcl ]; then
-  ros2 run nav2_amcl amcl --ros-args --params-file nav2_params.yaml & PIDS+=($!)
+  ros2 run nav2_amcl amcl --ros-args --params-file nav2_params.yaml "${ST[@]}" & PIDS+=($!)
   LIFECYCLE_NODES='["map_server", "amcl", "planner_server", "controller_server", "behavior_server", "bt_navigator"]'
 else
-  ros2 run tf2_ros static_transform_publisher --frame-id map --child-frame-id odom & PIDS+=($!)
+  ros2 run tf2_ros static_transform_publisher --frame-id map --child-frame-id odom --ros-args "${ST[@]}" & PIDS+=($!)
 fi
 # CONTROLLER=mppi:controller_server 多疊一份 nav2_params_mppi.yaml(FollowPath 換 MPPI;D-3)
 CTRL_PARAMS=(); [ "${CONTROLLER:-dwb}" = mppi ] && CTRL_PARAMS=(--params-file nav2_params_mppi.yaml)
 for node in "nav2_map_server map_server" "nav2_planner planner_server" "nav2_behaviors behavior_server" "nav2_bt_navigator bt_navigator"; do
-  ros2 run $node --ros-args --params-file nav2_params.yaml & PIDS+=($!)
+  ros2 run $node --ros-args --params-file nav2_params.yaml "${ST[@]}" & PIDS+=($!)
 done
-ros2 run nav2_controller controller_server --ros-args --params-file nav2_params.yaml "${CTRL_PARAMS[@]}" & PIDS+=($!)
-ros2 run nav2_lifecycle_manager lifecycle_manager --ros-args --params-file nav2_params.yaml -p "node_names:=$LIFECYCLE_NODES" & PIDS+=($!)
+ros2 run nav2_controller controller_server --ros-args --params-file nav2_params.yaml "${CTRL_PARAMS[@]}" "${ST[@]}" & PIDS+=($!)
+ros2 run nav2_lifecycle_manager lifecycle_manager --ros-args --params-file nav2_params.yaml -p "node_names:=$LIFECYCLE_NODES" "${ST[@]}" & PIDS+=($!)
 trap 'for p in "${PIDS[@]}"; do kill -INT $p 2>/dev/null; done; wait 2>/dev/null || true' EXIT
 # RELOC=1:底盤重啟、driver 鎖住、goal 被取消之後,重定位(amcl)或直接(static)→ ack 解鎖 → 重送 goal
-python3 nav_client.py ../world.json 1 "${LOCALIZER:-static}" "${RELOC:-0}"
+python3 nav_client.py ../world.json 1 "${LOCALIZER:-static}" "${RELOC:-0}" --ros-args "${ST[@]}"

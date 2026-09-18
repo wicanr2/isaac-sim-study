@@ -87,7 +87,7 @@ local_costmap:
       height: 3
       resolution: 0.05
       robot_radius: 0.2
-      plugins: ["obstacle_layer", "inflation_layer"]
+      plugins: ["obstacle_layer", "bump_layer", "inflation_layer"]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -102,6 +102,24 @@ local_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 4.5
           obstacle_min_range: 0.0
+      # 碰撞標記(docs/hil/38 §6.5):上位撞到之後把接觸點發成 PointCloud2。
+      # 自己一層、只 marking 不 clearing——雷射被蒙住時回報的是「空曠」,
+      # 放在同一層會被它的清除射線抹掉
+      bump_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: bump
+        bump:
+          topic: /hil/bump_cloud
+          data_type: "PointCloud2"
+          clearing: false
+          marking: true
+          max_obstacle_height: 2.0
+          min_obstacle_height: -1.0
+          obstacle_max_range: 5.0
+          obstacle_min_range: 0.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
@@ -118,7 +136,7 @@ global_costmap:
       robot_radius: 0.2
       resolution: 0.05
       track_unknown_space: true
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      plugins: ["static_layer", "obstacle_layer", "bump_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
@@ -136,6 +154,24 @@ global_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 4.5
           obstacle_min_range: 0.0
+      # 碰撞標記(docs/hil/38 §6.5):上位撞到之後把接觸點發成 PointCloud2。
+      # 自己一層、只 marking 不 clearing——雷射被蒙住時回報的是「空曠」,
+      # 放在同一層會被它的清除射線抹掉
+      bump_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: bump
+        bump:
+          topic: /hil/bump_cloud
+          data_type: "PointCloud2"
+          clearing: false
+          marking: true
+          max_obstacle_height: 2.0
+          min_obstacle_height: -1.0
+          obstacle_max_range: 5.0
+          obstacle_min_range: 0.0
+          expected_update_rate: 0.0
+          observation_persistence: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0

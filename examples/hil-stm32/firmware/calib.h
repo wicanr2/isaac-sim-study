@@ -23,7 +23,7 @@
 #define STALL_DUTY               600  /* 堵轉:|duty| ≥ 此值(‰)… */
 #define STALL_SPEED_MM_S         20  /* …且 |輪速| < 此值(要 ≥ 一個 tick 的速度量子:76.7 µm / 5 ms = 15 mm/s)… */
 #define STALL_MS                 200  /* …持續這麼久 → STALL */
-#define SAFETY_MASK              0x7F  /* 五項安全功能 + 打滑偵測兩半全開;負對照才關 */
+#define SAFETY_MASK              0xFF  /* 五項安全 I/O + 打滑偵測兩半 + 近距離安全區全開;負對照才關 */
 #define SLIP_RESID_MRAD_S        45  /* 打滑:|陀螺儀 − 輪差| yaw rate 50 ms 平均的門檻 */
 #define SLIP_MS                  50  /* …持續這麼久 → SLIP */
 #define GYRO_BIAS_STILL_MS       200  /* 陀螺儀零偏:靜止滿這麼久才估;0 = 不估 */
@@ -33,8 +33,11 @@
 #define TRACTION_CAP_STEP        20  /* 每個控制步調整 duty 上限的量(‰) */
 #define TRACTION_CAP_MIN         0  /* duty 上限壓到這裡為止(‰) */
 #define TRACTION_RECOVER_MS      200  /* 殘差在門檻以下連續這麼久才放回 */
+#define ZONE_SLOW_MM             700  /* 近距離安全區:量到比這個近就開始減速(docs/hil/38 §1.9) */
+#define ZONE_STOP_MM             350  /* …比這個近就不准前進(距離是從車體中心量的) */
 #define ENC_SOURCE_TIM           1  /* 1: TIM2/TIM4 encoder mode 讀 CNT;0: CAN 0x181 訊框 */
 #define CAN_ID_ENCODER           0x181
 #define CAN_ID_MOTOR_STATUS      0x201
+#define CAN_ID_RANGE             0x301  /* 近距離感測器:u16 mm(小端),20 ms 一筆 */
 
 #endif
