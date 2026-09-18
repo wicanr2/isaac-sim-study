@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GOAL 8:打滑這件事從「偵測得到」推到「不該發生 / 發生了能脫困」 — Isaac Sim 實戰筆記</title>
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="../">Isaac Sim 實戰筆記</a>
+  <nav class="tabs"><a href="../">總覽</a><a href="../common/">共通</a><a href="../5.1/">5.1</a><a href="../6.0.1/">6.0.1</a><a href="../fleet/">車隊</a><a href="../hil/">HIL</a><a href="../version-matrix.html">版本差異</a></nav>
+  <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
+</header>
+<div class="shell">
+  <aside class="side"><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#你是誰在哪">你是誰、在哪</a></li><li class="l2"><a href="#第-0-步">第 0 步</a></li><li class="l2"><a href="#五條線a-是其他線的前提">五條線(A 是其他線的前提)</a></li><li class="l3"><a href="#a-受控體物理化打滑要算得出來不是旗標指定">A. 受控體物理化:打滑要算得出來,不是旗標指定</a></li><li class="l3"><a href="#b-韌體牽引力控制">B. 韌體牽引力控制</a></li><li class="l3"><a href="#c-上位脫困">C. 上位脫困</a></li><li class="l3"><a href="#d-預防碰撞">D. 預防碰撞</a></li><li class="l3"><a href="#e-c14-的時鐘goal-7-留下">E. C14 的時鐘(GOAL 7 留下)</a></li><li class="l3"><a href="#f-7-的-realtime-抖動優先序最低閒時穿插">F. #7 的 realtime 抖動(優先序最低,閒時穿插)</a></li><li class="l2"><a href="#工作順序">工作順序</a></li><li class="l2"><a href="#硬規則">硬規則</a></li><li class="l2"><a href="#完成的定義">完成的定義</a></li></ul></aside>
+  <main class="doc">
+<h1 id="goal-8打滑這件事從偵測得到推到不該發生-發生了能脫困">GOAL 8:打滑這件事從「偵測得到」推到「不該發生 / 發生了能脫困」</h1>
+<p>產生時間:2026-09-18 00:15。接續 <a href="../goal/GOAL-2026-09-17-1700.html">GOAL 7</a>(A/B/C 完成,#11–#13 已關;C14 的時鐘問題與 #7 的 realtime 抖動留下來)。</p>
+<p>使用者 2026-09-17 看完打滑的原因分析後定的範圍:<strong>四個方向全做</strong>。分析的結論(證據在 issue #1 的 GOAL 7 總結):</p>
+<ul>
+<li><strong>為什麼會撞</strong>:<code>blind-scan</code> 是刻意的負對照,雷射看不到方塊。正常情境碰撞 0 步。</li>
+<li><strong>為什麼是打滑不是卡住</strong>:Isaac 的輪子是速度驅動(<code>plant/isaac_plant.py:179-184</code>,damping 50、maxForce 20),車被擋住時扭矩頂到上限;抓地力用 PhysX 預設材質(μ 未實測)。<strong>推算</strong>驅動扭矩上限約為抓地力的 18 倍,所以擋住必空轉。</li>
+<li><strong>為什麼模型與韌體擋不住</strong>:假受控體的馬達層是純速度源,打滑或凍結由 <code>CONTACT</code> 旗標指定,不是算出來的;韌體沒有電流或扭矩回授,打滑時輪速看起來正常。</li>
+</ul>
+<h2 id="你是誰在哪">你是誰、在哪</h2>
+<ul>
+<li>repo:<code>isaac-sim-study</code>(公開)。先讀 issue #1 最後一則(GOAL 7 總結)與 #7 的最後兩則,不重問已定案的事。</li>
+<li>GOAL 檔在 <code>docs/goal/</code>,這份登記在 <code>docs/goal/index.md</code> 第 8 列;收工時更新狀態。</li>
+<li><code>git config user.email</code> 必須是 <code>wicanr2@gmail.com</code>;<code>git log --format=%ae | sort -u</code> 只能有這一個。</li>
+<li><strong>起點</strong>:<code>./run_loop.sh</code> 預設掛 LSM330 陀螺儀 + 加速度計(±16 g),韌體開機靜止估零偏(之前亮 <code>IMU_CAL</code>、命令當 0)。末端 900.8 / 0.4 / 0.8627;Isaac 預設腳本 850.0(起步晚 0.17 s,36 篇 §3.2)。開工先跑一次預設腳本、<code>FW=freertos</code>、<code>UPPER=nav2 --seconds 90</code> 確認全綠。</li>
+<li>判準現況:C1–C15(<a href="../hil/38-acceptance-and-failure-modes/">38 篇</a> §1),十二個負對照 + <code>blind-scan</code>、<code>no-latch</code>、<code>accel-off</code>、<code>fusion-off</code>、<code>gyro-bias-uncomp</code>。決定性場景:<code>--scene head-on</code>(平移打滑)、<code>--scene long-slip</code>(航向)。</li>
+<li>主機 14 核,load 常 6–43。lockstep 決定性、不受負載影響;realtime 與 AMCL 的數字要等閒時。</li>
+<li>場域 GPU 主機規則同 GOAL 2/4–7:先 <code>nvidia-smi</code>、<code>uptime</code>、<code>ps</code> 盤點,CPU 用一半(2 核),只寫 <code>~/hil-plant/</code>,主機資訊不進 repo / log / issue。</li>
+</ul>
+<h2 id="第-0-步">第 0 步</h2>
+<ol>
+<li>每條線各開一個 issue(#14 起,標題格式照 #11–#13);<code>PLAN.md</code> 的 35–39 列指向本檔。</li>
+<li>起點驗證三項;<code>renode-infrastructure</code> PR #252 / #253 / #254 / #260 的狀態各看一次,有回覆就處理。</li>
+</ol>
+<h2 id="五條線a-是其他線的前提">五條線(A 是其他線的前提)</h2>
+<h3 id="a-受控體物理化打滑要算得出來不是旗標指定">A. 受控體物理化:打滑要算得出來,不是旗標指定</h3>
+<ol>
+<li><strong>先實測,不要猜</strong>:
+   - Isaac 場景裡輪子與地面實際生效的摩擦(<code>ComputeBoundMaterial</code> 查綁定、讀 <code>frictionCombineMode</code>,<a href="../6.0.1/16-model-tuning-for-6.0/">16 篇</a> §的做法),以及每個輪子實際的正向力(PhysX 接觸力或靜置時的支撐力)。
+   - <code>DriveAPI</code> 的 <code>maxForce</code> 在角向驅動的單位與實際飽和值(寫一個小場景量:擋住輪子,看關節扭矩)。
+   - 把「驅動扭矩上限 ÷ 抓地力扭矩」的實測比值寫進 38 篇,取代 GOAL 7 的推算 18 倍。</li>
+<li><strong>馬達改扭矩模型</strong>(三個受控體同一份公式,改公式三處一起改):
+   - 扭矩 = f(duty, 轉速):至少含失速扭矩與反電動勢(τ = τ_stall × (duty − ω/ω_free));電流上限 = 扭矩上限。
+   - 輪子的牽引力上限 = μ × 正向力;超過就滑動,輪速與車速分開。
+   - 參數從一顆<strong>具體的</strong>小型減速馬達規格表抄(型號、版次寫進 36 篇),不要自己編。</li>
+<li><strong><code>CONTACT=slip|freeze</code> 拿掉</strong>:撞上之後打滑還是卡住,由扭矩與抓地力算出來。原本兩個場景的行為要能用參數重現(高摩擦 → 卡住、低摩擦 → 打滑),並在 38 篇寫明對應關係。</li>
+<li><strong>迴歸</strong>:末端位姿會變。新的參考值要與舊的並列,寫明「為什麼變」;C1–C15 全部重跑,判準本身不准動。</li>
+</ol>
+<h3 id="b-韌體牽引力控制">B. 韌體牽引力控制</h3>
+<ol>
+<li>設計先寫進 36 篇:<code>SLIP</code> 亮起後怎麼降(降 duty 斜率、限電流上限、回到多少),什麼條件解除。真板走得通的路徑,不准有模擬模式。</li>
+<li>判準先寫進 38 篇:<strong>C16</strong>「打滑開始到輪子停之間,輪子比車體多走的距離 ≤ 上限」,上限從 A 線的物理參數推,寫明推法。</li>
+<li>負對照 <code>traction-off</code>(偵測照亮、不降出力)要紅。</li>
+<li>假受控體(<code>--scene head-on</code>)與 Isaac 都跑。</li>
+</ol>
+<h3 id="c-上位脫困">C. 上位脫困</h3>
+<ol>
+<li>現況:driver 收到 <code>SLIP</code> 鎖住、取消 goal,然後等人。</li>
+<li>設計先寫進 38 篇 §6:收到 <code>SLIP</code> 之後後退固定距離、清 costmap、重新規劃、重送 goal;失敗幾次才放棄。</li>
+<li><strong>C17</strong>:<code>--scene head-on</code> 或 blind-scan 場景下,上位最後把車開到 goal 0.1 m 內、途中不再撞;負對照 <code>recover-off</code>(維持 GOAL 7 的鎖住行為)紅。</li>
+<li>與 C12(鎖住)不衝突:鎖住仍要成立,脫困是 ack 之後的事。</li>
+</ol>
+<h3 id="d-預防碰撞">D. 預防碰撞</h3>
+<ol>
+<li>現況:保險桿是撞到才有;<code>blind-scan</code> 把雷射蒙住,所以撞得到。</li>
+<li>做<strong>近距離安全區</strong>:雷射(或另一個近距離感測器)在設定距離內就減速、更近就停。要寫明 blind-scan 場景下這一條同樣無效(感測器被蒙住時沒有辦法),不要假裝解決了那個負對照。</li>
+<li><strong>C18</strong>:沒有被蒙住的場景裡,車在障礙物前 X mm 停住、不觸發保險桿;負對照關掉安全區 → 撞到保險桿。</li>
+<li>這一條的價值是「多一層」,不是取代 C11。</li>
+</ol>
+<h3 id="e-c14-的時鐘goal-7-留下">E. C14 的時鐘(GOAL 7 留下)</h3>
+<ul>
+<li>現況:Nav2 用牆鐘(<code>use_sim_time: false</code>),lockstep 模擬比牆鐘慢,AMCL 的 <code>map → odom</code> 超過 DWB 的 <code>transform_tolerance</code> 0.3 s(量到差 0.31–1.23 s),C14 在高負載下五次紅三次(38 篇 §6.3)。</li>
+<li>做法:橋接發 <code>/clock</code>(Renode 虛擬時間)、ROS 那側 <code>use_sim_time: true</code>;掃描與 odom 的時間戳都改成模擬時間。</li>
+<li>判準不動:C14 照舊。要量的是「同一個負載下,改前紅幾次、改後紅幾次」(各五次)。</li>
+<li><strong>不准只把 <code>transform_tolerance</code> 調大</strong>。</li>
+</ul>
+<h3 id="f-7-的-realtime-抖動優先序最低閒時穿插">F. #7 的 realtime 抖動(優先序最低,閒時穿插)</h3>
+<ul>
+<li>照 GOAL 7 D 線原本的做法:<code>g_dbg</code> 記韌體讀 CNT 的值與虛擬時刻,跟 <code>ContinuousEncoder</code> 的值逐筆對;同一個閒時視窗量 realtime 的 C13 誤報數。</li>
+<li><strong>C9 上限不准動</strong>;load &lt; 6 才跑,每個數字附 <code>uptime</code>。</li>
+</ul>
+<h2 id="工作順序">工作順序</h2>
+<p>起點驗證 → 第 0 步 → A-1 實測 → A-2/3 實作與迴歸 → B → C → E(等閒時驗)→ D → F(閒時穿插)。</p>
+<p>每條線結束時:<code>build_site.py</code> + <code>check_docs.py</code> 全綠、對應 issue 回填、commit。<strong>push 前要問。</strong></p>
+<h2 id="硬規則">硬規則</h2>
+<ul>
+<li>GOAL 1–7 的硬規則全部照舊:docker、匿名化、不碰共用 docker 資源(禁止 prune / rmi)、缺口修 Renode 不改韌體語意、每個新判準先紅再綠、三個受控體同一份公式、圖與正文同一份數字、對外文字英文且送前給看。</li>
+<li><strong>[HARD] 物理參數一律實測或抄規格表</strong>(檔案:行號、型號、版次),GOAL 7 總結裡的 18 倍是推算,不可以當成結論引用。</li>
+<li><strong>[HARD] 判準的改動先寫進 38 篇再跑。</strong> C3 容差、C9 上限、C13 的 150 / 500 ms、C15 的上限公式都不准為了變綠放寬;C11/C12/C14 看真值的定義不動。</li>
+<li><strong>[HARD] 韌體沒有模擬模式。</strong> 牽引力控制走真板也會走的路徑;橋接只寫感測器值。</li>
+<li><strong>[HARD] 受控體的行為改了,舊的參考值不准悄悄換掉</strong>:新舊並列 + 變動原因。</li>
+<li><strong>[HARD] E 線不准用調大容忍度了事。</strong></li>
+</ul>
+<h2 id="完成的定義">完成的定義</h2>
+<ul>
+<li>A:摩擦、正向力、<code>maxForce</code> 三項實測值進 36/38 篇;扭矩模型 + 牽引力上限在三個受控體實作;<code>CONTACT</code> 旗標移除,兩種行為用參數重現;C1–C15 重跑,新舊參考值並列</li>
+<li>B:設計進 36 篇、C16 進 38 篇;C16 綠、<code>traction-off</code> 紅;假受控體與 Isaac 都跑過</li>
+<li>C:設計進 38 篇 §6、C17 進 38 篇;C17 綠、<code>recover-off</code> 紅;C12 仍成立</li>
+<li>D:C18 進 38 篇;C18 綠、關掉安全區紅;blind-scan 下無效這件事寫明</li>
+<li>E:<code>/clock</code> 接上;同負載下改前後各五次的 C14 紅綠數;不靠調容忍度</li>
+<li>F:<code>g_dbg</code> 逐筆比對有結論與閒時 C13 誤報數,或寫明沒有閒時視窗</li>
+<li>每個 issue 回填、issue #1 總結;<code>docs/goal/index.md</code> 第 8 輪狀態已更新;<code>check_docs.py</code> 全綠;沒做到的寫明為什麼</li>
+</ul>
+  </main>
+</div>
+<footer class="foot">
+  <a href="../">總覽</a> · <a href="../version-matrix.html">版本差異速查</a> · <a href="https://github.com/wicanr2/isaac-sim-study">原始碼</a>
+</footer>
+</body>
+</html>

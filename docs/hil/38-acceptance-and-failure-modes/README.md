@@ -192,7 +192,7 @@ Isaac 上的打滑是沿著方塊側滑、車體跟著轉,轉角在碰撞後 215
 - **位址**:datasheet 對 SDO_A 的描述前後不一致(§6.1.1 正文說接電源是 0011101b,Table 15 對應的是 0011110b)。這裡沒有板子可以決定,取 **0x1E**,平台描述與韌體一致即可。
 - **初始化**:開機讀 WHO_AM_I_A(預期 0x40),寫 CTRL_REG5_A = 0x77(400 Hz、三軸)、CTRL_REG6_A = 0x20(±16 g)。
 - **每步讀取**:OUT_X_L/H_A,每筆交易一個暫存器。
-- **Renode 1.16.1 的 `LSM330_Accelerometer`**(與上游 master 相同)沒定義 WHO_AM_I_A(讀 0)與 CTRL_REG4/5_A,靈敏度用 `65536 / 量程 − 1`:±2 g 16383 digit/g,datasheet 0.061 mg/digit = 16393;±16 g 2047,datasheet 0.732 mg/digit = 1366,差 50%。修在模型,方式同陀螺儀。
+- **Renode 1.16.1 的 `LSM330_Accelerometer`**(與上游 master 相同)沒定義 WHO_AM_I_A(讀 0)與 CTRL_REG4/5_A,靈敏度用 `65536 / 量程 − 1`:±2 g 16383 digit/g,datasheet 0.061 mg/digit = 16393;±16 g 2047,datasheet 0.732 mg/digit = 1366,差 50%;超出量程時 decimal → short 會丟 `OverflowException` 而不是飽和。修在模型([PR #260](https://github.com/renode/renode-infrastructure/pull/260),NUnit 修正版 5/5、原版 0/5),方式同陀螺儀。
 
 **旗標**:沿用 `SLIP`(flags 第 8 位),driver 的鎖住不變。`g_dbg.slip_src` 記是誰先亮(1 = 陀螺儀,2 = 加速度計);`safety_mask` 第 6 位是加速度計這一半(calib 0x7F)。
 

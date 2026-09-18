@@ -528,7 +528,7 @@
 <li><strong>位址</strong>:datasheet 對 SDO_A 的描述前後不一致(§6.1.1 正文說接電源是 0011101b,Table 15 對應的是 0011110b)。這裡沒有板子可以決定,取 <strong>0x1E</strong>,平台描述與韌體一致即可。</li>
 <li><strong>初始化</strong>:開機讀 WHO_AM_I_A(預期 0x40),寫 CTRL_REG5_A = 0x77(400 Hz、三軸)、CTRL_REG6_A = 0x20(±16 g)。</li>
 <li><strong>每步讀取</strong>:OUT_X_L/H_A,每筆交易一個暫存器。</li>
-<li><strong>Renode 1.16.1 的 <code>LSM330_Accelerometer</code></strong>(與上游 master 相同)沒定義 WHO_AM_I_A(讀 0)與 CTRL_REG4/5_A,靈敏度用 <code>65536 / 量程 − 1</code>:±2 g 16383 digit/g,datasheet 0.061 mg/digit = 16393;±16 g 2047,datasheet 0.732 mg/digit = 1366,差 50%。修在模型,方式同陀螺儀。</li>
+<li><strong>Renode 1.16.1 的 <code>LSM330_Accelerometer</code></strong>(與上游 master 相同)沒定義 WHO_AM_I_A(讀 0)與 CTRL_REG4/5_A,靈敏度用 <code>65536 / 量程 − 1</code>:±2 g 16383 digit/g,datasheet 0.061 mg/digit = 16393;±16 g 2047,datasheet 0.732 mg/digit = 1366,差 50%;超出量程時 decimal → short 會丟 <code>OverflowException</code> 而不是飽和。修在模型(<a href="https://github.com/renode/renode-infrastructure/pull/260">PR #260</a>,NUnit 修正版 5/5、原版 0/5),方式同陀螺儀。</li>
 </ul>
 <p><strong>旗標</strong>:沿用 <code>SLIP</code>(flags 第 8 位),driver 的鎖住不變。<code>g_dbg.slip_src</code> 記是誰先亮(1 = 陀螺儀,2 = 加速度計);<code>safety_mask</code> 第 6 位是加速度計這一半(calib 0x7F)。</p>
 <p><strong>C13 第二部分</strong>:平移打滑開始後 <strong>150 ms</strong> 內 SLIP——離線判定不晚於起點,延遲的下限是 50 ms 的持續時間,取 3 倍,同 §1.3 取離線延遲 3 倍的做法。一次跑同時有轉角與平移打滑時,兩個期限都要成立。負對照:</p>
