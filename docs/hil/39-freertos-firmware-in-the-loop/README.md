@@ -59,7 +59,7 @@ USART1 ISR             收 byte 進 ring,vTaskNotifyGiveFromISR + portYIELD_FROM
 | | 裸機 | FreeRTOS |
 |---|---|---|
 | C1–C10 | ALL PASS | ALL PASS |
-| 末端位姿 plant / odom | 900.8, 0.4, 0.8627 / 900, 0, 0.8620 | **相同** |
+| 末端位姿 plant / odom | 900.8, 0.4, 0.8627 / 900, 0, 0.8620(速度源受控體;扭矩受控體是 905.1, −1.6, 0.8521) | **相同** |
 | 每步牆鐘 | 10.5 ms(load 7–8) | 9.7 ms |
 | 兩次跑 CSV | 逐 byte 相同 | 逐 byte 相同 |
 | 負對照 `--negative bad-crc` | `bad_crc=300`、位移 0、C2 紅 | 同 |

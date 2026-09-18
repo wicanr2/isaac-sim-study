@@ -252,26 +252,13 @@
 <td>—</td>
 <td>2257 綠</td>
 </tr>
-<tr>
-<td>10 kHz(<code>pwm_prescaler</code> 0),一次</td>
-<td>5.7</td>
-<td><strong>0.853</strong>(2.1 s)</td>
-<td>448.4, −1.8, 0.6467</td>
-<td>走了一半</td>
-<td>平均 4.89 ms、停頓 3 次(最長 34.5 ms)</td>
-<td><strong>紅</strong> 3000</td>
-</tr>
-<tr>
-<td>1 kHz(<code>pwm_prescaler</code> 9),五次</td>
-<td>3.6–4.6</td>
-<td>1.008–1.015(0.0 ms)</td>
-<td>x 900.1–907.9、y −0.1–0.9、θ 0.8524–0.8641</td>
-<td><strong>0.7–7.1 mm、0.001–0.010 rad</strong></td>
-<td>平均 4.88 ms(橋接每步 sleep 1.5–1.7 ms)、停頓 1–3 次(最長 11–31 ms)</td>
-<td><strong>五次全紅</strong> 3000</td>
-</tr>
 </tbody>
 </table></div>
+<blockquote>
+<p>這一節的 realtime 量測都在<strong>速度源受控體</strong>上(GOAL 7 以前)。GOAL 8 把馬達換成扭矩模型之後,lockstep 的參考末端是 905.1, −1.6, 0.8521(<a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.6);比值那一套結論不受影響,絕對值要照新的參考重量。
+| 10 kHz(<code>pwm_prescaler</code> 0),一次 | 5.7 | <strong>0.853</strong>(2.1 s) | 448.4, −1.8, 0.6467 | 走了一半 | 平均 4.89 ms、停頓 3 次(最長 34.5 ms) | <strong>紅</strong> 3000 |
+| 1 kHz(<code>pwm_prescaler</code> 9),五次 | 3.6–4.6 | 1.008–1.015(0.0 ms) | x 900.1–907.9、y −0.1–0.9、θ 0.8524–0.8641 | <strong>0.7–7.1 mm、0.001–0.010 rad</strong> | 平均 4.88 ms(橋接每步 sleep 1.5–1.7 ms)、停頓 1–3 次(最長 11–31 ms) | <strong>五次全紅</strong> 3000 |</p>
+</blockquote>
 <p>三個結論:</p>
 <ol>
 <li><strong>模擬器跟不上時,閉環速度會低到 ratio 倍,而一致性判準全部綠。</strong> 第一版韌體 0.46× 那一列 <code>ALL PASS</code>(C1–C8;現行韌體 10 kHz 在 4 核閒時到 0.85×,C1–C8 一樣全綠、只有 C9 紅):odom 與 plant 一致(位置是 tick 積分出來的,跟時間無關)、CAN 與 CCR 一致、CRC 全對。壞掉的是速度:韌體每「5 ms」看到的是 11 ms 牆鐘的編碼器增量,量測速度膨脹 2.2 倍,PI 把 duty 壓下去,車就以 46% 的速度走。判準驗的是一致性,抓不到這件事,所以橋接在 ratio &lt; 0.9 時另外印 <code>[warn]</code>。§7 說時序只有實板算數;這一列補上另一半:純軟體 HIL 的時序錯的時候,<strong>沒有任何訊號</strong>。</li>

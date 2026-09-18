@@ -10,7 +10,7 @@
 #   FW=freertos ./run_loop.sh           # 韌體換成 FreeRTOS 版(firmware-freertos/)
 #   RECORD=1 ./run_loop.sh --fault bumper  # 跑完多產一支俯視圖錄影 out/run.mp4(+ _topview.svg/png;RECORD_GIF=1 多 gif);issue #6
 #   ./run_loop.sh --mode realtime       # Renode 自由跑、橋接每 5 ms 牆鐘取樣;Renode 容器自動給 4 核(CPUS= 覆蓋;2 核會被 CFS 每 100 ms 凍 50 ms)
-#   UPPER=nav2 CONTACT=slip ./run_loop.sh --seconds 60 --negative blind-scan   # 陀螺儀打滑偵測,C13(IMU 預設開;IMU=0 拔掉陀螺儀)
+#   UPPER=nav2 ./run_loop.sh --seconds 60 --negative blind-scan   # 打滑偵測,C13(IMU 預設開;IMU=0 拔掉;打滑由扭矩與抓地力算出來)
 #   RCCFIX=1 ./run_loop.sh --fault hang # RCC/IWDG 換成修正版:看門狗重置後 RCC_CSR.IWDGRSTF = 1(docs/hil/38 §1.2)
 #   TIMERFIX=1 ./run_loop.sh            # TIM3 換成 renode/upstream/STM32_Timer_Fixed.cs(執行期載入的修正版)
 #   PLANT=remote ./run_loop.sh          # 受控體在場域 GPU 主機:自動開 ssh -L 隧道,受控體那端要先起好(埠 3700,TCP;
@@ -55,9 +55,8 @@ else
   [ "$IMU" = 1 ] && { echo "IMU=1 目前只接 encoder_source=tim 的平台描述"; exit 2; }
 fi
 IMU_ARG=(); [ "$IMU" = 1 ] && IMU_ARG=(--imu 1)
-# CONTACT=slip:假受控體碰撞時車體不動、輪子照轉(Isaac 上量到的形態);預設 freeze
+# 碰撞後打滑或卡住由扭矩與抓地力算出來(docs/hil/36 §3.3),沒有 CONTACT 旗標
 CONTACT_ARG=(); PLANT_CONTACT=()
-[ "${CONTACT:-freeze}" = slip ] && { CONTACT_ARG=(--contact slip); PLANT_CONTACT=(--contact slip); }
 ENC_ARG=(); [ -n "${ENC:-}" ] && ENC_ARG=(--enc "$ENC")
 [ "$CAN" = socketcan ] && { [ "$RESC" = hilctl ] || { echo "CAN=socketcan 與 TIMERFIX 不同時用"; exit 2; }; RESC=hilctl-socketcan; }
 # CANHUBFIX=1:CANHub 換成 renode/upstream/CANHub_Fixed.cs(暫停時把主機來的訊框排隊,不丟;lockstep 才收得齊)

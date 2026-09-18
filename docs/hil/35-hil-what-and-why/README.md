@@ -109,6 +109,8 @@ NVIDIA 的 [Leveraging ROS 2 and HIL in Isaac Sim](https://docs.nvidia.com/learn
 | PWM 載波 | load | renode/wall(`max_lag`) | 末端位姿 plant(x, y, θ) | 對 lockstep 900.8, 0.4, 0.8627 的差 | 節拍 | C9 |
 |---|---|---|---|---|---|---|
 | lockstep(參考) | — | — | 900.8, 0.4, 0.8627 | — | — | 2257 綠 |
+
+> 這一節的 realtime 量測都在**速度源受控體**上(GOAL 7 以前)。GOAL 8 把馬達換成扭矩模型之後,lockstep 的參考末端是 905.1, −1.6, 0.8521([38 篇](../38-acceptance-and-failure-modes/README.md) §1.6);比值那一套結論不受影響,絕對值要照新的參考重量。
 | 10 kHz(`pwm_prescaler` 0),一次 | 5.7 | **0.853**(2.1 s) | 448.4, −1.8, 0.6467 | 走了一半 | 平均 4.89 ms、停頓 3 次(最長 34.5 ms) | **紅** 3000 |
 | 1 kHz(`pwm_prescaler` 9),五次 | 3.6–4.6 | 1.008–1.015(0.0 ms) | x 900.1–907.9、y −0.1–0.9、θ 0.8524–0.8641 | **0.7–7.1 mm、0.001–0.010 rad** | 平均 4.88 ms(橋接每步 sleep 1.5–1.7 ms)、停頓 1–3 次(最長 11–31 ms) | **五次全紅** 3000 |
 

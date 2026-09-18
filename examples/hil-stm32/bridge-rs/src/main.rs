@@ -56,13 +56,13 @@ struct Args {
     /// 加速度計(前進軸)誤差:零點 mg(datasheet 模式預設 +60,DocID023426 Rev 3 Table 3 LA_TyOff)、白雜訊 σ mg(datasheet 沒寫)
     acc_bias_mg: Option<f64>,
     acc_noise_mg: f64,
+    /// 覆蓋受控體的地面摩擦 μ(36 篇 §3.3;不給就用 calib 的 0.508 = Isaac 場景實測值)。高摩擦 → 頂住時輪子轉不動(STALL),低摩擦 → 打滑
+    friction_mu: Option<f64>,
     /// 場景:none | long-slip(打滑回報兩半都關;內建腳本時配 world-headon.json、3.5 s 起前進 + 轉向頂住方塊,Nav2 時是 blind-scan 一路推;C15 只在這個場景驗,38 篇 §1.5)
     /// | head-on(內建腳本直線撞 world-headon.json 正前方的方塊;C13 平移打滑的決定性場景,38 篇 §1.4——要配 --world 與 CONTACT)
     scene: String,
     /// C14:上位會在底盤重啟後重定位、解鎖、重送 goal(RELOC=1)——C12 只驗到解鎖為止,到達由 C14 驗
     expect_reloc: bool,
-    /// 內建假受控體碰撞時:freeze(輪子凍結)| slip(車體不動、輪子照轉)
-    contact: String,
     cfg: String,
     /// 故障注入:none | hang | drv-fault | bumper | stall | no-ping(在 --fault-at 秒發生)
     fault: String,
@@ -112,9 +112,9 @@ fn parse_args() -> Args {
         imu_seed: 1,
         acc_bias_mg: None,
         acc_noise_mg: 0.0,
+        friction_mu: None,
         scene: "none".into(),
         expect_reloc: false,
-        contact: "freeze".into(),
         cfg: String::new(),
         fault: "none".into(),
         fault_at: 2.0,
@@ -157,6 +157,7 @@ fn parse_args() -> Args {
             "--acc-bias-mg" => a.acc_bias_mg = Some(val.parse().expect("--acc-bias-mg")),
             "--acc-noise-mg" => a.acc_noise_mg = val.parse().expect("--acc-noise-mg"),
             "--scene" => a.scene = val,
+            "--friction-mu" => a.friction_mu = Some(val.parse().expect("--friction-mu")),
             "--scan-log" => a.scan_log = val,
             // lockstep(預設):橋接推進 Renode;realtime:Renode 自由跑,橋接以牆鐘 dt 取樣/注入
             "--mode" => a.mode = val,
@@ -171,7 +172,6 @@ fn parse_args() -> Args {
             "--enc-tau-ms" => a.enc_tau_ms = val.parse().expect("--enc-tau-ms"),
             "--imu" => a.imu = val == "1",
             "--expect-reloc" => a.expect_reloc = val == "1",
-            "--contact" => a.contact = val,
             // 開機後覆蓋韌體的 g_cfg(kp=..,ki=..,accel=..,ff=..;Q8 或 mm/s²),增益掃描與負對照不用重編韌體
             "--cfg" => a.cfg = val,
             other => {
@@ -308,6 +308,7 @@ impl Rng {
 fn main() {
     let a = parse_args();
     let c = calib::Calib::load(&a.calib).expect("calib.json");
+    let c = match a.friction_mu { Some(mu) => { println!("[effect] 受控體地面摩擦 μ = {mu}(覆蓋 calib 的 {})", c.friction_mu); calib::Calib { friction_mu: mu, ..c } }, None => c };
     let dbg_base = calib::symbol_addr(&a.sym, "g_dbg").expect("符號 g_dbg");
     let script = parse_script(&a.script);
     let dt_s = c.control_period_ms as f64 / 1000.0;
@@ -356,7 +357,7 @@ fn main() {
     }
     let mut scan_up = if a.scan_listen.is_empty() { None } else { Some(upper::Upper::listen(&a.scan_listen).expect("--scan-listen")) };
     let mut pl: Box<dyn Plant> = if a.plant == "fake" {
-        match &world { Some(w) => Box::new(plant::Fake::new(c).with_world(w.clone()).with_contact_slip(a.contact == "slip")), None => Box::new(plant::Fake::new(c)) }
+        match &world { Some(w) => Box::new(plant::Fake::new(c).with_world(w.clone())), None => Box::new(plant::Fake::new(c)) }
     } else if let Some(addr) = a.plant.strip_prefix("udp:") {
         Box::new(plant::Udp::connect(addr).expect("UDP plant"))
     } else if let Some(addr) = a.plant.strip_prefix("tcp:") {
@@ -485,8 +486,8 @@ fn main() {
         cfgv[6] as i32, cfgv[7] as i32, cfgv[8] as i32, cfgv[9] as i32, cfgv[10] as i32, cfgv[11],
         if mask_clear != 0 { format!(" (負對照關掉 0x{:02x})", mask_clear) } else { String::new() });
     let imu_whoami = ec.read_u32_at(bus, dbg_base + 4 * dbg::IMU_WHOAMI).unwrap();
-    println!("[effect] imu: bridge --imu {} contact={};韌體讀到 WHO_AM_I_G=0x{:03x}({});g_cfg slip_mrad_s={} slip_ms={}",
-        a.imu as u8, a.contact, imu_whoami, if imu_whoami == 0xD4 { "LSM330 在" } else { "沒有 IMU,打滑偵測不做" }, cfgv[12] as i32, cfgv[13] as i32);
+    println!("[effect] imu: bridge --imu {};韌體讀到 WHO_AM_I_G=0x{:03x}({});g_cfg slip_mrad_s={} slip_ms={}",
+        a.imu as u8, imu_whoami, if imu_whoami == 0xD4 { "LSM330 在" } else { "沒有 IMU,打滑偵測不做" }, cfgv[12] as i32, cfgv[13] as i32);
     // IMU 誤差模型(36 篇 §3 的 datasheet 表):datasheet 模式 = 典型零點 +10 dps,雜訊 0(datasheet 沒寫雜訊密度)
     let (gyro_bias_mdps, gyro_noise_mdps) = match a.imu_noise.as_str() {
         "none" if neg == "gyro-bias-uncomp" => (a.gyro_bias_mdps.unwrap_or(10_000.0), a.gyro_noise_mdps),
@@ -553,6 +554,8 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
     let mut last_plant = plant::PlantOut::default();
     let mut path_len_mm = 0.0f64;
     let mut max_plant_accel = 0.0f64;
+    // 滑移判斷的門檻:與受控體的正規化摩擦用同一個參考速度(36 篇 §3.3)
+    let slip_v_ref_mm_s = c.friction_v_ref_m_s * 1000.0;
     let mut can_cmp_total = 0u32;
     let mut can_cmp_mismatch = 0u32;
     let wall0 = Instant::now();
@@ -831,6 +834,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         // 5. 受控體
         let ph = Instant::now();
         let cmd = MotorCmd {
+            locked: false,
             duty_l: ccr1 as f64 / (arr as f64 + 1.0),
             duty_r: ccr2 as f64 / (arr as f64 + 1.0),
             fwd_l: dir_l,
@@ -847,7 +851,7 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             dt_s * plant_dt_mult
         };
         // 堵轉注入:輪子被卡住——受控體不動、編碼器不動,不管韌體給多少 duty
-        let cmd = if fault == "stall" && in_fault_window { MotorCmd { duty_l: 0.0, duty_r: 0.0, fwd_l: true, fwd_r: true, enabled: false } } else { cmd };
+        let cmd = if fault == "stall" && in_fault_window { MotorCmd { locked: true, ..cmd } } else { cmd };
         // 連續編碼器的錨點時間:受控體取樣的這一刻,Renode 走到哪了。lockstep 機器是停的 = t_us;
         // realtime 機器在跑,從讀 t_us 到這裡的牆鐘 ≈ Renode 又走的虛擬時間(比值 1.01)
         let sample_us = if realtime { t_us + t_us_wall.elapsed().as_micros() as u64 } else { t_us };
@@ -885,8 +889,11 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
                 scans_sent += 1;
             }
         }
-        // 撞牆那一步受控體的速度直接歸零,那不是韌體斜坡的事,C9 不算它
-        if plant_dt > 0.0 && !out.collided && !last_plant.collided {
+        // C9 只看「沒打滑也沒碰撞」的步(38 篇 §1.6):打滑時輪加速度由馬達扭矩與輪子慣量決定,與韌體斜坡無關;
+        // 撞牆那一步受控體的速度直接歸零,也不是斜坡的事
+        let body_v = if plant_dt > 0.0 { ((out.x_mm - last_plant.x_mm).powi(2) + (out.y_mm - last_plant.y_mm).powi(2)).sqrt() / plant_dt } else { 0.0 };
+        let slipping = ((out.vl_mm_s.abs() + out.vr_mm_s.abs()) * 0.5 - body_v).abs() > slip_v_ref_mm_s;
+        if plant_dt > 0.0 && !out.collided && !last_plant.collided && !slipping {
             let acc = ((out.vl_mm_s - last_plant.vl_mm_s) / plant_dt).abs().max(((out.vr_mm_s - last_plant.vr_mm_s) / plant_dt).abs());
             if acc > max_plant_accel { max_plant_accel = acc; }
         }
@@ -1167,7 +1174,12 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
             let react = step_ms(first_flag[6]).map(|t| t - fault_ms);
             let stop = step_ms(stop_step).map(|t| t - fault_ms);
             let brake_ms = if c.accel_limit_mm_s2 > 0.0 { 300.0 / c.accel_limit_mm_s2 * 1000.0 } else { 0.0 };
-            let limit = c.heartbeat_timeout_ms as f64 + brake_ms + 200.0;
+            // 命令歸零之後只剩反電動勢在煞車(扭矩模型,36 篇 §3.3):時間常數 τ_e = (m/2·r² + I_w) / (τ_stall / ω_free),
+            // 取 3τ 當滑行的餘裕。上限 = 心跳逾時 + 斜坡降速 + 3τ_e(38 篇 §1.6)
+            let r_m = c.wheel_radius_mm / 1000.0;
+            let i_eff = c.robot_mass_kg / 2.0 * r_m * r_m + 0.4 * c.wheel_mass_kg * r_m * r_m;
+            let tau_e_ms = i_eff / (c.motor_stall_torque_nm / c.motor_free_rad_s) * 1000.0;
+            let limit = c.heartbeat_timeout_ms as f64 + brake_ms + 3.0 * tau_e_ms;
             (format!("C10 心跳:PING 停後 {} ms 內 HB_LOST、{:.0} ms 內車停", c.heartbeat_timeout_ms + 20, limit),
              react.map(|r| r <= c.heartbeat_timeout_ms as f64 + 20.0).unwrap_or(false) && stop.map(|t| t <= limit).unwrap_or(false),
              format!("PING 停於 {:.0} ms(韌體共收 {} 筆);旗標 {};車停 {}",
@@ -1211,8 +1223,8 @@ plant_x,plant_y,plant_th,plant_vl,plant_vr,ticks_l,ticks_r,odom_seq,odom_x,odom_
         // C9:斜坡生效 → 受控體的輪加速度不超過上限 × 1.2(斜坡限的是設定點,PI 追斜坡的瞬態量到 +7%;
         // 斜坡關掉時受控體撞到馬達層的 3000 上限,1.2 × 2100 = 2520 分得開);accel=0 時不驗
         // 輪加速度上限 = 線加速度 + 角加速度 × 輪距/2(v、w 同時起坡時兩者相加)
-        Check { name: if fault != "none" { "C9 (故障注入會硬切,不驗)" } else if cfg_accel > 0 { "C9 受控體輪加速度 ≤ (accel + alpha·track/2) × 1.2" } else { "C9 (斜坡關,accel=0) 不驗" },
-            pass: cfg_accel <= 0 || fault != "none" || max_plant_accel <= wheel_accel_limit * 1.2,
+        Check { name: if fault != "none" { "C9 (故障注入會硬切,不驗)" } else if collisions > 0 { "C9 (整趟有碰撞,不驗;38 篇 §1.6)" } else if cfg_accel > 0 { "C9 受控體輪加速度 ≤ (accel + alpha·track/2) × 1.2" } else { "C9 (斜坡關,accel=0) 不驗" },
+            pass: cfg_accel <= 0 || fault != "none" || collisions > 0 || max_plant_accel <= wheel_accel_limit * 1.2,
             detail: format!("max |dv/dt| = {:.0} mm/s² vs {:.0}(輪上限 {:.0} × 1.2)", max_plant_accel, wheel_accel_limit * 1.2, wheel_accel_limit) },
         Check { name: "C6 韌體 bad_crc == 橋接送壞的數", pass: bad_crc == corrupted,
             detail: format!("{bad_crc} vs {corrupted}") },

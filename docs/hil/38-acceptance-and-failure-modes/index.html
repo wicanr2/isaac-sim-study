@@ -13,7 +13,7 @@
   <a class="gh" href="https://github.com/wicanr2/isaac-sim-study">GitHub</a>
 </header>
 <div class="shell">
-  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十五項判準在開跑前寫死">1. 十五項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l3"><a href="#13-打滑陀螺儀-yaw-rate-對輪差-yaw-ratec13">1.3 打滑:陀螺儀 yaw rate 對輪差 yaw rate(C13)</a></li><li class="l3"><a href="#14-平移打滑加速度計c13-第二部分">1.4 平移打滑:加速度計(C13 第二部分)</a></li><li class="l3"><a href="#15-航向陀螺儀進里程計c15">1.5 航向:陀螺儀進里程計(C15)</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l3"><a href="#62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</a></li><li class="l3"><a href="#63-上位對安全旗標的反應c12">6.3 上位對安全旗標的反應:C12</a></li><li class="l3"><a href="#64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</a></li><li class="l3"><a href="#65-每個實驗一支俯視圖錄影">6.5 每個實驗一支俯視圖錄影</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
+  <aside class="side"><div class="side-h">HIL</div><ul class="side-l"><li><a href="../../hil/35-hil-what-and-why/"><span class="n">35</span>HIL 是什麼,為什麼硬體要放在下位</a></li><li><a href="../../hil/36-stm32-firmware-on-renode/"><span class="n">36</span>STM32F4 韌體在 Renode 上開機</a></li><li><a href="../../hil/37-bus-signal-bridging/"><span class="n">37</span>匯流排訊號串接</a></li><li><a href="../../hil/38-acceptance-and-failure-modes/" class="on"><span class="n">38</span>驗收與失敗形態:先閉環,再換 Isaac</a></li><li><a href="../../hil/39-freertos-firmware-in-the-loop/"><span class="n">39</span>同一台車換 FreeRTOS</a></li></ul><div class="side-h">本篇</div><ul class="toc"><li class="l2"><a href="#1-十五項判準在開跑前寫死">1. 十五項判準,在開跑前寫死</a></li><li class="l3"><a href="#11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</a></li><li class="l3"><a href="#12-安全-io五項每項一個故障注入一個負對照">1.2 安全 I/O:五項,每項一個故障注入、一個負對照</a></li><li class="l3"><a href="#13-打滑陀螺儀-yaw-rate-對輪差-yaw-ratec13">1.3 打滑:陀螺儀 yaw rate 對輪差 yaw rate(C13)</a></li><li class="l3"><a href="#14-平移打滑加速度計c13-第二部分">1.4 平移打滑:加速度計(C13 第二部分)</a></li><li class="l3"><a href="#15-航向陀螺儀進里程計c15">1.5 航向:陀螺儀進里程計(C15)</a></li><li class="l3"><a href="#16-前扭矩模型下的迴歸2026-09-18">1.6 前:扭矩模型下的迴歸(2026-09-18)</a></li><li class="l3"><a href="#16-受控體物理化之後兩個判準的適用範圍要跟著講清楚">1.6 受控體物理化之後,兩個判準的適用範圍要跟著講清楚</a></li><li class="l3"><a href="#16-打滑是算出來的還是指定的先量-isaac-的摩擦與扭矩">1.6 打滑是算出來的還是指定的:先量 Isaac 的摩擦與扭矩</a></li><li class="l2"><a href="#2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</a></li><li class="l2"><a href="#3-決定性逐-byte-比而且是每個實作各自成立">3. 決定性:逐 byte 比,而且是每個實作各自成立</a></li><li class="l2"><a href="#4-步邊界取樣的盲點">4. 步邊界取樣的盲點</a></li><li class="l2"><a href="#5-這次踩到的失敗形態">5. 這次踩到的失敗形態</a></li><li class="l2"><a href="#6-換成-isaac-sim-601七件事各量到什麼">6. 換成 Isaac Sim 6.0.1:七件事各量到什麼</a></li><li class="l3"><a href="#61-上位換成-ros-2-jazzy方形閉環">6.1 上位換成 ROS 2 Jazzy:方形閉環</a></li><li class="l3"><a href="#62-上位換成-nav2規劃器costmap假雷射">6.2 上位換成 Nav2:規劃器、costmap、假雷射</a></li><li class="l3"><a href="#63-上位對安全旗標的反應c12">6.3 上位對安全旗標的反應:C12</a></li><li class="l3"><a href="#64-isaac-受控體補齊雷射碰撞五個故障nav2">6.4 Isaac 受控體補齊:雷射、碰撞、五個故障、Nav2</a></li><li class="l3"><a href="#65-每個實驗一支俯視圖錄影">6.5 每個實驗一支俯視圖錄影</a></li><li class="l2"><a href="#7-建議的分階段">7. 建議的分階段</a></li><li class="l2"><a href="#8-檢查清單">8. 檢查清單</a></li></ul></aside>
   <main class="doc">
 <h1 id="38-驗收與失敗形態先閉環再換-isaac">38 · 驗收與失敗形態:先閉環,再換 Isaac</h1>
 <p>閉環跑完印出 <code>ALL PASS</code>,問題才開始:這八個綠燈各證明了什麼?哪一個在系統壞掉時<strong>一定會</strong>變紅?兩次跑的結果一樣是「決定性」還是「剛好」?這一篇把判準、負對照、決定性、以及這次踩到的每一種失敗形態攤開,最後是把受控體換成 Isaac Sim 6.0.1 時七件事各量到什麼。</p>
@@ -51,13 +51,13 @@
 <td>C2</td>
 <td>腳本有命令時車有動(路徑長 &gt; 100 mm)</td>
 <td>整條命令鏈斷掉</td>
-<td>901.9 mm</td>
+<td>920.7 mm</td>
 </tr>
 <tr>
 <td>C3</td>
 <td>韌體 odom 對受控體真值</td>
 <td>編碼器方向、換算、里程計</td>
-<td>dx 0.8、dy 0.4 mm、dθ 0.7 mrad(容差 25 mm + 2% 路徑長 / 30 mrad)</td>
+<td>dx 0.1、dy 0.6 mm、dθ 0.1 mrad(容差 25 mm + 2% 路徑長 / 30 mrad)</td>
 </tr>
 <tr>
 <td>C4</td>
@@ -91,9 +91,9 @@
 </tr>
 <tr>
 <td>C9</td>
-<td>受控體的輪加速度 ≤ (accel + alpha × 輪距/2) × 1.2</td>
+<td>受控體的輪加速度 ≤ (accel + alpha × 輪距/2) × 1.2;<strong>整趟有碰撞就不驗</strong>,沒碰撞時也跳過打滑中的步(§1.6)</td>
 <td>斜坡沒生效(韌體沒讀 <code>g_cfg</code>、算錯單位)</td>
-<td>2257 vs 2520 mm/s²</td>
+<td>1885 vs 2520 mm/s²</td>
 </tr>
 <tr>
 <td>C10</td>
@@ -133,7 +133,7 @@
 </tr>
 </tbody>
 </table></div>
-<p>任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 <a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a>。末端位姿 x 900.8、y 0.4、θ 0.8627 是這份 calib 下的參考值,裸機與 FreeRTOS 兩版韌體、三種編碼器注入法、UDP 受控體、vcan 路都要對上它(§3、<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.1、<a href="../../hil/39-freertos-firmware-in-the-loop/">39 篇</a> §3)。</p>
+<p>任何一項 FAIL,橋接以非零碼離開。判準寫在程式裡而不是事後看 log 決定,理由同 <a href="../../common/30-acceptance-probes-and-preregistration/">30 篇</a>。末端位姿 x 905.1、y −1.6、θ 0.8521 是這份 calib 下的參考值(GOAL 8 的扭矩受控體,§1.6;GOAL 7 以前的速度源受控體是 900.8、0.4、0.8627,本篇 GOAL 8 之前的量測都以那個為準),裸機與 FreeRTOS 兩版韌體、三種編碼器注入法、UDP 受控體、vcan 路都要對上它(§3、<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.1、<a href="../../hil/39-freertos-firmware-in-the-loop/">39 篇</a> §3)。</p>
 <p>負對照有十二個,每一個只差一個旗標:<code>--negative bad-crc</code>(§2)、<code>--negative enc-swap</code>(編碼器 A/B 對調:韌體量到負速度,PI 正回饋把車推到 5.3 m,C3、C8、C9 紅)、<code>--negative no-ramp</code>(§1.1)、五個安全 I/O 的 <code>*-off</code> 與 <code>noinit-off</code>(§1.2)、<code>slip-off</code> 與 <code>gyro-bias-uncomp</code>(§1.3)、<code>static-map-odom</code>(§6.3)。上位側的 <code>no-latch</code>、<code>blind-scan</code> 另計。</p>
 <h3 id="11-加減速斜坡在韌體馬達層在受控體">1.1 加減速:斜坡在韌體、馬達層在受控體</h3>
 <p>第一版韌體的 PI 直接追上位的階躍,受控體的馬達是「duty 乘滿速再一階趨近」——沒有死區、沒有扭矩上限。300 mm/s 的步階在假受控體上升 40 ms、超調 15%、最大加速度 9300 mm/s²;在 Isaac 上 <code>DriveAPI</code> 直接吃 duty,超調 60%、最大加速度 91400 mm/s²,在 ±2% 帶外晃了 525 ms。這兩個數字都不是「車」的行為,是「沒有動態限制的控制器 + 沒有物理上限的馬達」的行為。改了三件事,每一件放在它該在的那一層:</p>
@@ -237,7 +237,7 @@
 <td>心跳</td>
 <td>上位每 100 ms 送 PING;300 ms 沒收到 → 命令改 0 走斜坡(與 500 ms 命令逾時分開)</td>
 <td><code>no-ping</code>:2.0 s 起不送 PING(cmd_vel 照送)</td>
-<td>PING 停後 320 ms 內 HB_LOST、700 ms 內車停</td>
+<td>PING 停後 320 ms 內 HB_LOST、<strong>866 ms</strong> 內車停(§1.6 的推導)</td>
 <td>旗標 <strong>+200 ms</strong>(最後一筆 PING 在 1.9 s);車停 +495 ms</td>
 <td><code>hb-off</code>:旗標不出現,車照跑到 900.8,<strong>紅</strong></td>
 </tr>
@@ -728,6 +728,130 @@
 <li><code>fusion-off</code>(同場景、<code>yaw_fusion = 0</code>)要紅;</li>
 <li><code>gyro-bias-uncomp</code> 在正常場景 C13 紅(§1.3)。融合開時,零偏沒扣,殘差恆超過門檻,每一步都改用帶 174 mrad/s 零偏的陀螺儀——C3 在預設腳本也要紅。</li>
 </ul>
+<h3 id="16-前扭矩模型下的迴歸2026-09-18">1.6 前:扭矩模型下的迴歸(2026-09-18)</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>類別</th>
+<th>結果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>預設腳本 ×2、FreeRTOS、方形、Nav2 90 s、AMCL 重定位(C14)</td>
+<td>全綠;預設末端 <strong>905.1, −1.6, 0.8521</strong>、C9 1885、C3 0.1 / 0.6 mm;兩次 CSV 逐 byte 相同</td>
+</tr>
+<tr>
+<td>五個故障注入(hang / drv-fault / bumper / stall / no-ping)</td>
+<td>全綠;堵轉旗標 +205 ms、心跳車停 +725 ms(上限 866)</td>
+</tr>
+<tr>
+<td>十二個負對照 + <code>blind-scan</code>、<code>no-latch</code></td>
+<td>照舊紅</td>
+</tr>
+<tr>
+<td>head-on(μ 0.508)×2</td>
+<td>打滑由物理算出來:SLIP 在平移打滑起點後 <strong>+50 ms</strong>(加速度計),兩次完全相同</td>
+</tr>
+<tr>
+<td>head-on(μ 2.0)</td>
+<td>輪子轉不動 → <code>STALL</code>,SLIP 不亮,綠</td>
+</tr>
+<tr>
+<td><code>accel-off</code> / <code>slip-off</code>(head-on)</td>
+<td>紅(陀螺儀要等到 3.575 s 的轉角打滑 / 完全不亮)</td>
+</tr>
+<tr>
+<td>long-slip、<code>fusion-off</code></td>
+<td>C15 綠 0.002 rad / 紅 0.944 rad</td>
+</tr>
+<tr>
+<td>Nav2 blind-scan</td>
+<td>C13 綠(加速度計),C11 紅(撞方塊)</td>
+</tr>
+</tbody>
+</table></div>
+<p>打滑場景的 C3 是紅的(head-on 332 mm、slip-off 1720 / 1224 mm):odom 在打滑時本來就會偏,那正是 C13 與 C15 要抓的東西。</p>
+<h3 id="16-受控體物理化之後兩個判準的適用範圍要跟著講清楚">1.6 受控體物理化之後,兩個判準的適用範圍要跟著講清楚</h3>
+<p>GOAL 8 把受控體的馬達換成扭矩模型(<a href="../../hil/36-stm32-firmware-on-renode/">36 篇</a> §3.3)之後,兩個判準的<strong>前提</strong>不再成立——不是門檻太嚴,是原本的寫法假設了「輪速是命令出來的」。</p>
+<p><strong>C9(輪加速度 ≤ 斜坡上限 × 1.2)整趟有碰撞就不驗。</strong> C9 要抓的是「韌體的斜坡有沒有生效」,而斜坡限的是<strong>設定點</strong>。有碰撞的場景裡兩件事都會讓輪加速度超過斜坡,而且都與斜坡無關:</p>
+<ol>
+<li><strong>打滑中</strong>:輪加速度 = (馬達扭矩 − 抓地力力矩) ÷ 輪子慣量。量到 4771–11082 mm/s²(head-on、blind-scan、slip-off)。</li>
+<li><strong>撞完又脫離接觸時</strong>:量測速度被撞到 0,PI 一次要回 300 mm/s,馬達給滿扭矩,加速度頂到<strong>抓地力</strong>的 μg = 4980 mm/s²(量到 4780,發生在 collided 由 1 變 0 的那一步)。</li>
+</ol>
+<p>所以 C9 比照故障注入那一列的寫法:<strong>整趟有碰撞就不驗</strong>(碰撞場景由 C13、C15 驗),沒碰撞的跑再排除打滑中的步(輪面相對地面的滑移 &gt; <code>friction_v_ref_m_s</code>)。</p>
+<ul>
+<li>沒碰撞的正常跑照舊:預設腳本 <strong>1885</strong>(上限 2520)。</li>
+<li>負對照 <code>no-ramp</code> 仍然紅:整趟沒有碰撞,斜坡關掉之後 PI 一次要滿速,加速度被抓地力夾在 μg 級——量到 26669 mm/s²(含起步滑移的那幾步)。</li>
+</ul>
+<p><strong>C10 的心跳那一列,「車停」的時限從 700 ms 改成 800 ms,因為車現在真的會滑行。</strong> 舊的受控體是速度源,命令歸零輪速就歸零;扭矩模型下,命令歸零之後只剩反電動勢在煞車。量到的三段(<code>--fault no-ping</code>,2026-09-18):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>段</th>
+<th>量到</th>
+<th>來源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>PING 停 → HB_LOST</td>
+<td>200 ms</td>
+<td>心跳逾時 300 ms,韌體在下一個控制步反應</td>
+</tr>
+<tr>
+<td>HB_LOST → 設定點降到 0</td>
+<td>225 ms</td>
+<td>命令斜坡 1500 mm/s²,從 300 mm/s 降到 0 要 200 ms</td>
+</tr>
+<tr>
+<td>設定點 0 → |v| &lt; 5 mm/s</td>
+<td>300 ms</td>
+<td>反電動勢煞車(量到 63 → 4.9 mm/s 用了 300 ms)</td>
+</tr>
+</tbody>
+</table></div>
+<p>三段相加 725 ms。上限改成算出來的:<strong>心跳逾時 300 + 斜坡降速 200 + 3 τ_e</strong>,其中 τ_e 是反電動勢煞車的時間常數</p>
+<blockquote>
+<p>τ_e = (m/2 · r² + I_w) / (τ_stall / ω_free) = (4.6 × 0.0025 + 5.0e-4) / 0.0984 = <strong>122 ms</strong>(量到 117 ms:63 → 4.9 mm/s 花了 300 ms ≈ 2.5 τ)</p>
+</blockquote>
+<p>合計 <strong>866 ms</strong>。負對照 <code>hb-off</code> 照舊紅:韌體不理心跳,車一直開,不是停得慢而是不停。</p>
+<h3 id="16-打滑是算出來的還是指定的先量-isaac-的摩擦與扭矩">1.6 打滑是算出來的還是指定的:先量 Isaac 的摩擦與扭矩</h3>
+<p>§1.3–1.5 驗的是「打滑之後系統知不知道」。打滑本身在受控體裡怎麼來的,到 GOAL 7 為止是<strong>指定</strong>的:假受控體的 <code>CONTACT=slip|freeze</code> 直接決定碰撞後輪子照轉還是凍住;Isaac 這邊是物理求解,但參數沒人量過。要讓打滑變成算出來的,先量三件事(<code>plant/isaac_plant.py --probe-physics</code>,2026-09-18,場域主機、受控體綁 2 核):</p>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>量</th>
+<th>方法</th>
+<th>量到</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>有效摩擦 μ</td>
+<td>全速後命令歸零,輪子被 drive 鎖住、車體滑行:μ = v₀² / (2 d g)</td>
+<td><strong>0.508</strong>(0.956 m/s 滑 92 mm;輪子只轉了 6 mm)</td>
+</tr>
+<tr>
+<td>抓地力</td>
+<td>μ × 體重(9.2 kg → 90.3 N)</td>
+<td><strong>45.8 N</strong>,每輪 22.9 N → 輪緣扭矩 <strong>1.15 N·m</strong></td>
+</tr>
+<tr>
+<td>空地最大加速度</td>
+<td>全速起步,位置二次差分</td>
+<td><strong>5.10 m/s² = 0.52 g</strong> —— 與 μ 一致,所以加速是<strong>抓地力</strong>受限,不是扭矩受限</td>
+</tr>
+<tr>
+<td>驅動扭矩上限</td>
+<td>車頂住方塊、輪子先停住再起轉,τ = I·α(輪子是球,I = 0.4·m·r² = 5.0e-4 kg·m²)</td>
+<td>5 ms 步長下一步到位 → 只給下界 1.9 N·m;把物理步長縮到 <strong>50 µs</strong> 後輪速 1.68 → 3.95 → 5.88 rad/s,第一步 α = 33614 rad/s² → <strong>16.8 N·m</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>平台描述寫的是 <code>maxForce 20</code>(<code>plant/isaac_plant.py:183</code>),量到 16.8 N·m,兩者同一個量級——<strong><code>maxForce</code> 在角向驅動的單位是 N·m</strong>,這一點以前是猜的,現在量過。</p>
+<p><strong>比值:驅動扭矩上限 ÷ 抓地力扭矩 ≈ 16.8 / 1.15 = 15 倍。</strong> 車一被擋住,輪子一定贏過地面,所以 Isaac 上「頂住就打滑」不是偶然,是參數決定的:量到車體停在 x 500 mm 時輪速仍穩在 19.48 rad/s(命令 20.00)。</p>
+<p>兩個材質都沒有綁 <code>PhysicsMaterial</code>(<code>ComputeBoundMaterial</code> 查地面與輪子都回不到材質),所以走 PhysX 預設;量到的 0.508 就是預設值的效果,不必再去查文件寫的預設是多少。</p>
 <h2 id="2-負對照全綠證明不了測試在驗東西">2. 負對照:全綠證明不了測試在驗東西</h2>
 <p><code>./run_loop.sh --negative bad-crc</code> 把每個 cmd_vel 的最後一個 byte 反相:</p>
 <pre><code>[run] fw ... cmd_frames=0 enc_frames=1199 bad_crc=300 rx_overflow=0

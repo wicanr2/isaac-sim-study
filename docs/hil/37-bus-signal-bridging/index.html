@@ -282,7 +282,7 @@ socket 收到 UART 紀錄 → usart1.WriteChar(b) ×n      → 回 ack
 <li><strong>外插必然落後於「受控體還沒走的那一段」。</strong> lockstep <code>--skew stall:100:10</code> 讓 Renode 一口氣先跑 50 ms、受控體之後才補那 50 ms:外插照舊速度推,受控體實際在減速,補上時差 98 tick,在 τ 內補完就是一段反向的假速度(韌體 <code>meas</code> −92 → +122 mm/s),C9 照樣紅。這不是注入法能補的——Renode 跑在受控體前面時,受控體的未來還不存在。</li>
 </ul>
 <p>C8 在 <code>cont</code> 下換定義:<strong>步邊界讀到的 CNT 對同一時刻受控體 tick 的差 ≤ 一步的最大 tick 數 + 1,而且車停下後逐字相等</strong>(沒有「一步延遲」這件事,CNT 外插到當下)。<code>--skew</code> 時只驗後半——時鐘被刻意拉開,步內追蹤的上界本來就不成立(均勻比值 R 下穩態落後 ≈ 輪速 × τ × (1−R)/R)。realtime 下這個上界常常不成立:<a href="../../hil/35-hil-what-and-why/">35 篇</a> §5.1 的閒時 14 次裡 8 次超過(最多 110 對 87 tick),「車停下後逐字相等」14 次全部成立——步邊界的 CNT 是 External Control 在牆鐘上讀的,讀的那一刻與受控體取樣差幾 ms,這個上界在 realtime 量到的是兩個時刻的差,不只是外插誤差。</p>
-<p>lockstep 預設腳本(2026-09-17,現行韌體,取樣式參考 900.8 / 0.4 / 0.8627):</p>
+<p>lockstep 預設腳本(2026-09-17,現行韌體,速度源受控體,取樣式參考 900.8 / 0.4 / 0.8627;GOAL 8 的扭矩受控體參考值見 <a href="../../hil/38-acceptance-and-failure-modes/">38 篇</a> §1.6):</p>
 <div class="tw"><table>
 <thead>
 <tr>

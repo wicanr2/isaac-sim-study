@@ -14,5 +14,5 @@
 | 6 | [GOAL-2026-09-17-1240](GOAL-2026-09-17-1240.md) | realtime 連續注入、打滑偵測、IWDGRSTF 與 AMCL 重定位、Isaac 側次要項 | [#7](https://github.com/wicanr2/isaac-sim-study/issues/7)–[#10](https://github.com/wicanr2/isaac-sim-study/issues/10)、[#1](https://github.com/wicanr2/isaac-sim-study/issues/1) | 部分完成:#8–#10 完成;#7 realtime 閒時 C9 3/5、未達五次全綠,開放 |
 | 7 | [GOAL-2026-09-17-1700](GOAL-2026-09-17-1700.md) | IMU 優先:感測器誤差模型、加速度計補平移打滑、yaw 融合進 odom;#7 的 realtime 抖動 | [#11](https://github.com/wicanr2/isaac-sim-study/issues/11)–[#13](https://github.com/wicanr2/isaac-sim-study/issues/13)、[#7](https://github.com/wicanr2/isaac-sim-study/issues/7)、[#1](https://github.com/wicanr2/isaac-sim-study/issues/1) | 部分完成:A/B/C(#11–#13)完成;C14 在高負載下因 Nav2 牆鐘與 lockstep 時鐘不一致而不穩(轉 GOAL 8);D(#7)沒有閒時視窗、沒做 |
 
-| 8 | [GOAL-2026-09-18-0015](GOAL-2026-09-18-0015.md) | 打滑改善:受控體物理化(扭矩 + 抓地力)、韌體牽引力控制、上位脫困、預防碰撞;Nav2 與模擬同一個時鐘 | 待開 | 未開始 |
+| 8 | [GOAL-2026-09-18-0015](GOAL-2026-09-18-0015.md) | 打滑改善:受控體物理化(扭矩 + 抓地力)、韌體牽引力控制、上位脫困、預防碰撞;Nav2 與模擬同一個時鐘 | [#14](https://github.com/wicanr2/isaac-sim-study/issues/14)–[#18](https://github.com/wicanr2/isaac-sim-study/issues/18)、[#7](https://github.com/wicanr2/isaac-sim-study/issues/7) | 進行中 |
 GOAL 1–3 的檔案產生時放在 `docs/hil/`,2026-09-17 集中到這個目錄;issue 留言裡引用的舊路徑沒有改寫。

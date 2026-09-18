@@ -40,6 +40,7 @@ ap.add_argument("--calib", default="../calib.json")
 ap.add_argument("--headless", type=int, default=1)
 ap.add_argument("--tcp", action="store_true")
 ap.add_argument("--probe", action="store_true", help="不開 socket:跑固定命令量驗收清單 1/2/3/5/7 後離開")
+ap.add_argument("--probe-physics", action="store_true", help="不開 socket:量摩擦、抓地力與驅動扭矩(docs/hil/38 §1.6;GOAL 8 A 線)後離開")
 ap.add_argument("--world", default=None, help="world.json:牆與方塊當靜態碰撞體、PhysX 射線當雷射、collided 旗標")
 ap.add_argument("--laser-z", type=float, default=0.15, help="雷射高度 m(要高過車身:輪頂 0.10、底盤頂 0.08)")
 ap.add_argument("--topview", default=None, help="真實俯視相機錄影:每 --topview-every 步 app.update() 抓一幀,PNG 寫到這個目錄(issue #6)")
@@ -59,7 +60,7 @@ from isaacsim import SimulationApp  # noqa: E402
 app = SimulationApp({"headless": bool(args.headless)})
 
 import numpy as np  # noqa: E402
-from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics  # noqa: E402
+from pxr import Gf, PhysxSchema, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade  # noqa: E402
 import omni.usd  # noqa: E402
 import omni.timeline  # noqa: E402
 from omni.physx import get_physx_interface, get_physx_simulation_interface  # noqa: E402
@@ -77,6 +78,10 @@ V_FULL = calib["wheel_speed_at_full_duty_mm_s"]
 # 馬達層(三個受控體實作同一份公式):死區、一階、加速度上限;算出來的輪速當 DriveAPI 的目標,
 # 接觸與滑移由 PhysX 負責。公式與 bridge-rs/src/plant.rs、fake_plant.py 逐字相同。
 MOTOR_TAU = calib.get("motor_tau_s", 0.05)
+# 馬達扭矩模型(docs/hil/36 §3.3;參數抄 Pololu 50:1 37D 12V 產品頁,摩擦與質量是本場景實測)
+MOTOR_STALL_NM = calib.get("motor_stall_torque_nm", 2.06)
+MOTOR_FREE_RAD_S = calib.get("motor_free_rad_s", 20.94)
+MOTOR_TORQUE_MAX_NM = calib.get("motor_torque_max_nm", 2.45)
 MOTOR_ACCEL_MAX = calib.get("motor_accel_max_mm_s2", 0.0)
 MOTOR_DEADBAND = calib.get("motor_deadband_duty", 0.0)
 motor_v = [0.0, 0.0]
@@ -178,9 +183,12 @@ def make_wheel(name, y):
     j.CreateCollisionEnabledAttr(False)
     drv = UsdPhysics.DriveAPI.Apply(j.GetPrim(), "angular")
     drv.CreateTypeAttr("force")
-    drv.CreateDampingAttr(50.0)       # 速度驅動:只給 damping,不給 stiffness
+    # 速度驅動的 damping × (target − ω) 夾在 maxForce,就是直流馬達的扭矩–轉速直線(docs/hil/36 §3.3):
+    # damping = τ_stall / ω_free、maxForce = τ_max、target = duty × ω_free。USD 角向的單位是 deg/s,
+    # 所以 damping 要除以 (180/π);實際單位用 --probe-physics 量過(38 篇 §1.6)
+    drv.CreateDampingAttr(MOTOR_STALL_NM / MOTOR_FREE_RAD_S * math.pi / 180.0)
     drv.CreateStiffnessAttr(0.0)
-    drv.CreateMaxForceAttr(20.0)
+    drv.CreateMaxForceAttr(MOTOR_TORQUE_MAX_NM)
     drv.CreateTargetVelocityAttr(0.0)  # ⚠ 單位是 度/秒(32 篇:USD 角度一律 degrees)
     return w, j, drv
 
@@ -488,8 +496,157 @@ def probe():
               f" 差 {(math.hypot(xs.mean() - ex, ys.mean() - ey) / sx * 1000) if len(xs) else -1:.0f} mm;寫 {path}", flush=True)
 
 
+def probe_physics():
+    """GOAL 8 A 線:摩擦、抓地力、驅動扭矩全部用「已知質量 × 量到的加速度」量,不靠 API 單位。
+    每一項印一行「量到什麼」;推得的數字都寫明用了哪個假設。"""
+    g = float(scene.GetGravityMagnitudeAttr().Get())
+    n = int(round(1.0 / DT))
+
+    # 1. 材質綁定:地面與輪子各查一次(physics purpose),沒綁就是走 PhysX 預設
+    def mat_of(prim, label):
+        try:
+            mat, _rel = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial("physics")
+        except Exception as e:
+            print(f"[phys] 1 {label} 材質查詢失敗:{type(e).__name__} {e}", flush=True)
+            return
+        mp = mat.GetPrim() if mat else None
+        if mp is None or not mp.IsValid():
+            print(f"[phys] 1 {label} 沒有綁 physics 材質 → 走 PhysX 預設", flush=True)
+            return
+        api = UsdPhysics.MaterialAPI(mp)
+        sf = api.GetStaticFrictionAttr().Get() if api else None
+        df = api.GetDynamicFrictionAttr().Get() if api else None
+        cm = mp.GetAttribute("physxMaterial:frictionCombineMode")
+        print(f"[phys] 1 {label} 綁 {mp.GetPath()} static={sf} dynamic={df} "
+              f"combineMode={cm.Get() if cm and cm.HasValue() else '沒 authored(schema 預設 average)'}", flush=True)
+
+    mat_of(ground.GetPrim(), "地面")
+    mat_of(wl.GetPrim(), "左輪")
+
+    masses = {}
+    for path in ("/World/robot/chassis", "/World/robot/wheel_l", "/World/robot/wheel_r", "/World/robot/caster"):
+        pr = stage.GetPrimAtPath(path)
+        a = pr.GetAttribute("physics:mass")
+        masses[path.rsplit("/", 1)[-1]] = a.Get() if a and a.HasValue() else None
+    m_total = sum(v for v in masses.values() if v)
+    print(f"[phys] 2 質量 {masses} 合計 {m_total:.3f} kg;重力 {g} m/s²;體重 {m_total * g:.1f} N", flush=True)
+
+    def body_speed():
+        x, y, _ = pose()
+        return x / 1000.0, y / 1000.0
+
+    if world is not None:
+        print("[phys] 3/4 有 --world(前方有障礙物),空地兩項要另外跑一次不帶 --world 的", flush=True)
+    # 3. 空地全速起步:量最大加速度 → 推進力 = m·a
+    drv_l.GetTargetVelocityAttr().Set(math.degrees(V_FULL / R_MM))
+    drv_r.GetTargetVelocityAttr().Set(math.degrees(V_FULL / R_MM))
+    xs = []
+    for _ in range(n):
+        step_once()
+        xs.append(body_speed()[0])
+    v = [(xs[i] - xs[i - 1]) / DT for i in range(1, len(xs))]
+    a_max = max((v[i] - v[i - 1]) / DT for i in range(1, len(v)))
+    v_end = v[-1]
+    print(f"[phys] 3 空地全速起步:最大加速度 {a_max:.2f} m/s²(推進力 {m_total * a_max:.1f} N)、1 s 後車速 {v_end:.3f} m/s", flush=True)
+
+    # 4. 鎖輪滑行:命令歸零(damping 把輪子停住)之後車體還在滑 → 減速度 = μ_k·g
+    wl0 = wheel_angle_from_xform(wl.GetPrim(), "l")
+    drv_l.GetTargetVelocityAttr().Set(0.0)
+    drv_r.GetTargetVelocityAttr().Set(0.0)
+    xs = []
+    for _ in range(n // 2):
+        step_once()
+        wheel_angle_from_xform(wl.GetPrim(), "l")
+        xs.append(body_speed()[0])
+    v = [(xs[i] - xs[i - 1]) / DT for i in range(1, len(xs))]
+    dec = [-(v[i] - v[i - 1]) / DT for i in range(1, len(v))]
+    moving = [d for d, s in zip(dec, v[1:]) if s > 0.05]
+    dec_max = max(moving) if moving else 0.0
+    wheel_turn = abs(_unwrap["l"] - wl0)
+    slide = abs(xs[-1] - xs[0]) - wheel_turn * r
+    # 逐步微分的峰值含單步暫態(量到 17 m/s²,比 μ=0.5 的 4.9 大三倍),用滑行距離算平均才是摩擦:a = v0² / 2d
+    d = abs(xs[-1] - xs[0])
+    v0 = v[0] if v else 0.0
+    a_avg = v0 * v0 / (2 * d) if d > 1e-4 else 0.0
+    print(f"[phys] 4 鎖輪滑行:起始 {v0:.3f} m/s、滑 {d * 1000:.0f} mm 停下 → 平均減速度 {a_avg:.2f} m/s²、μ_k = {a_avg / g:.3f}"
+          f"(抓地力 {m_total * a_avg:.1f} N);逐步微分的峰值 {dec_max:.2f} m/s²(單步暫態,不採用);"
+          f"輪子只轉了 {wheel_turn * r * 1000:.0f} mm,差 {slide * 1000:.0f} mm = 滑動", flush=True)
+
+    # 5. 頂住障礙物:輪子還能不能轉到命令轉速(能 → 驅動扭矩贏過抓地力),量 spin-up 角加速度當扭矩下界
+    if world is None:
+        print("[phys] 5 沒有 --world,跳過頂住障礙物那一項(空地兩項已量完)", flush=True)
+        return
+    target_rad_s = V_FULL / R_MM
+    drv_l.GetTargetVelocityAttr().Set(math.degrees(target_rad_s))
+    drv_r.GetTargetVelocityAttr().Set(math.degrees(target_rad_s))
+    hit = None
+    angs = []
+    for i in range(6 * n):
+        step_once()
+        angs.append(wheel_angle_from_xform(wl.GetPrim(), "l"))
+        x, y, _ = pose()
+        if hit is None and world.collides(x / 1000.0, y / 1000.0):
+            hit = i
+    if hit is None:
+        print("[phys] 5 6 s 內沒撞到東西(世界檔裡正前方沒有障礙物?)", flush=True)
+        return
+    w_after = [(angs[i] - angs[i - 1]) / DT for i in range(hit + 2, len(angs))]
+    x, y, _ = pose()
+    m_w = masses.get("wheel_l") or 0.5
+    inertia = 0.4 * m_w * r * r          # 實心球(建模時輪子是 Sphere)
+    print(f"[phys] 5 頂住障礙物:車體停在 x={x:.0f} mm,輪速仍穩在 {sum(w_after[-20:]) / 20:.2f} rad/s(命令 {target_rad_s:.2f})"
+          f" → 驅動贏過抓地力,輪子照轉", flush=True)
+
+    # 6. 頂住狀態下從靜止起轉:量 spin-up 的角加速度 → 驅動扭矩下界(扣掉滑動摩擦力矩)
+    drv_l.GetTargetVelocityAttr().Set(0.0)
+    drv_r.GetTargetVelocityAttr().Set(0.0)
+    for _ in range(n):
+        step_once()
+        wheel_angle_from_xform(wl.GetPrim(), "l")
+    a0 = _unwrap["l"]
+    drv_l.GetTargetVelocityAttr().Set(math.degrees(target_rad_s))
+    drv_r.GetTargetVelocityAttr().Set(math.degrees(target_rad_s))
+    seq = [a0]
+    for _ in range(20):
+        step_once()
+        seq.append(wheel_angle_from_xform(wl.GetPrim(), "l"))
+    w = [(seq[i] - seq[i - 1]) / DT for i in range(1, len(seq))]
+    alpha = max((w[i] - w[i - 1]) / DT for i in range(1, len(w)))
+    alpha1 = w[0] / DT
+    print(f"[phys] 6 頂住、輪子停住後重新起轉:第一步角加速度 {alpha1:.0f} rad/s²、最大 {alpha:.0f};"
+          f"驅動扭矩 ≥ I·α = {inertia * alpha1:.3f} N·m(I = 0.4·m·r² = {inertia:.5f} kg·m²,輪子建模成球;"
+          f"還要加上滑動摩擦力矩,所以是下界)。前 5 步輪速 {[round(v, 2) for v in w[:5]]} rad/s", flush=True)
+
+    # 7. 同一件事用細步長再量一次:輪子在一個 5 ms 步內就到命令轉速,下界只受步長限制。
+    #    把物理步長縮到 1/20000 s 再起轉,看角加速度能推到多高(仍是下界)
+    fine = 1.0 / 20000
+    px_scene.CreateTimeStepsPerSecondAttr().Set(20000)
+    drv_l.GetTargetVelocityAttr().Set(0.0)
+    drv_r.GetTargetVelocityAttr().Set(0.0)
+    global sim_t
+    for _ in range(2000):
+        physx_sim.simulate(fine, sim_t); physx_sim.fetch_results(); sim_t += fine
+        wheel_angle_from_xform(wl.GetPrim(), "l")
+    a0 = _unwrap["l"]
+    drv_l.GetTargetVelocityAttr().Set(math.degrees(target_rad_s))
+    drv_r.GetTargetVelocityAttr().Set(math.degrees(target_rad_s))
+    seq = [a0]
+    for _ in range(40):
+        physx_sim.simulate(fine, sim_t); physx_sim.fetch_results(); sim_t += fine
+        seq.append(wheel_angle_from_xform(wl.GetPrim(), "l"))
+    wf = [(seq[i] - seq[i - 1]) / fine for i in range(1, len(seq))]
+    a_fine = wf[0] / fine
+    print(f"[phys] 7 細步長 {fine * 1e6:.0f} µs 重做:第一步角加速度 {a_fine:.0f} rad/s² → 驅動扭矩 ≥ {inertia * a_fine:.2f} N·m;"
+          f"前 5 步輪速 {[round(v, 2) for v in wf[:5]]} rad/s(還是一步到位就表示仍只是下界)", flush=True)
+    px_scene.CreateTimeStepsPerSecondAttr().Set(int(round(1.0 / DT)))
+
 if args.probe:
     probe()
+    app.close()
+    sys.exit(0)
+
+if args.probe_physics:
+    probe_physics()
     app.close()
     sys.exit(0)
 
@@ -519,19 +676,23 @@ def handle(line: str):
     """一筆 CMD → 步進 → 回 ENC 字串;格式不對回 None"""
     global ang_l, ang_r, fallback_used, n_cmd
     f = line.split()
-    if len(f) != 8 or f[0] != "CMD":
+    if len(f) not in (8, 9) or f[0] != "CMD":
         return None
     seq = int(f[1])
     dt = int(f[2]) / 1000.0
     en = f[7] == "1"
-    tl = motor_target(int(f[3]) / 1000.0, f[5] == "1", en, MOTOR_DEADBAND, V_FULL)
-    tr = motor_target(int(f[4]) / 1000.0, f[6] == "1", en, MOTOR_DEADBAND, V_FULL)
-    motor_v[0] = motor_advance(motor_v[0], tl, dt, MOTOR_TAU, MOTOR_ACCEL_MAX)
-    motor_v[1] = motor_advance(motor_v[1], tr, dt, MOTOR_TAU, MOTOR_ACCEL_MAX)
-    vl, vr = motor_v
-    # mm/s → rad/s → deg/s(DriveAPI 的角速度單位)
-    drv_l.GetTargetVelocityAttr().Set(math.degrees(vl / R_MM))
-    drv_r.GetTargetVelocityAttr().Set(math.degrees(vr / R_MM))
+    # 扭矩模型:duty(扣死區)× 空載角速度 當 drive 的目標;扭矩由 damping 與 maxForce 決定(36 篇 §3.3)
+    def signed(d, fwd):
+        if not en or d <= MOTOR_DEADBAND:
+            return 0.0
+        m = (d - MOTOR_DEADBAND) / (1.0 - MOTOR_DEADBAND)
+        return m if fwd else -m
+
+    locked = len(f) == 9 and f[8] == "1"      # 堵轉注入:輪子被卡住 → 目標轉速 0,drive 把它按住
+    wl_cmd = 0.0 if locked else signed(int(f[3]) / 1000.0, f[5] == "1") * MOTOR_FREE_RAD_S
+    wr_cmd = 0.0 if locked else signed(int(f[4]) / 1000.0, f[6] == "1") * MOTOR_FREE_RAD_S
+    drv_l.GetTargetVelocityAttr().Set(math.degrees(wl_cmd))
+    drv_r.GetTargetVelocityAttr().Set(math.degrees(wr_cmd))
     for _ in range(max(1, int(round(dt / DT)))):
         step_once()
     al = wheel_angle_from_xform(wl.GetPrim(), "l")
